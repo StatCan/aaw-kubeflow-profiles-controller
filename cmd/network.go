@@ -357,6 +357,54 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 			},
 		},
 	})
+	
+	// Allow egress to Vault
+	port8200 := intstr.FromInt(8200)
+	policies = append(policies, &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "notebooks-vault-egress",
+			Namespace: profile.Name,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+			},
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      "notebook-name",
+						Operator: metav1.LabelSelectorOpExists,
+					},
+				},
+			},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+			Egress: []networkingv1.NetworkPolicyEgressRule{
+				{
+					Ports: []networkingv1.NetworkPolicyPort{
+						{
+							Protocol: &protocolTCP,
+							Port:     &port8200,
+						},
+					},
+					To: []networkingv1.NetworkPolicyPeer{
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"namespace.statcan.gc.ca/purpose": "daaas",
+								},
+							},
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"app.kubernetes.io/instance": "vault",
+									"component": "server",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
 
 	return policies
 }
