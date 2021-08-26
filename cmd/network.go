@@ -223,6 +223,52 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		},
 	})
 
+	// Allow egress from unclassified workloads
+	policies = append(policies, &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "notebooks-unclassified-allow-egress-to-ingress-gateway",
+			Namespace: profile.Name,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+			},
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      "notebook-name",
+						Operator: metav1.LabelSelectorOpExists,
+					},
+					{
+						Key:      "data.statcan.gc.ca/classification",
+						Operator: metav1.LabelSelectorOpNotIn,
+						Values:   []string{"protected-b"},
+					},
+				},
+			},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+			Egress: []networkingv1.NetworkPolicyEgressRule{
+				{
+					To: []networkingv1.NetworkPolicyPeer{
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"install.operator.istio.io/owner-name": "istio",
+									"namespace.statcan.gc.ca/purpose":      "system",
+								},
+							},
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"istio": "ingressgateway",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
 	// Allow egress to 443 from protected-b workloads
 	// This is need for Azure authentication
 	portHTTPS := intstr.FromInt(443)
@@ -396,7 +442,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 							PodSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{
 									"app.kubernetes.io/instance": "vault",
-									"component": "server",
+									"component":                  "server",
 								},
 							},
 						},
@@ -444,7 +490,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 							NamespaceSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{
 									"namespace.statcan.gc.ca/purpose": "daaas",
-									"namespace.statcan.gc.ca/use": "minio",
+									"namespace.statcan.gc.ca/use":     "minio",
 								},
 							},
 						},
