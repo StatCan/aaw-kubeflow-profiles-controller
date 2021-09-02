@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"path"
+	"strings"
 
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	kubeflowclientset "github.com/StatCan/profiles-controller/pkg/generated/clientset/versioned"
 	kubeflowinformers "github.com/StatCan/profiles-controller/pkg/generated/informers/externalversions"
 	"github.com/StatCan/profiles-controller/pkg/signals"
+	vault "github.com/hashicorp/vault/api"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/spf13/cobra"
@@ -40,6 +43,21 @@ var bucketsCmd = &cobra.Command{
 			klog.Fatalf("error building Kubeflow client: %v", err)
 		}
 
+		// Vault
+		var config vault.Config
+		if os.Getenv("VAULT_AGENT_ADDR") == "" {
+			// VAULT_ADDR and VAULT_TOKEN env vars should be set to http://0.0.0.0:8200 and root token
+			config = vault.Config{}
+		} else {
+			config = vault.Config{
+				AgentAddress: os.Getenv("VAULT_AGENT_ADDR"),
+			}
+		}
+		vc, err := vault.NewClient(&config)
+		if err != nil {
+			klog.Fatalf("Error initializing Vault client: %s", err)
+		}
+
 		// Setup informers
 		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*5)
 
@@ -48,9 +66,12 @@ var bucketsCmd = &cobra.Command{
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
 			func(profile *kubeflowv1.Profile) error {
 
-				// Generate buckets...
-				var vc VaultConfigurer = &VaultConfigurerStruct{}
-				m := NewMinIO([]string{"standard", "shared"}, vc)
+				// Create role and generate buckets...
+				//var vc VaultConfigurer = &VaultConfigurerStruct{}
+				//vc.CreateMinioVaultRoleForProfile([]string{"minio"}, profile.Name)
+				vaultConfigurer := NewVaultConfigurer(*vc)
+				vaultConfigurer.CreateMinioVaultRoleForProfile([]string{"minio"}, profile.Name)
+				m := NewMinIO([]string{"minio"}, vaultConfigurer)
 				m.CreateBucketsForProfile(profile.Name)
 
 				return nil
@@ -75,22 +96,32 @@ func init() {
  * Handler
  *******************/
 
-type Conf struct {
+type VaultConfigurer interface {
+	GetMinIOConfiguration(instance string) (MinIOConfiguration, error)
+	CreateMinioVaultRoleForProfile(authpaths []string, profileName string) error
+}
+
+type VaultConfigurerStruct struct {
+	logical vault.Logical
+}
+
+// Create a VaultConfigurerStruct that implements the VaultConfigurer
+func NewVaultConfigurer(client vault.Client) *VaultConfigurerStruct {
+	return &VaultConfigurerStruct{
+		logical: *client.Logical(),
+	}
+}
+
+type MinIOConfiguration struct {
 	AccessKeyID     string
 	Endpoint        string
 	SecretAccessKey string
 	UseSSL          bool
 }
 
-type VaultConfigurer interface {
-	GetMinIOConfiguration(instance string) (Conf, error)
-}
-
-type VaultConfigurerStruct struct {
-}
-
-func (m *VaultConfigurerStruct) GetMinIOConfiguration(instance string) (Conf, error) {
-	return Conf{
+func (vc *VaultConfigurerStruct) GetMinIOConfiguration(instance string) (MinIOConfiguration, error) {
+	// Hardcoded for now
+	return MinIOConfiguration{
 		Endpoint:        "localhost:9000",
 		AccessKeyID:     "minioadmin",
 		SecretAccessKey: "minioadmin",
@@ -117,6 +148,44 @@ type MinIOStruct struct {
 	MinioInstances  []string
 }
 
+// Configures the minio secret stores for the given profile name for each of the minio instances
+// described by authpaths
+func (vc *VaultConfigurerStruct) CreateMinioVaultRoleForProfile(authpaths []string, profileName string) error {
+	prefixedProfileName := fmt.Sprintf("profile-%s", profileName)
+
+	for _, authpath := range authpaths {
+		rolePath := fmt.Sprintf("%s/roles/%s", authpath, prefixedProfileName)
+
+		fmt.Printf("\n\n\nCreating role for path %q\n\n\n", rolePath)
+		secret, err := vc.logical.Read(rolePath)
+		if err != nil && !strings.Contains(err.Error(), "role not found") {
+			return err
+		}
+
+		if secret == nil {
+			msg := fmt.Sprintf("creating backend role in %q for %q", authpath, prefixedProfileName)
+			fmt.Print(msg)
+			klog.Infof(msg)
+
+			secret, err = vc.logical.Write(rolePath, map[string]interface{}{
+				// Hardcoded policy for now (existing MinIO policy)
+				"policy":           "readwrite",
+				"user_name_prefix": fmt.Sprintf("%s-", prefixedProfileName),
+			})
+
+			if err != nil {
+				return err
+			}
+		} else {
+			msg := fmt.Sprintf("backend role in %q for %q already exists\n", authpath, prefixedProfileName)
+			fmt.Print(msg)
+			klog.Infof(msg)
+		}
+	}
+
+	return nil
+}
+
 // CreateBucketsForProfile creates the profile's buckets in the MinIO instances.
 func (m *MinIOStruct) CreateBucketsForProfile(profileName string) error {
 	for _, instance := range m.MinioInstances {
@@ -129,6 +198,7 @@ func (m *MinIOStruct) CreateBucketsForProfile(profileName string) error {
 			Creds:  credentials.NewStaticV4(conf.AccessKeyID, conf.SecretAccessKey, ""),
 			Secure: conf.UseSSL,
 		})
+
 		if err != nil {
 			return err
 		}
