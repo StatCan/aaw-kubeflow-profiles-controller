@@ -44,16 +44,17 @@ var bucketsCmd = &cobra.Command{
 		}
 
 		// Vault
-		var config vault.Config
+		var vc *vault.Client
 		if os.Getenv("VAULT_AGENT_ADDR") == "" {
-			// VAULT_ADDR and VAULT_TOKEN env vars should be set to http://0.0.0.0:8200 and root token
-			config = vault.Config{}
+			// VAULT_ADDR and VAULT_TOKEN env vars should be set to http://0.0.0.0:8200 and root token or this will fail
+			// We send nil to get the DefaultConfig
+			vc, err = vault.NewClient(nil)
 		} else {
-			config = vault.Config{
+			config := vault.Config{
 				AgentAddress: os.Getenv("VAULT_AGENT_ADDR"),
 			}
+			vc, err = vault.NewClient(&config)
 		}
-		vc, err := vault.NewClient(&config)
 		if err != nil {
 			klog.Fatalf("Error initializing Vault client: %s", err)
 		}
@@ -67,8 +68,6 @@ var bucketsCmd = &cobra.Command{
 			func(profile *kubeflowv1.Profile) error {
 
 				// Create role and generate buckets...
-				//var vc VaultConfigurer = &VaultConfigurerStruct{}
-				//vc.CreateMinioVaultRoleForProfile([]string{"minio"}, profile.Name)
 				vaultConfigurer := NewVaultConfigurer(*vc)
 				vaultConfigurer.CreateMinioVaultRoleForProfile([]string{"minio"}, profile.Name)
 				m := NewMinIO([]string{"minio"}, vaultConfigurer)
@@ -156,16 +155,14 @@ func (vc *VaultConfigurerStruct) CreateMinioVaultRoleForProfile(authpaths []stri
 	for _, authpath := range authpaths {
 		rolePath := fmt.Sprintf("%s/roles/%s", authpath, prefixedProfileName)
 
-		fmt.Printf("\n\n\nCreating role for path %q\n\n\n", rolePath)
 		secret, err := vc.logical.Read(rolePath)
 		if err != nil && !strings.Contains(err.Error(), "role not found") {
+			klog.Warning("Role not found %q", rolePath)
 			return err
 		}
 
 		if secret == nil {
-			msg := fmt.Sprintf("creating backend role in %q for %q", authpath, prefixedProfileName)
-			fmt.Print(msg)
-			klog.Infof(msg)
+			klog.Infof("Creating backend role in %q for %q", authpath, prefixedProfileName)
 
 			secret, err = vc.logical.Write(rolePath, map[string]interface{}{
 				// Hardcoded policy for now (existing MinIO policy)
@@ -177,9 +174,7 @@ func (vc *VaultConfigurerStruct) CreateMinioVaultRoleForProfile(authpaths []stri
 				return err
 			}
 		} else {
-			msg := fmt.Sprintf("backend role in %q for %q already exists\n", authpath, prefixedProfileName)
-			fmt.Print(msg)
-			klog.Infof(msg)
+			klog.Infof("Backend role in %q for %q already exists\n", authpath, prefixedProfileName)
 		}
 	}
 
@@ -210,13 +205,13 @@ func (m *MinIOStruct) CreateBucketsForProfile(profileName string) error {
 			}
 
 			if !exists {
-				fmt.Printf("making bucket %q in instance %q\n", bucket, instance)
+				klog.Infof("making bucket %q in instance %q\n", bucket, instance)
 				err = client.MakeBucket(context.Background(), bucket, minio.MakeBucketOptions{})
 				if err != nil {
 					return err
 				}
 			} else {
-				fmt.Printf("bucket %q in instance %q already exists\n", bucket, instance)
+				klog.Infof("bucket %q in instance %q already exists\n", bucket, instance)
 			}
 		}
 
