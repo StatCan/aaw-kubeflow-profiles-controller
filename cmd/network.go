@@ -184,6 +184,92 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		},
 	})
 
+	// Allow ingress from knative-serving
+	policies = append(policies, &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "allow-ingress-from-knative-serving",
+			Namespace: profile.Name,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+			},
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      "notebook-name",
+						Operator: metav1.LabelSelectorOpExists,
+					},
+					{
+						Key:      "data.statcan.gc.ca/classification",
+						Operator: metav1.LabelSelectorOpNotIn,
+						Values:   []string{"protected-b"},
+					},
+				},
+			},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+			Ingress: []networkingv1.NetworkPolicyIngressRule{
+				{
+					From: []networkingv1.NetworkPolicyPeer{
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"app.kubernetes.io/component": "knative-serving-install",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	// Allow egress to the cluster local gateway
+	policies = append(policies, &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "allow-egress-to-cluster-local-gateway",
+			Namespace: profile.Name,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+			},
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      "notebook-name",
+						Operator: metav1.LabelSelectorOpExists,
+					},
+					{
+						Key:      "data.statcan.gc.ca/classification",
+						Operator: metav1.LabelSelectorOpNotIn,
+						Values:   []string{"protected-b"},
+					},
+				},
+			},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+			Egress: []networkingv1.NetworkPolicyEgressRule{
+				{
+					To: []networkingv1.NetworkPolicyPeer{
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"install.operator.istio.io/owner-name": "istio",
+									"namespace.statcan.gc.ca/purpose":      "system",
+								},
+							},
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"istio": "ingressgateway-kfserving",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
 	// Allow egress from unclassified workloads
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
