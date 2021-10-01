@@ -197,7 +197,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 			PodSelector: metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
 					{
-						Key:      "notebook-name",
+						Key:      "serving.knative.dev/service",
 						Operator: metav1.LabelSelectorOpExists,
 					},
 					{
@@ -236,10 +236,6 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		Spec: networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "notebook-name",
-						Operator: metav1.LabelSelectorOpExists,
-					},
 					{
 						Key:      "data.statcan.gc.ca/classification",
 						Operator: metav1.LabelSelectorOpNotIn,
