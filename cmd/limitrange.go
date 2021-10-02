@@ -137,7 +137,7 @@ func generateLimitRanges(profile *kubeflowv1.Profile) []*corev1.LimitRange {
 
 	limitranges = append(limitranges, &corev1.LimitRange{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "limits",
+			Name:      "default-container-limits",
 			Namespace: profile.Name,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
