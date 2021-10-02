@@ -42,6 +42,7 @@ type Plugin struct {
 	Spec            *runtime.RawExtension `json:"spec,omitempty"`
 }
 
+// ProfileCondition is a specification for a ProfileCondition
 type ProfileCondition struct {
 	Type    string `json:"type,omitempty"`
 	Status  string `json:"status,omitempty" description:"status of the condition, one of True, False, Unknown"`
@@ -57,6 +58,7 @@ type ProfileSpec struct {
 	ResourceQuotaSpec v1.ResourceQuotaSpec `json:"resourceQuotaSpec,omitempty"`
 }
 
+// ProfileSucceed state
 const (
 	ProfileSucceed = "Successful"
 	ProfileFailed  = "Failed"

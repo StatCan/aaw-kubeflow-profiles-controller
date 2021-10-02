@@ -44,7 +44,7 @@ var bucketsCmd = &cobra.Command{
 		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*5)
 
 		// Setup controller
-		controller := profiles.NewProfilesController(
+		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
 			func(profile *kubeflowv1.Profile) error {
 
@@ -62,7 +62,7 @@ var bucketsCmd = &cobra.Command{
 
 		// Run the controller
 		if err = controller.Run(2, stopCh); err != nil {
-			klog.Fatal("error running controller: %v", err)
+			klog.Fatalf("error running controller: %v", err)
 		}
 	},
 }
@@ -75,6 +75,7 @@ func init() {
  * Handler
  *******************/
 
+// Conf for MinIO
 type Conf struct {
 	AccessKeyID     string
 	Endpoint        string
@@ -82,13 +83,16 @@ type Conf struct {
 	UseSSL          bool
 }
 
+// VaultConfigurer for MinIO
 type VaultConfigurer interface {
 	GetMinIOConfiguration(instance string) (Conf, error)
 }
 
+// VaultConfigurerStruct for MinIO
 type VaultConfigurerStruct struct {
 }
 
+// GetMinIOConfiguration gets a MinIO instance.
 func (m *VaultConfigurerStruct) GetMinIOConfiguration(instance string) (Conf, error) {
 	return Conf{
 		Endpoint:        "localhost:9000",

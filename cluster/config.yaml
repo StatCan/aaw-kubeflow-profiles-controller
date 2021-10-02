@@ -1,0 +1,17 @@
+---
+# k3d cluster create local --config=cluster/config.yaml
+apiVersion: k3d.io/v1alpha2
+kind: Simple
+name: profiles-controller
+image: rancher/k3s:v1.21.2-k3s1
+options:
+  k3d:
+    wait: true
+    disableHostIPInjection: false
+ports:
+  - port: 80:80
+    nodeFilters:
+      - loadbalancer
+  - port: 443:443
+    nodeFilters:
+      - loadbalancer

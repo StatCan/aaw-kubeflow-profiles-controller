@@ -30,6 +30,7 @@ type NotebookSpec struct {
 	Template NotebookTemplateSpec `json:"template,omitempty"`
 }
 
+// NotebookTemplateSpec defines the desired template spec of Notebook
 type NotebookTemplateSpec struct {
 	Spec corev1.PodSpec `json:"spec,omitempty"`
 }
@@ -44,6 +45,7 @@ type NotebookStatus struct {
 	ContainerState corev1.ContainerState `json:"containerState"`
 }
 
+// NotebookCondition defines the condition of the notebook
 type NotebookCondition struct {
 	// Type is the type of the condition. Possible values are Running|Waiting|Terminated
 	Type string `json:"type"`

@@ -34,7 +34,8 @@ import (
 
 type profileSyncCallback func(*kubeflowv1.Profile) error
 
-type ProfilesController struct {
+// Controller for handling Kubeflow Profiles
+type Controller struct {
 	profileLister kubeflowv1listers.ProfileLister
 	profileSynced cache.InformerSynced
 
@@ -49,11 +50,12 @@ type ProfilesController struct {
 	workqueue workqueue.RateLimitingInterface
 }
 
-func NewProfilesController(
+// NewController for Profiles creation
+func NewController(
 	profileInformer kubeflowv1informers.ProfileInformer,
 	sync profileSyncCallback,
-) *ProfilesController {
-	controller := &ProfilesController{
+) *Controller {
+	controller := &Controller{
 		profileLister: profileInformer.Lister(),
 		profileSynced: profileInformer.Informer().HasSynced,
 		sync:          sync,
@@ -77,7 +79,7 @@ func NewProfilesController(
 // as syncing informer caches and starting workers. It will block until stopCh
 // is closed, at which point it will shutdown the workqueue and wait for
 // workers to finish processing their current work items.
-func (c *ProfilesController) Run(threadiness int, stopCh <-chan struct{}) error {
+func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
 	defer utilruntime.HandleCrash()
 	defer c.workqueue.ShutDown()
 
@@ -106,14 +108,14 @@ func (c *ProfilesController) Run(threadiness int, stopCh <-chan struct{}) error 
 // runWorker is a long-running function that will continually call the
 // processNextWorkItem function in order to read and process a message on the
 // workqueue.
-func (c *ProfilesController) runWorker() {
+func (c *Controller) runWorker() {
 	for c.processNextWorkItem() {
 	}
 }
 
 // processNextWorkItem will read a single work item off the workqueue and
 // attempt to process it, by calling the syncHandler.
-func (c *ProfilesController) processNextWorkItem() bool {
+func (c *Controller) processNextWorkItem() bool {
 	obj, shutdown := c.workqueue.Get()
 
 	if shutdown {
@@ -169,7 +171,7 @@ func (c *ProfilesController) processNextWorkItem() bool {
 // syncHandler compares the actual state with the desired, and attempts to
 // converge the two. It then updates the Status block of the Profile resource
 // with the current status of the resource.
-func (c *ProfilesController) syncHandler(key string) error {
+func (c *Controller) syncHandler(key string) error {
 	// Get the Profile resource with this namespace/name
 	profile, err := c.profileLister.Get(key)
 	if err != nil {
@@ -189,7 +191,7 @@ func (c *ProfilesController) syncHandler(key string) error {
 // enqueueProfile takes a Profile resource and converts it into a namespace/name
 // string which is then put onto the work queue. This method should *not* be
 // passed resources of any type other than Profile.
-func (c *ProfilesController) enqueueProfile(obj interface{}) {
+func (c *Controller) enqueueProfile(obj interface{}) {
 	var key string
 	var err error
 	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
@@ -204,7 +206,7 @@ func (c *ProfilesController) enqueueProfile(obj interface{}) {
 // objects metadata.ownerReferences field for an appropriate OwnerReference.
 // It then enqueues that Profile resource to be processed. If the object does not
 // have an appropriate OwnerReference, it will simply be skipped.
-func (c *ProfilesController) HandleObject(obj interface{}) {
+func (c *Controller) HandleObject(obj interface{}) {
 	var object metav1.Object
 	var ok bool
 	if object, ok = obj.(metav1.Object); !ok {

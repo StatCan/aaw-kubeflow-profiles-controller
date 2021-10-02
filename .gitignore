@@ -1,4 +1,15 @@
+# Dependency directories (remove the comment below to include it)
 vendor
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.txt
+*.out
+
+# Binaries for programs and plugins
 profiles-controller
-.DS_Store
-/.idea/
+
+# env
+.env

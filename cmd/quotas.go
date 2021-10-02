@@ -55,7 +55,7 @@ var quotasCmd = &cobra.Command{
 		resourceQuotaLister := resourceQuotaInformer.Lister()
 
 		// Setup controller
-		controller := profiles.NewProfilesController(
+		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
 			func(profile *kubeflowv1.Profile) error {
 				// Generate network policies
@@ -125,7 +125,7 @@ var quotasCmd = &cobra.Command{
 
 		// Run the controller
 		if err = controller.Run(2, stopCh); err != nil {
-			klog.Fatal("error running controller: %v", err)
+			klog.Fatalf("error running controller: %v", err)
 		}
 	},
 }
