@@ -58,7 +58,7 @@ var limitRangesCmd = &cobra.Command{
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
 			func(profile *kubeflowv1.Profile) error {
-				// Generate network policies
+				// Generate limit ranges
 				LimitRanges := generateLimitRanges(profile)
 
 				// Delete s no longer needed

@@ -58,7 +58,7 @@ var quotasCmd = &cobra.Command{
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
 			func(profile *kubeflowv1.Profile) error {
-				// Generate network policies
+				// Generate quotas
 				resourceQuotas := generateResourceQuotas(profile)
 
 				// Delete resources no longer needed
