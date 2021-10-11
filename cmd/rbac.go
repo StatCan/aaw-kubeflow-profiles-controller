@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"time"
 
@@ -206,7 +205,7 @@ func generateRoleBindings(profile *kubeflowv1.Profile) []*rbacv1.RoleBinding {
 			{
 				APIGroup: "rbac.authorization.k8s.io",
 				Kind:     "User",
-				Name:     fmt.Sprintf("%s%s", profile.Name, "@cloud.statcan.ca"),
+				Name:     profile.Spec.Owner.Name,
 			},
 		},
 	}
