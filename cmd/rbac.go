@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"time"
 
@@ -186,6 +187,31 @@ func generateRoles(profile *kubeflowv1.Profile) []*rbacv1.Role {
 // generateRoleBindings generates role bindings for the given profile.
 func generateRoleBindings(profile *kubeflowv1.Profile) []*rbacv1.RoleBinding {
 	roleBindings := []*rbacv1.RoleBinding{}
+
+	// Grant every profile a ml-pipeline role binding
+	roleBinding := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ml-pipeline",
+			Namespace: profile.Name,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: rbacv1.SchemeGroupVersion.Group,
+			Kind:     "ClusterRole",
+			Name:     "ml-pipeline",
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				APIGroup: "rbac.authorization.k8s.io",
+				Kind:     "User",
+				Name:     fmt.Sprintf("%s%s", profile.Name, "@cloud.statcan.ca"),
+			},
+		},
+	}
+
+	roleBindings = append(roleBindings, roleBinding)
 
 	// DAaaS-AAW-Support is granted "profile-support" cluster role in this namespace
 	if len(rbacSupportGroups) > 0 {
