@@ -734,7 +734,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		},
 	})
 
-	// Allow egress to Pipelines
+	// Allow egress to Elasticsearch
 	port9200 := intstr.FromInt(9200)
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -781,6 +781,61 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 			},
 		},
 	})
+
+	// Allow egress to Artifactory
+	port8081 := intstr.FromInt(8081)
+	port8082 := intstr.FromInt(8082)
+	policies = append(policies, &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "protected-b-jfrog-egress",
+			Namespace: profile.Name,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+			},
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      "data.statcan.gc.ca/classification",
+						Operator: metav1.LabelSelectorOpIn,
+						Values:   []string{"protected-b"},
+					},
+				},
+			},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+			Egress: []networkingv1.NetworkPolicyEgressRule{
+				{
+					Ports: []networkingv1.NetworkPolicyPort{
+						{
+							Protocol: &protocolTCP,
+							Port:     &port8081,
+						},
+						{
+							Protocol: &protocolTCP,
+							Port:     &port8082,
+						},
+					},
+					To: []networkingv1.NetworkPolicyPeer{
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"namespace.statcan.gc.ca/purpose": "daaas",
+								},
+							},
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"app": "artifactory-ha",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+
 
 	return policies
 }
