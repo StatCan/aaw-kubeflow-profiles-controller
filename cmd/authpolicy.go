@@ -160,8 +160,6 @@ func generateauthPolicies(profile *kubeflowv1.Profile) []*istiosecurityclient.Au
 				{
 					When: []*istiosecurity.Condition{
 						{
-							// Namespace Owner can access all workloads in the
-							// namespace
 							Key: fmt.Sprintf("request.headers[%v]", useridheader),
 							Values: []string{
 								useridprefix + profile.Spec.Owner.Name,
@@ -172,8 +170,6 @@ func generateauthPolicies(profile *kubeflowv1.Profile) []*istiosecurityclient.Au
 				{
 					When: []*istiosecurity.Condition{
 						{
-							// Workloads in the same namespace can access all other
-							// workloads in the namespace
 							Key:    fmt.Sprintf("source.namespace"),
 							Values: []string{profile.Name},
 						},
@@ -183,13 +179,33 @@ func generateauthPolicies(profile *kubeflowv1.Profile) []*istiosecurityclient.Au
 					To: []*istiosecurity.Rule_To{
 						{
 							Operation: &istiosecurity.Operation{
-								// Workloads pathes should be accessible for KNative's
-								// `activator` and `controller` probes
-								// See: https://knative.dev/docs/serving/istio-authorization/#allowing-access-from-system-pods-by-paths
 								Paths: []string{
 									"/healthz",
 									"/metrics",
 									"/wait-for-drain",
+								},
+							},
+						},
+					},
+				},
+				{
+					From: []*istiosecurity.Rule_From{
+						{
+							Source: &istiosecurity.Source{
+								Principals: []string{
+									"cluster.local/ns/kubeflow/sa/notebook-controller-service-account",
+								},
+							},
+						},
+					},
+					To: []*istiosecurity.Rule_To{
+						{
+							Operation: &istiosecurity.Operation{
+								Methods: []string{
+									"GET",
+								},
+								Paths: []string{
+									"*/api/status",
 								},
 							},
 						},
