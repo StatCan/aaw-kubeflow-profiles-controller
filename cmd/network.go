@@ -835,8 +835,6 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		},
 	})
 
-
-
 	return policies
 }
 

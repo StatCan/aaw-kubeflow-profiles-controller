@@ -9,18 +9,18 @@ require (
 	github.com/coreos/go-etcd v2.0.0+incompatible // indirect
 	github.com/cpuguy83/go-md2man v1.0.10 // indirect
 	github.com/go-ini/ini v1.62.0 // indirect
-	github.com/gogo/protobuf v1.3.1
+	github.com/gogo/protobuf v1.3.2
 	github.com/hashicorp/vault/api v1.0.4
 	github.com/minio/minio-go v6.0.14+incompatible // indirect
-	github.com/minio/minio-go/v7 v7.0.5
+	github.com/minio/minio-go/v7 v7.0.14
 	github.com/spf13/cobra v1.1.3
 	github.com/ugorji/go/codec v0.0.0-20181204163529-d75b2dcb6bc8 // indirect
 	github.com/xordataexchange/crypt v0.0.3-0.20170626215501-b2862e3d0a77 // indirect
-	istio.io/api v0.0.0-20201217173512-1f62aaeb5ee3
-	istio.io/client-go v1.8.1
-	k8s.io/api v0.0.0-20200403220253-fa879b399cd0
-	k8s.io/apimachinery v0.18.1
-	k8s.io/client-go v0.18.1
+	istio.io/api v0.0.0-20211012192923-310f2a3f3c76
+	istio.io/client-go v1.11.4
+	k8s.io/api v0.20.2
+	k8s.io/apimachinery v0.21.0
+	k8s.io/client-go v1.5.2
 	k8s.io/code-generator v0.0.0-20200403215918-804a58607501
 	k8s.io/klog v1.0.0
 )
