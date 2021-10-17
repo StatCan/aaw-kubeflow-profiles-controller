@@ -11,8 +11,8 @@ import (
 	kubeflowinformers "github.com/StatCan/profiles-controller/pkg/generated/informers/externalversions"
 	"github.com/StatCan/profiles-controller/pkg/signals"
 	"github.com/spf13/cobra"
-	istioSecurity "istio.io/api/security/v1beta1"
-	istioSecurityClient "istio.io/client-go/pkg/apis/security/v1beta1"
+	istiosecurity "istio.io/api/security/v1beta1"
+	istiosecurityclient "istio.io/client-go/pkg/apis/security/v1beta1"
 	istioclientset "istio.io/client-go/pkg/clientset/versioned"
 	istioinformers "istio.io/client-go/pkg/informers/externalversions"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -29,7 +29,7 @@ const useridheader = "kubeflow-userid"
 const useridprefix = ""
 
 var authPoliciesCmd = &cobra.Command{
-	Use:   "authPolicies",
+	Use:   "with-policies",
 	Short: "Configure Authorization Policies",
 	Long: `Configure Authorization Policies for Kubeflow profiles.
 	`,
@@ -73,11 +73,11 @@ var authPoliciesCmd = &cobra.Command{
 				authPolicies := generateauthPolicies(profile)
 
 				// Delete s no longer needed
-				for _, AuthPolicyName := range []string{} {
-					_, err := authPolicyLister.AuthorizationPolicies(profile.Name).Get(AuthPolicyName)
+				for _, authPolicyName := range []string{} {
+					_, err := authPolicyLister.AuthorizationPolicies(profile.Name).Get(authPolicyName)
 					if err == nil {
-						klog.Infof("removing authorization policy %s/%s", profile.Name, AuthPolicyName)
-						err = istioClient.SecurityV1beta1().AuthorizationPolicies(profile.Name).Delete(context.Background(), AuthPolicyName, metav1.DeleteOptions{})
+						klog.Infof("removing authorization policy %s/%s", profile.Name, authPolicyName)
+						err = istioClient.SecurityV1beta1().AuthorizationPolicies(profile.Name).Delete(context.Background(), authPolicyName, metav1.DeleteOptions{})
 						if err != nil {
 							return err
 						}
@@ -112,8 +112,8 @@ var authPoliciesCmd = &cobra.Command{
 
 		authPolicyInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 			UpdateFunc: func(old, new interface{}) {
-				newNP := new.(*istioSecurityClient.AuthorizationPolicy)
-				oldNP := old.(*istioSecurityClient.AuthorizationPolicy)
+				newNP := new.(*istiosecurityclient.AuthorizationPolicy)
+				oldNP := old.(*istiosecurityclient.AuthorizationPolicy)
 
 				if newNP.ResourceVersion == oldNP.ResourceVersion {
 					return
@@ -144,21 +144,21 @@ var authPoliciesCmd = &cobra.Command{
 
 // generateauthPolicies generates  authPolicies for the given profile.
 // TODO: Allow overrides in a namespace
-func generateauthPolicies(profile *kubeflowv1.Profile) []*istioSecurityClient.AuthorizationPolicy {
-	authPolicies := []*istioSecurityClient.AuthorizationPolicy{}
+func generateauthPolicies(profile *kubeflowv1.Profile) []*istiosecurityclient.AuthorizationPolicy {
+	authPolicies := []*istiosecurityclient.AuthorizationPolicy{}
 
-	authPolicies = append(authPolicies, &istioSecurityClient.AuthorizationPolicy{
+	authPolicies = append(authPolicies, &istiosecurityclient.AuthorizationPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "namespace-owner-access-istio",
 			Namespace: profile.Name,
 		},
-		Spec: istioSecurity.AuthorizationPolicy{
-			Action: istioSecurity.AuthorizationPolicy_ALLOW,
+		Spec: istiosecurity.AuthorizationPolicy{
+			Action: istiosecurity.AuthorizationPolicy_ALLOW,
 			// Empty selector == match all workloads in namespace
 			Selector: nil,
-			Rules: []*istioSecurity.Rule{
+			Rules: []*istiosecurity.Rule{
 				{
-					When: []*istioSecurity.Condition{
+					When: []*istiosecurity.Condition{
 						{
 							// Namespace Owner can access all workloads in the
 							// namespace
@@ -170,7 +170,7 @@ func generateauthPolicies(profile *kubeflowv1.Profile) []*istioSecurityClient.Au
 					},
 				},
 				{
-					When: []*istioSecurity.Condition{
+					When: []*istiosecurity.Condition{
 						{
 							// Workloads in the same namespace can access all other
 							// workloads in the namespace
@@ -180,9 +180,9 @@ func generateauthPolicies(profile *kubeflowv1.Profile) []*istioSecurityClient.Au
 					},
 				},
 				{
-					To: []*istioSecurity.Rule_To{
+					To: []*istiosecurity.Rule_To{
 						{
-							Operation: &istioSecurity.Operation{
+							Operation: &istiosecurity.Operation{
 								// Workloads pathes should be accessible for KNative's
 								// `activator` and `controller` probes
 								// See: https://knative.dev/docs/serving/istio-authorization/#allowing-access-from-system-pods-by-paths
