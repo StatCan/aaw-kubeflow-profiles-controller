@@ -29,7 +29,7 @@ const useridheader = "kubeflow-userid"
 const useridprefix = ""
 
 var authPoliciesCmd = &cobra.Command{
-	Use:   "with-policies",
+	Use:   "auth-policies",
 	Short: "Configure Authorization Policies",
 	Long: `Configure Authorization Policies for Kubeflow profiles.
 	`,
