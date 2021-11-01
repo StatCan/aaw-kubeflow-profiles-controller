@@ -66,9 +66,9 @@ func NewController(
 	klog.Info("configuring event handlers")
 
 	profileInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: controller.enqueueProfile,
+		AddFunc: controller.EnqueueProfile,
 		UpdateFunc: func(old, new interface{}) {
-			controller.enqueueProfile(new)
+			controller.EnqueueProfile(new)
 		},
 	})
 
@@ -188,10 +188,10 @@ func (c *Controller) syncHandler(key string) error {
 	return c.sync(profile)
 }
 
-// enqueueProfile takes a Profile resource and converts it into a namespace/name
+// EnqueueProfile takes a Profile resource and converts it into a namespace/name
 // string which is then put onto the work queue. This method should *not* be
 // passed resources of any type other than Profile.
-func (c *Controller) enqueueProfile(obj interface{}) {
+func (c *Controller) EnqueueProfile(obj interface{}) {
 	var key string
 	var err error
 	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
@@ -236,7 +236,7 @@ func (c *Controller) HandleObject(obj interface{}) {
 			return
 		}
 
-		c.enqueueProfile(profile)
+		c.EnqueueProfile(profile)
 		return
 	}
 }

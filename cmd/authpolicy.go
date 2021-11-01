@@ -15,11 +15,14 @@ import (
 	istiosecurityclient "istio.io/client-go/pkg/apis/security/v1beta1"
 	istioclientset "istio.io/client-go/pkg/clientset/versioned"
 	istioinformers "istio.io/client-go/pkg/informers/externalversions"
+	rbac "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	rbacv1listers "k8s.io/client-go/listers/rbac/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
@@ -62,15 +65,24 @@ var authPoliciesCmd = &cobra.Command{
 		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*5)
 		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*5)
 		istioInformerFactory := istioinformers.NewSharedInformerFactory(istioClient, time.Minute*5)
+		profilesInformer := kubeflowInformerFactory.Kubeflow().V1().Profiles()
+		profilesLister := profilesInformer.Lister()
 		authPolicyInformer := istioInformerFactory.Security().V1beta1().AuthorizationPolicies()
 		authPolicyLister := authPolicyInformer.Lister()
+		roleBindingInformer := kubeInformerFactory.Rbac().V1().RoleBindings()
+		roleBindingLister := roleBindingInformer.Lister()
 
 		// Setup controller
 		controller := profiles.NewController(
-			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
+			profilesInformer,
 			func(profile *kubeflowv1.Profile) error {
+				collaborators, err := generateAccessList(profile.Name, roleBindingLister)
+				if err != nil {
+					return err
+				}
+
 				// Generate Authorization Policies
-				authPolicies := generateauthPolicies(profile)
+				authPolicies := generateauthPolicies(profile, collaborators)
 
 				// Delete s no longer needed
 				for _, authPolicyName := range []string{} {
@@ -124,6 +136,44 @@ var authPoliciesCmd = &cobra.Command{
 			DeleteFunc: controller.HandleObject,
 		})
 
+		roleBindingInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+			AddFunc: func(new interface{}) {
+				newNP := new.(*rbac.RoleBinding)
+
+				profile, err := profilesLister.Get(newNP.Namespace)
+				if err != nil {
+					return
+				}
+
+				controller.EnqueueProfile(profile)
+			},
+			UpdateFunc: func(old, new interface{}) {
+				newNP := new.(*rbac.RoleBinding)
+				oldNP := old.(*rbac.RoleBinding)
+
+				if newNP.ResourceVersion == oldNP.ResourceVersion {
+					return
+				}
+
+				profile, err := profilesLister.Get(newNP.Namespace)
+				if err != nil {
+					return
+				}
+
+				controller.EnqueueProfile(profile)
+			},
+			DeleteFunc: func(old interface{}) {
+				oldNP := old.(*rbac.RoleBinding)
+
+				profile, err := profilesLister.Get(oldNP.Namespace)
+				if err != nil {
+					return
+				}
+
+				controller.EnqueueProfile(profile)
+			},
+		})
+
 		// Start informers
 		kubeInformerFactory.Start(stopCh)
 		kubeflowInformerFactory.Start(stopCh)
@@ -131,7 +181,7 @@ var authPoliciesCmd = &cobra.Command{
 
 		// Wait for caches
 		klog.Info("Waiting for informer caches to sync")
-		if ok := cache.WaitForCacheSync(stopCh, authPolicyInformer.Informer().GetController().HasSynced); !ok {
+		if ok := cache.WaitForCacheSync(stopCh, authPolicyInformer.Informer().GetController().HasSynced, roleBindingInformer.Informer().HasSynced); !ok {
 			klog.Fatalf("failed to wait for caches to sync")
 		}
 
@@ -144,7 +194,14 @@ var authPoliciesCmd = &cobra.Command{
 
 // generateauthPolicies generates  authPolicies for the given profile.
 // TODO: Allow overrides in a namespace
-func generateauthPolicies(profile *kubeflowv1.Profile) []*istiosecurityclient.AuthorizationPolicy {
+func generateauthPolicies(profile *kubeflowv1.Profile, collaborators []string) []*istiosecurityclient.AuthorizationPolicy {
+
+	// Users of the namespace
+	users := []string{useridprefix + profile.Spec.Owner.Name}
+	for _, user := range collaborators {
+		users = append(users, useridprefix+user)
+	}
+
 	authPolicies := []*istiosecurityclient.AuthorizationPolicy{}
 
 	authPolicies = append(authPolicies, &istiosecurityclient.AuthorizationPolicy{
@@ -160,10 +217,8 @@ func generateauthPolicies(profile *kubeflowv1.Profile) []*istiosecurityclient.Au
 				{
 					When: []*istiosecurity.Condition{
 						{
-							Key: fmt.Sprintf("request.headers[%v]", useridheader),
-							Values: []string{
-								useridprefix + profile.Spec.Owner.Name,
-							},
+							Key:    fmt.Sprintf("request.headers[%v]", useridheader),
+							Values: users,
 						},
 					},
 				},
@@ -216,6 +271,34 @@ func generateauthPolicies(profile *kubeflowv1.Profile) []*istiosecurityclient.Au
 	})
 
 	return authPolicies
+}
+
+// Get all contributors on a namespace
+func generateAccessList(profileName string, roleBindingsLister rbacv1listers.RoleBindingLister) ([]string, error) {
+	access := []string{}
+
+	// Find contributors in namespaces
+	roleBindings, err := roleBindingsLister.RoleBindings(profileName).List(labels.Everything())
+	if err != nil {
+		return nil, err
+	}
+
+	for _, roleBinding := range roleBindings {
+		if val, ok := roleBinding.Annotations["role"]; !ok || val != "edit" {
+			continue
+		}
+
+		for _, subject := range roleBinding.Subjects {
+			if subject.APIGroup != "rbac.authorization.k8s.io" || subject.Kind != "User" {
+				klog.Warningf("skipping non-user membership on role binding %s in namespace %s", roleBinding.Name, roleBinding.Namespace)
+				continue
+			}
+
+			access = append(access, subject.Name)
+		}
+	}
+
+	return access, nil
 }
 
 func init() {
