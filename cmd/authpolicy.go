@@ -9,6 +9,8 @@ import (
 	"github.com/StatCan/profiles-controller/pkg/controllers/profiles"
 	kubeflowclientset "github.com/StatCan/profiles-controller/pkg/generated/clientset/versioned"
 	kubeflowinformers "github.com/StatCan/profiles-controller/pkg/generated/informers/externalversions"
+	rbacv1listers "k8s.io/client-go/listers/rbac/v1"
+
 	"github.com/StatCan/profiles-controller/pkg/signals"
 	"github.com/spf13/cobra"
 	istiosecurity "istio.io/api/security/v1beta1"
@@ -18,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
@@ -27,6 +30,34 @@ import (
 
 const useridheader = "kubeflow-userid"
 const useridprefix = ""
+
+// Get all contributors on a namespace
+func generateAccessList(profileName string, roleBindingsLister rbacv1listers.RoleBindingLister) ([]string, error) {
+	access := []string{}
+
+	// Find contributors in namespaces
+	roleBindings, err := roleBindingsLister.RoleBindings(profileName).List(labels.Everything())
+	if err != nil {
+		return nil, err
+	}
+
+	for _, roleBinding := range roleBindings {
+		if val, ok := roleBinding.Annotations["role"]; !ok || val != "edit" {
+			continue
+		}
+
+		for _, subject := range roleBinding.Subjects {
+			if subject.APIGroup != "rbac.authorization.k8s.io" || subject.Kind != "User" {
+				klog.Warningf("skipping non-user membership on role binding %s in namespace %s", roleBinding.Name, roleBinding.Namespace)
+				continue
+			}
+
+			access = append(access, subject.Name)
+		}
+	}
+
+	return access, nil
+}
 
 var authPoliciesCmd = &cobra.Command{
 	Use:   "auth-policies",
@@ -64,13 +95,21 @@ var authPoliciesCmd = &cobra.Command{
 		istioInformerFactory := istioinformers.NewSharedInformerFactory(istioClient, time.Minute*5)
 		authPolicyInformer := istioInformerFactory.Security().V1beta1().AuthorizationPolicies()
 		authPolicyLister := authPolicyInformer.Lister()
+		rbacInformer := kubeInformerFactory.Rbac().V1().RoleBindings()
+		rbacLister := rbacInformer.Lister()
 
 		// Setup controller
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
 			func(profile *kubeflowv1.Profile) error {
+
+				collaborators, err := generateAccessList(profile.Name, rbacLister)
+				if err != nil {
+					return err
+				}
+
 				// Generate Authorization Policies
-				authPolicies := generateauthPolicies(profile)
+				authPolicies := generateauthPolicies(profile, collaborators)
 
 				// Delete s no longer needed
 				for _, authPolicyName := range []string{} {
@@ -144,9 +183,15 @@ var authPoliciesCmd = &cobra.Command{
 
 // generateauthPolicies generates  authPolicies for the given profile.
 // TODO: Allow overrides in a namespace
-func generateauthPolicies(profile *kubeflowv1.Profile) []*istiosecurityclient.AuthorizationPolicy {
-	authPolicies := []*istiosecurityclient.AuthorizationPolicy{}
+func generateauthPolicies(profile *kubeflowv1.Profile, collaborators []string) []*istiosecurityclient.AuthorizationPolicy {
 
+	// Users of the namespace
+	users := []string{useridprefix + profile.Spec.Owner.Name}
+	for _, user := range collaborators {
+		users = append(users, useridprefix+user)
+	}
+
+	authPolicies := []*istiosecurityclient.AuthorizationPolicy{}
 	authPolicies = append(authPolicies, &istiosecurityclient.AuthorizationPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "namespace-owner-access-istio",
@@ -160,10 +205,8 @@ func generateauthPolicies(profile *kubeflowv1.Profile) []*istiosecurityclient.Au
 				{
 					When: []*istiosecurity.Condition{
 						{
-							Key: fmt.Sprintf("request.headers[%v]", useridheader),
-							Values: []string{
-								useridprefix + profile.Spec.Owner.Name,
-							},
+							Key:    fmt.Sprintf("request.headers[%v]", useridheader),
+							Values: users,
 						},
 					},
 				},
