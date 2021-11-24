@@ -157,7 +157,7 @@ func generateResourceQuotas(profile *kubeflowv1.Profile) []*corev1.ResourceQuota
 				"requests.storage": *resource.NewScaledQuantity(4, resource.Tera),
 
 				// GPU
-				"requests.nvidia.com/gpu": *resource.NewQuantity(1, resource.DecimalSI),
+				"requests.nvidia.com/gpu": *resource.NewQuantity(2, resource.DecimalSI),
 
 				// Pods
 				"pods": *resource.NewQuantity(100, resource.DecimalSI),
