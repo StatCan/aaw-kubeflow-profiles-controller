@@ -40,6 +40,7 @@ type Conf struct {
 }
 
 func getMinIOConfig(vc *vault.Client, instance string) (*Conf, error) {
+
 	data, err := vc.Logical().Read(path.Join(instance, "config"))
 	if data != nil {
 		logWarnings(data.Warnings)
@@ -91,6 +92,7 @@ func createBucketsForProfile(client *minio.Client, instance string, profileName 
 	// Make shared folder
 	_, err := client.PutObject(context.Background(), "shared", path.Join(profileName, ".hold"), bytes.NewReader([]byte{}), 0, minio.PutObjectOptions{})
 	if err != nil {
+		fmt.Printf("Failed to create shared file for %q in instance %q already exists\n", profileName, instance)
 		return err
 	}
 
@@ -156,8 +158,8 @@ var bucketsCmd = &cobra.Command{
 					})
 					err = createBucketsForProfile(client, instance, profile.Name)
 					if err != nil {
-						klog.Fatalf("error making buckets for profile %s instance %s: %v", profile.Name, instance, err)
-						return err
+						klog.Warningf("error making buckets for profile %s instance %s: %v", profile.Name, instance, err)
+						// return err
 					}
 				}
 
