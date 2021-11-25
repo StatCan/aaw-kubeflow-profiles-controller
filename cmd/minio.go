@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"path"
+	"strings"
 
 	"time"
 
@@ -13,12 +15,87 @@ import (
 	kubeflowclientset "github.com/StatCan/profiles-controller/pkg/generated/clientset/versioned"
 	kubeflowinformers "github.com/StatCan/profiles-controller/pkg/generated/informers/externalversions"
 	"github.com/StatCan/profiles-controller/pkg/signals"
+	vault "github.com/hashicorp/vault/api"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
 )
+
+func logWarnings(warnings []string) {
+	if warnings != nil && len(warnings) > 0 {
+		for _, warning := range warnings {
+			klog.Warning(warning)
+		}
+	}
+}
+
+// Conf for MinIO
+type Conf struct {
+	AccessKeyID     string
+	Endpoint        string
+	SecretAccessKey string
+	UseSSL          bool
+}
+
+func getMinIOConfig(vc *vault.Client, instance string) (*Conf, error) {
+	data, err := vc.Logical().Read(path.Join(instance, "config"))
+	if data != nil {
+		logWarnings(data.Warnings)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	config := Conf{}
+
+	if val, ok := data.Data["accessKeyId"]; ok {
+		config.AccessKeyID = val.(string)
+	}
+
+	if val, ok := data.Data["endpoint"]; ok {
+		config.Endpoint = val.(string)
+	}
+
+	if val, ok := data.Data["secretAccessKey"]; ok {
+		config.SecretAccessKey = val.(string)
+	}
+
+	if val, ok := data.Data["useSSL"]; ok {
+		config.UseSSL = val.(bool)
+	}
+
+	return &config, nil
+}
+
+// CreateBucketsForProfile creates the profile's buckets in the MinIO instances.
+func createBucketsForProfile(client *minio.Client, instance string, profileName string) error {
+	for _, bucket := range []string{profileName, "shared"} {
+		exists, err := client.BucketExists(context.Background(), bucket)
+		if err != nil {
+			return err
+		}
+
+		if !exists {
+			fmt.Printf("making bucket %q in instance %q\n", bucket, instance)
+			err = client.MakeBucket(context.Background(), bucket, minio.MakeBucketOptions{})
+			if err != nil {
+				return err
+			}
+		} else {
+			fmt.Printf("bucket %q in instance %q already exists\n", bucket, instance)
+		}
+	}
+
+	// Make shared folder
+	_, err := client.PutObject(context.Background(), "shared", path.Join(profileName, ".hold"), bytes.NewReader([]byte{}), 0, minio.PutObjectOptions{})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
 
 var bucketsCmd = &cobra.Command{
 	Use:   "buckets",
@@ -28,6 +105,25 @@ var bucketsCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		// Setup signals so we can shutdown cleanly
 		stopCh := signals.SetupSignalHandler()
+
+		minioInstances := os.Getenv("MINIO_INSTANCES")
+		minioInstancesArray := strings.Split(minioInstances, ",")
+
+		// Vault
+		var err error
+		var vc *vault.Client
+		if os.Getenv("VAULT_AGENT_ADDR") != "" {
+			vc, err = vault.NewClient(&vault.Config{
+				AgentAddress: os.Getenv("VAULT_AGENT_ADDR"),
+			})
+		} else {
+			// Use the default env vars
+			vc, err = vault.NewClient(&vault.Config{})
+		}
+
+		if err != nil {
+			klog.Fatalf("Error initializing Vault client: %s", err)
+		}
 
 		// Create Kubernetes config
 		cfg, err := clientcmd.BuildConfigFromFlags(apiserver, kubeconfig)
@@ -48,10 +144,22 @@ var bucketsCmd = &cobra.Command{
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
 			func(profile *kubeflowv1.Profile) error {
 
-				// Generate buckets...
-				var vc VaultConfigurer = &VaultConfigurerStruct{}
-				m := NewMinIO([]string{"standard", "shared"}, vc)
-				m.CreateBucketsForProfile(profile.Name)
+				for _, instance := range minioInstancesArray {
+					conf, err := getMinIOConfig(vc, instance)
+					if err != nil {
+						return err
+					}
+
+					client, err := minio.New(conf.Endpoint, &minio.Options{
+						Creds:  credentials.NewStaticV4(conf.AccessKeyID, conf.SecretAccessKey, ""),
+						Secure: conf.UseSSL,
+					})
+					err = createBucketsForProfile(client, instance, profile.Name)
+					if err != nil {
+						klog.Fatalf("error making buckets for profile %s instance %s: %v", profile.Name, instance, err)
+						return err
+					}
+				}
 
 				return nil
 			},
@@ -69,97 +177,4 @@ var bucketsCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(bucketsCmd)
-}
-
-/*******************
- * Handler
- *******************/
-
-// Conf for MinIO
-type Conf struct {
-	AccessKeyID     string
-	Endpoint        string
-	SecretAccessKey string
-	UseSSL          bool
-}
-
-// VaultConfigurer for MinIO
-type VaultConfigurer interface {
-	GetMinIOConfiguration(instance string) (Conf, error)
-}
-
-// VaultConfigurerStruct for MinIO
-type VaultConfigurerStruct struct {
-}
-
-// GetMinIOConfiguration gets a MinIO instance.
-func (m *VaultConfigurerStruct) GetMinIOConfiguration(instance string) (Conf, error) {
-	return Conf{
-		Endpoint:        "localhost:9000",
-		AccessKeyID:     "minioadmin",
-		SecretAccessKey: "minioadmin",
-		UseSSL:          false,
-	}, nil
-}
-
-// NewMinIO creates a MinIO instance.
-func NewMinIO(minioInstances []string, vault VaultConfigurer) MinIO {
-	return &MinIOStruct{
-		MinioInstances:  minioInstances,
-		VaultConfigurer: vault,
-	}
-}
-
-// MinIO is the interface for interacting with a MinIO instance.
-type MinIO interface {
-	CreateBucketsForProfile(profileName string) error
-}
-
-// MinIOStruct is a MinIO implementation.
-type MinIOStruct struct {
-	VaultConfigurer VaultConfigurer
-	MinioInstances  []string
-}
-
-// CreateBucketsForProfile creates the profile's buckets in the MinIO instances.
-func (m *MinIOStruct) CreateBucketsForProfile(profileName string) error {
-	for _, instance := range m.MinioInstances {
-		conf, err := m.VaultConfigurer.GetMinIOConfiguration(instance)
-		if err != nil {
-			return err
-		}
-
-		client, err := minio.New(conf.Endpoint, &minio.Options{
-			Creds:  credentials.NewStaticV4(conf.AccessKeyID, conf.SecretAccessKey, ""),
-			Secure: conf.UseSSL,
-		})
-		if err != nil {
-			return err
-		}
-
-		for _, bucket := range []string{profileName, "shared"} {
-			exists, err := client.BucketExists(context.Background(), bucket)
-			if err != nil {
-				return err
-			}
-
-			if !exists {
-				fmt.Printf("making bucket %q in instance %q\n", bucket, instance)
-				err = client.MakeBucket(context.Background(), bucket, minio.MakeBucketOptions{})
-				if err != nil {
-					return err
-				}
-			} else {
-				fmt.Printf("bucket %q in instance %q already exists\n", bucket, instance)
-			}
-		}
-
-		// Make shared folder
-		_, err = client.PutObject(context.Background(), "shared", path.Join(profileName, ".hold"), bytes.NewReader([]byte{}), 0, minio.PutObjectOptions{})
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
