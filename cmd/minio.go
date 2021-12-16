@@ -75,6 +75,7 @@ func createBucketsForProfile(client *minio.Client, instance string, profileName 
 	for _, bucket := range []string{profileName, "shared"} {
 		exists, err := client.BucketExists(context.Background(), bucket)
 		if err != nil {
+			fmt.Printf("error checking bucket %q in instance %q\n", bucket, instance)
 			return err
 		}
 
@@ -149,6 +150,7 @@ var bucketsCmd = &cobra.Command{
 				for _, instance := range minioInstancesArray {
 					conf, err := getMinIOConfig(vc, instance)
 					if err != nil {
+						klog.Warningf("error getting config for instance %s: %v", instance, err)
 						return err
 					}
 
