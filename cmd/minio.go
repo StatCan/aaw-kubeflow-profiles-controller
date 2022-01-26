@@ -7,7 +7,6 @@ import (
 	"os"
 	"path"
 	"strings"
-
 	"time"
 
 	kubeflowv1 "github.com/StatCan/profiles-controller/pkg/apis/kubeflow/v1"
