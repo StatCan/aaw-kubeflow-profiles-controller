@@ -48,8 +48,8 @@ var quotasCmd = &cobra.Command{
 		}
 
 		// Setup informers
-		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*5)
-		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*5)
+		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*(time.Duration(requeue_time)))
+		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*(time.Duration(requeue_time)))
 
 		resourceQuotaInformer := kubeInformerFactory.Core().V1().ResourceQuotas()
 		resourceQuotaLister := resourceQuotaInformer.Lister()

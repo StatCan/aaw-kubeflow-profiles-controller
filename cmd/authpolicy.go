@@ -62,9 +62,9 @@ var authPoliciesCmd = &cobra.Command{
 		}
 
 		// Setup informers
-		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*5)
-		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*5)
-		istioInformerFactory := istioinformers.NewSharedInformerFactory(istioClient, time.Minute*5)
+		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*(time.Duration(requeue_time)))
+		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*(time.Duration(requeue_time)))
+		istioInformerFactory := istioinformers.NewSharedInformerFactory(istioClient, time.Minute*(time.Duration(requeue_time)))
 		profilesInformer := kubeflowInformerFactory.Kubeflow().V1().Profiles()
 		profilesLister := profilesInformer.Lister()
 		authPolicyInformer := istioInformerFactory.Security().V1beta1().AuthorizationPolicies()

@@ -1,11 +1,15 @@
 package cmd
 
 import (
+	"os"
+	"strconv"
+
 	"github.com/spf13/cobra"
 )
 
 var apiserver string
 var kubeconfig string
+var requeue_time, err = strconv.Atoi(os.Getenv("REQUEUE_TIME"))
 
 var rootCmd = &cobra.Command{
 	Use:   "profiles-controller",

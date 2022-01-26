@@ -41,7 +41,7 @@ var notebookCmd = &cobra.Command{
 		}
 
 		// Setup informers
-		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*5)
+		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*(time.Duration(requeue_time)))
 
 		podDefaultInformer := kubeflowInformerFactory.Kubeflow().V1alpha1().PodDefaults()
 		podDefaultLister := podDefaultInformer.Lister()
