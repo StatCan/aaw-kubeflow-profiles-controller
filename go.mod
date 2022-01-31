@@ -5,23 +5,16 @@ module github.com/StatCan/profiles-controller
 go 1.13
 
 require (
-	github.com/armon/consul-api v0.0.0-20180202201655-eb2c6b5be1b6 // indirect
-	github.com/coreos/go-etcd v2.0.0+incompatible // indirect
-	github.com/cpuguy83/go-md2man v1.0.10 // indirect
-	github.com/go-ini/ini v1.62.0 // indirect
-	github.com/gogo/protobuf v1.3.2
-	github.com/hashicorp/vault/api v1.0.4
-	github.com/minio/minio-go v6.0.14+incompatible // indirect
-	github.com/minio/minio-go/v7 v7.0.14
-	github.com/spf13/cobra v1.1.3
-	github.com/ugorji/go/codec v0.0.0-20181204163529-d75b2dcb6bc8 // indirect
-	github.com/xordataexchange/crypt v0.0.3-0.20170626215501-b2862e3d0a77 // indirect
-	istio.io/api v0.0.0-20211012192923-310f2a3f3c76
-	istio.io/client-go v1.11.4
-	k8s.io/api v0.20.2
-	k8s.io/apimachinery v0.21.0
-	k8s.io/client-go v1.5.2
-	k8s.io/code-generator v0.0.0-20200403215918-804a58607501
+	github.com/hashicorp/vault/api v1.3.1
+	github.com/hashicorp/yamux v0.0.0-20181012175058-2f1d1f20f75d // indirect
+	github.com/minio/minio-go/v7 v7.0.21
+	github.com/spf13/cobra v1.3.0
+	istio.io/api v0.0.0-20220127171628-dd6bd11b8b31
+	istio.io/client-go v1.12.2
+	k8s.io/api v0.23.3
+	k8s.io/apimachinery v0.23.3
+	k8s.io/client-go v11.0.0+incompatible
+	k8s.io/code-generator v0.23.3
 	k8s.io/klog v1.0.0
 )
 
