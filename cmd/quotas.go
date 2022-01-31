@@ -2,7 +2,10 @@ package cmd
 
 import (
 	"context"
+	"strings"
 	"time"
+
+	"strconv"
 
 	kubeflowv1 "github.com/StatCan/profiles-controller/pkg/apis/kubeflow/v1"
 	"github.com/StatCan/profiles-controller/pkg/controllers/profiles"
@@ -130,11 +133,81 @@ var quotasCmd = &cobra.Command{
 	},
 }
 
-// generateResourceQuotas generates resource quotas for the given profile.
-// TODO: Allow overrides in a namespace
-func generateResourceQuotas(profile *kubeflowv1.Profile) []*corev1.ResourceQuota {
-	quotas := []*corev1.ResourceQuota{}
+var defaultResources = corev1.ResourceList{
+	// CPU
+	"requests.cpu": *resource.NewQuantity(70, resource.DecimalSI),
+	"limits.cpu":   *resource.NewQuantity(70, resource.DecimalSI),
 
+	// Memory
+	"requests.memory": *resource.NewScaledQuantity(368, resource.Giga),
+	"limits.memory":   *resource.NewScaledQuantity(368, resource.Giga),
+
+	// Storage
+	"requests.storage": *resource.NewScaledQuantity(4, resource.Tera),
+
+	// GPU
+	"requests.nvidia.com/gpu": *resource.NewQuantity(2, resource.DecimalSI),
+
+	// Pods
+	"pods": *resource.NewQuantity(100, resource.DecimalSI),
+
+	// Services
+	"services.nodeports":     *resource.NewQuantity(0, resource.DecimalSI),
+	"services.loadbalancers": *resource.NewQuantity(0, resource.DecimalSI),
+}
+
+func overrideResourceQuotas(profile *kubeflowv1.Profile) {
+
+	// if we iterate over defaultResources, won't be able to find the key since default key is requests.storage and profileLabels key: quotas.statcan.gc.ca/requests.storage
+	// used strings.Contains()
+	// Also defaultResources has different resource dataTypes (for ex. resource.Tera, resource.Giga etc.) ; need checks on which resource quota you're overriding
+
+	for key, _ := range defaultResources { // or can iterate over profile.labels to avoid hard code of profiles label
+		// CPU
+		if strings.Contains(profile.Labels["quotas.statcan.gc.ca/requests.cpu"], key.String()) {
+			cpuRequest, _ := strconv.Atoi(profile.Labels["quotas.statcan.gc.ca/requests.cpu"])
+			defaultResources[key] = *resource.NewQuantity(int64(cpuRequest), resource.DecimalSI)
+		}
+		if strings.Contains(profile.Labels["quotas.statcan.gc.ca/limits.cpu"], key.String()) {
+			cpuLimit, _ := strconv.Atoi(profile.Labels["quotas.statcan.gc.ca/limits.cpu"])
+			defaultResources[key] = *resource.NewQuantity(int64(cpuLimit), resource.DecimalSI)
+		}
+		// Memory
+		if strings.Contains(profile.Labels["quotas.statcan.gc.ca/requests.memory"], key.String()) {
+			memoryRequest, _ := strconv.Atoi(profile.Labels["quotas.statcan.gc.ca/requests.memory"])
+			defaultResources[key] = *resource.NewScaledQuantity(int64(memoryRequest), resource.Giga)
+		}
+		if strings.Contains(profile.Labels["quotas.statcan.gc.ca/limits.memory"], key.String()) {
+			memoryLimit, _ := strconv.Atoi(profile.Labels["quotas.statcan.gc.ca/limits.memory"])
+			defaultResources[key] = *resource.NewScaledQuantity(int64(memoryLimit), resource.Giga)
+		}
+		// Storage
+		if strings.Contains(profile.Labels["quotas.statcan.gc.ca/requests.storage"], key.String()) {
+			storageRequest, _ := strconv.Atoi(profile.Labels["quotas.statcan.gc.ca/requests.storage"])
+			defaultResources[key] = *resource.NewScaledQuantity(int64(storageRequest), resource.Tera)
+		}
+		// Pods
+		if strings.Contains(profile.Labels["quotas.statcan.gc.ca/pods"], key.String()) {
+			pods, _ := strconv.Atoi(profile.Labels["quotas.statcan.gc.ca/pods"])
+			defaultResources[key] = *resource.NewQuantity(int64(pods), resource.DecimalSI)
+		}
+		// Services
+		if strings.Contains(profile.Labels["quotas.statcan.gc.ca/services.nodeports"], key.String()) {
+			servicesNodeports, _ := strconv.Atoi(profile.Labels["quotas.statcan.gc.ca/services.nodeports"])
+			defaultResources[key] = *resource.NewQuantity(int64(servicesNodeports), resource.DecimalSI)
+		}
+		if strings.Contains(profile.Labels["quotas.statcan.gc.ca/services.loadbalancers"], key.String()) {
+			servicesLoadbalancers, _ := strconv.Atoi(profile.Labels["quotas.statcan.gc.ca/services.loadbalancers"])
+			defaultResources[key] = *resource.NewQuantity(int64(servicesLoadbalancers), resource.DecimalSI)
+		}
+	}
+}
+
+// generateResourceQuotas generates resource quotas for the given profile.
+func generateResourceQuotas(profile *kubeflowv1.Profile) []*corev1.ResourceQuota {
+
+	overrideResourceQuotas(profile)
+	quotas := []*corev1.ResourceQuota{}
 	quotas = append(quotas, &corev1.ResourceQuota{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "quotas",
@@ -144,28 +217,7 @@ func generateResourceQuotas(profile *kubeflowv1.Profile) []*corev1.ResourceQuota
 			},
 		},
 		Spec: corev1.ResourceQuotaSpec{
-			Hard: corev1.ResourceList{
-				// CPU
-				"requests.cpu": *resource.NewQuantity(70, resource.DecimalSI),
-				"limits.cpu":   *resource.NewQuantity(70, resource.DecimalSI),
-
-				// Memory
-				"requests.memory": *resource.NewScaledQuantity(368, resource.Giga),
-				"limits.memory":   *resource.NewScaledQuantity(368, resource.Giga),
-
-				// Storage
-				"requests.storage": *resource.NewScaledQuantity(4, resource.Tera),
-
-				// GPU
-				"requests.nvidia.com/gpu": *resource.NewQuantity(2, resource.DecimalSI),
-
-				// Pods
-				"pods": *resource.NewQuantity(100, resource.DecimalSI),
-
-				// Services
-				"services.nodeports":     *resource.NewQuantity(0, resource.DecimalSI),
-				"services.loadbalancers": *resource.NewQuantity(0, resource.DecimalSI),
-			},
+			Hard: defaultResources,
 		},
 	})
 
