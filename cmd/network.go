@@ -688,6 +688,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 
 	// Allow egress to MinIO
 	port9000 = intstr.FromInt(9000)
+	port9001 := intstr.FromInt(9001)
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "notebooks-unclassified-minio-egress",
@@ -717,6 +718,10 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 						{
 							Protocol: &protocolTCP,
 							Port:     &port9000,
+						},
+						{
+							Protocol: &protocolTCP,
+							Port:     &port9001,
 						},
 					},
 					To: []networkingv1.NetworkPolicyPeer{
