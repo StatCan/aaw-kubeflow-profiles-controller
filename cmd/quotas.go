@@ -5,8 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"strconv"
-
 	kubeflowv1 "github.com/StatCan/profiles-controller/pkg/apis/kubeflow/v1"
 	"github.com/StatCan/profiles-controller/pkg/controllers/profiles"
 	kubeflowclientset "github.com/StatCan/profiles-controller/pkg/generated/clientset/versioned"
@@ -135,70 +133,95 @@ var quotasCmd = &cobra.Command{
 
 var defaultResources = corev1.ResourceList{
 	// CPU
-	"requests.cpu": *resource.NewQuantity(70, resource.DecimalSI),
-	"limits.cpu":   *resource.NewQuantity(70, resource.DecimalSI),
+	"requests.cpu": resource.MustParse("70"),
+	"limits.cpu":   resource.MustParse("70"),
 
 	// Memory
-	"requests.memory": *resource.NewScaledQuantity(368, resource.Giga),
-	"limits.memory":   *resource.NewScaledQuantity(368, resource.Giga),
+	"requests.memory": resource.MustParse("368G"),
+	"limits.memory":   resource.MustParse("368G"),
 
 	// Storage
-	"requests.storage": *resource.NewScaledQuantity(4, resource.Tera),
+	"requests.storage": resource.MustParse("4T"),
 
 	// GPU
-	"requests.nvidia.com/gpu": *resource.NewQuantity(2, resource.DecimalSI),
+	"requests.nvidia.com/gpu": resource.MustParse("2"),
 
 	// Pods
-	"pods": *resource.NewQuantity(100, resource.DecimalSI),
+	"pods": resource.MustParse("100"),
 
 	// Services
-	"services.nodeports":     *resource.NewQuantity(0, resource.DecimalSI),
-	"services.loadbalancers": *resource.NewQuantity(0, resource.DecimalSI),
+	"services.nodeports":     resource.MustParse("0"),
+	"services.loadbalancers": resource.MustParse("0"),
+}
+
+var quotaLabels = [9]string{
+	"quotas.statcan.gc.ca/requests.cpu", "quotas.statcan.gc.ca/limits.cpu",
+	"quotas.statcan.gc.ca/requests.memory", "quotas.statcan.gc.ca/limits.memory",
+	"quotas.statcan.gc.ca/requests.storage", "quotas.statcan.gc.ca/gpu",
+	"quotas.statcan.gc.ca/pods", "quotas.statcan.gc.ca/services.nodeports",
+	"quotas.statcan.gc.ca/services.loadbalancers",
+}
+
+var quotaPrefixLabel = "quotas.statcan.gc.ca/"
+
+func hasQuotaLabel(profileLabel string, key string, profile *kubeflowv1.Profile) bool {
+	if _, ok := profile.Labels[profileLabel]; ok {
+		if strings.HasPrefix(profileLabel, quotaPrefixLabel) {
+			s := strings.TrimPrefix(profileLabel, quotaPrefixLabel)
+			if s == key {
+				return true
+			}
+			return false
+		}
+		return false
+	}
+	return false
 }
 
 func overrideResourceQuotas(profile *kubeflowv1.Profile) {
 
-	// if we iterate over defaultResources, won't be able to find the key since default key is requests.storage and profileLabels key: quotas.statcan.gc.ca/requests.storage
-	// used strings.Contains()
-	// Also defaultResources has different resource dataTypes (for ex. resource.Tera, resource.Giga etc.) ; need checks on which resource quota you're overriding
-
-	for key, _ := range defaultResources { // or can iterate over profile.labels to avoid hard code of profiles label
+	for key, _ := range defaultResources {
 		// CPU
-		if strings.Contains(profile.Labels["quotas.statcan.gc.ca/requests.cpu"], key.String()) {
-			cpuRequest, _ := strconv.Atoi(profile.Labels["quotas.statcan.gc.ca/requests.cpu"])
-			defaultResources[key] = *resource.NewQuantity(int64(cpuRequest), resource.DecimalSI)
+		if hasQuotaLabel(quotaLabels[0], key.String(), profile) {
+			cpuRequest := profile.Labels[quotaLabels[0]]
+			defaultResources[key] = resource.MustParse(cpuRequest)
 		}
-		if strings.Contains(profile.Labels["quotas.statcan.gc.ca/limits.cpu"], key.String()) {
-			cpuLimit, _ := strconv.Atoi(profile.Labels["quotas.statcan.gc.ca/limits.cpu"])
-			defaultResources[key] = *resource.NewQuantity(int64(cpuLimit), resource.DecimalSI)
+		if hasQuotaLabel(quotaLabels[1], key.String(), profile) {
+			cpuLimit := profile.Labels[quotaLabels[1]]
+			defaultResources[key] = resource.MustParse(cpuLimit)
 		}
 		// Memory
-		if strings.Contains(profile.Labels["quotas.statcan.gc.ca/requests.memory"], key.String()) {
-			memoryRequest, _ := strconv.Atoi(profile.Labels["quotas.statcan.gc.ca/requests.memory"])
-			defaultResources[key] = *resource.NewScaledQuantity(int64(memoryRequest), resource.Giga)
+		if hasQuotaLabel(quotaLabels[2], key.String(), profile) {
+			memoryRequest := profile.Labels[quotaLabels[2]]
+			defaultResources[key] = resource.MustParse(memoryRequest + "G")
 		}
-		if strings.Contains(profile.Labels["quotas.statcan.gc.ca/limits.memory"], key.String()) {
-			memoryLimit, _ := strconv.Atoi(profile.Labels["quotas.statcan.gc.ca/limits.memory"])
-			defaultResources[key] = *resource.NewScaledQuantity(int64(memoryLimit), resource.Giga)
+		if hasQuotaLabel(quotaLabels[3], key.String(), profile) {
+			memoryLimit := profile.Labels[quotaLabels[3]]
+			defaultResources[key] = resource.MustParse(memoryLimit + "G")
 		}
 		// Storage
-		if strings.Contains(profile.Labels["quotas.statcan.gc.ca/requests.storage"], key.String()) {
-			storageRequest, _ := strconv.Atoi(profile.Labels["quotas.statcan.gc.ca/requests.storage"])
-			defaultResources[key] = *resource.NewScaledQuantity(int64(storageRequest), resource.Tera)
+		if hasQuotaLabel(quotaLabels[4], key.String(), profile) {
+			storageRequest := profile.Labels[quotaLabels[4]]
+			defaultResources[key] = resource.MustParse(storageRequest + "T")
+		}
+		// GPU
+		if hasQuotaLabel(quotaLabels[5], key.String(), profile) {
+			gpuRequest := profile.Labels[quotaLabels[5]]
+			defaultResources[key] = resource.MustParse(gpuRequest)
 		}
 		// Pods
-		if strings.Contains(profile.Labels["quotas.statcan.gc.ca/pods"], key.String()) {
-			pods, _ := strconv.Atoi(profile.Labels["quotas.statcan.gc.ca/pods"])
-			defaultResources[key] = *resource.NewQuantity(int64(pods), resource.DecimalSI)
+		if hasQuotaLabel(quotaLabels[6], key.String(), profile) {
+			pods := profile.Labels[quotaLabels[6]]
+			defaultResources[key] = resource.MustParse(pods)
 		}
 		// Services
-		if strings.Contains(profile.Labels["quotas.statcan.gc.ca/services.nodeports"], key.String()) {
-			servicesNodeports, _ := strconv.Atoi(profile.Labels["quotas.statcan.gc.ca/services.nodeports"])
-			defaultResources[key] = *resource.NewQuantity(int64(servicesNodeports), resource.DecimalSI)
+		if hasQuotaLabel(quotaLabels[7], key.String(), profile) {
+			nodeports := profile.Labels[quotaLabels[7]]
+			defaultResources[key] = resource.MustParse(nodeports)
 		}
-		if strings.Contains(profile.Labels["quotas.statcan.gc.ca/services.loadbalancers"], key.String()) {
-			servicesLoadbalancers, _ := strconv.Atoi(profile.Labels["quotas.statcan.gc.ca/services.loadbalancers"])
-			defaultResources[key] = *resource.NewQuantity(int64(servicesLoadbalancers), resource.DecimalSI)
+		if hasQuotaLabel(quotaLabels[8], key.String(), profile) {
+			loadbalancers := profile.Labels[quotaLabels[8]]
+			defaultResources[key] = resource.MustParse(loadbalancers)
 		}
 	}
 }
