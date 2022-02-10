@@ -168,19 +168,15 @@ func hasQuotaLabel(profileLabel string, key string, profile *kubeflowv1.Profile)
 	if _, ok := profile.Labels[profileLabel]; ok {
 		if strings.HasPrefix(profileLabel, quotaPrefixLabel) {
 			s := strings.TrimPrefix(profileLabel, quotaPrefixLabel)
-			if s == key {
-				return true
-			}
-			return false
+			return s == key
 		}
-		return false
 	}
 	return false
 }
 
 func overrideResourceQuotas(profile *kubeflowv1.Profile) {
 
-	for key, _ := range defaultResources {
+	for key := range defaultResources {
 		// CPU
 		if hasQuotaLabel(quotaLabels[0], key.String(), profile) {
 			cpuRequest := profile.Labels[quotaLabels[0]]
@@ -193,16 +189,16 @@ func overrideResourceQuotas(profile *kubeflowv1.Profile) {
 		// Memory
 		if hasQuotaLabel(quotaLabels[2], key.String(), profile) {
 			memoryRequest := profile.Labels[quotaLabels[2]]
-			defaultResources[key] = resource.MustParse(memoryRequest + "G")
+			defaultResources[key] = resource.MustParse(memoryRequest)
 		}
 		if hasQuotaLabel(quotaLabels[3], key.String(), profile) {
 			memoryLimit := profile.Labels[quotaLabels[3]]
-			defaultResources[key] = resource.MustParse(memoryLimit + "G")
+			defaultResources[key] = resource.MustParse(memoryLimit)
 		}
 		// Storage
 		if hasQuotaLabel(quotaLabels[4], key.String(), profile) {
 			storageRequest := profile.Labels[quotaLabels[4]]
-			defaultResources[key] = resource.MustParse(storageRequest + "T")
+			defaultResources[key] = resource.MustParse(storageRequest)
 		}
 		// GPU
 		if hasQuotaLabel(quotaLabels[5], key.String(), profile) {
