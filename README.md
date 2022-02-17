@@ -1,15 +1,8 @@
 # profiles-controller
 
-This repository implements a simple controller for watching Foo resources as
-defined with a CustomResourceDefinition (CRD).
+This repository implements custom controllers for managing a variety of resources within kubeflow.
 
 **Note:** go-get or vendor this package as `k8s.io/profiles-controller`.
-
-This particular example demonstrates how to perform basic operations such as:
-
-- How to register a new custom resource (custom resource type) of type `Foo` using a CustomResourceDefinition.
-- How to create/get/list instances of your new resource type `Foo`.
-- How to setup a controller on resource handling create/update/delete events.
 
 It makes use of the generators in [k8s.io/code-generator](https://github.com/kubernetes/code-generator)
 to generate a typed client, informers, listers and deep-copy functions. You can
@@ -31,7 +24,58 @@ The profiles controller uses [client-go library](https://github.com/kubernetes/c
 The details of interaction points of the profiles controller with various mechanisms from this library are
 explained [here](docs/controller-client-go.md).
 
-In addition, summaries of each profile controller implementation can be found [here](cmd/cmd-processes.md).
+## Controllers
+
+The [cmd](./cmd) package contains source files for a variety of profile controllers for Kubeflow.
+
+For more information about profile controllers, see the documentation for the [client-go](https://github.com/kubernetes/client-go/) library, which contains a variety of mechanisms for use when
+developing custom profile controllers. The mechanisms are defined in the
+[tools/cache folder](https://github.com/kubernetes/client-go/tree/master/tools/cache) of the library.
+
+### authpolicy.go
+
+Responsible for creating, removing and updating authorization policies using the Istio client for a given profile.
+
+### limitrange.go
+
+Responsible for creating, removing and updating limit ranges (resource limits) for a given profile.
+
+### minio.go
+
+Responsible for the configuration of MinIO buckets for new profiles.
+
+### network.go
+
+Responsible for the following networking policies:
+
+- Ingress from the ingress gateway
+- Ingress from knative-serving
+- Egress to the cluster local gateway
+- Egress from unclassified workloads
+- Egress from unclassified workloads to the ingress gateway
+- Egress to port 443 from protected-b workloads
+- Egress to the daaas-system
+- Egress to vault
+- Egress to pipelines
+- Egress to MinIO
+- Egress to Elasticsearch
+- Egress to Artifactory
+
+### notebook.go
+
+Responsible for the configuration of notebooks within Kubeflow.
+
+### quotas.go
+
+Responsible for the generation of resource quotas for a given profile.
+
+### rbac.go
+
+Responsible for the generation of roles and role bindings for a given profile.
+
+### root.go
+
+The root interface for the profile controllers.
 
 ## Fetch profiles-controller and its dependencies
 
