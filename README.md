@@ -31,6 +31,8 @@ The profiles controller uses [client-go library](https://github.com/kubernetes/c
 The details of interaction points of the profiles controller with various mechanisms from this library are
 explained [here](docs/controller-client-go.md).
 
+In addition, summaries of each profile controller implementation can be found [here](cmd/cmd-processes.md).
+
 ## Fetch profiles-controller and its dependencies
 
 Like the rest of Kubernetes, profiles-controller has used
@@ -95,6 +97,11 @@ kubectl create -f artifacts/examples/example-foo.yaml
 # check deployments created through the custom resource
 kubectl get deployments
 ```
+
+## Deployment
+
+A helm chart for deploying the profile controllers can be found [here](https://github.com/StatCan/charts/tree/master/stable/profiles-controller).
+Each profile controller has a corresponding k8s manifest.
 
 ## Use Cases
 
