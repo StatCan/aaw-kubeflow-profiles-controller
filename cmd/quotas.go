@@ -157,7 +157,7 @@ var defaultResources = corev1.ResourceList{
 var quotaLabels = [9]string{
 	"quotas.statcan.gc.ca/requests.cpu", "quotas.statcan.gc.ca/limits.cpu",
 	"quotas.statcan.gc.ca/requests.memory", "quotas.statcan.gc.ca/limits.memory",
-	"quotas.statcan.gc.ca/requests.storage", "quotas.statcan.gc.ca/gpu",
+	"quotas.statcan.gc.ca/requests.storage", "quotas.statcan.gc.ca/requests.nvidia.com/gpu",
 	"quotas.statcan.gc.ca/pods", "quotas.statcan.gc.ca/services.nodeports",
 	"quotas.statcan.gc.ca/services.loadbalancers",
 }
