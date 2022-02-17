@@ -17,7 +17,7 @@ COPY . .
 RUN CGO_ENABLED=0 go install .
 
 # Generate final image
-FROM alpine:3.14
+FROM alpine:3.15
 RUN apk --update --no-cache add ca-certificates
 COPY --from=build /go/bin/profiles-controller /usr/local/bin/profiles-controller
 ENTRYPOINT [ "/usr/local/bin/profiles-controller" ]
