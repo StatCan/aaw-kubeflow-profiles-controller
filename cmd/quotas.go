@@ -166,7 +166,9 @@ var quotaPrefixLabel = "quotas.statcan.gc.ca/"
 
 func hasQuotaLabel(profileLabel string, key string, profile *kubeflowv1.Profile) bool {
 	if _, ok := profile.Labels[profileLabel]; ok {
-		if strings.HasPrefix(profileLabel, quotaPrefixLabel) {
+		if key == "requests.nvidia.com/gpu" {
+			return true
+		} else if strings.HasPrefix(profileLabel, quotaPrefixLabel) {
 			s := strings.TrimPrefix(profileLabel, quotaPrefixLabel)
 			return s == key
 		}
