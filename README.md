@@ -7,6 +7,7 @@ This repository implements custom controllers for watching `Profile` resources f
 Helpful links to k8s resources and other terminologies related to this project are provided below.
 
 - [Profile](https://www.kubeflow.org/docs/components/multi-tenancy/getting-started/)
+- [Istio AuthorizationPolicy](https://istio.io/latest/docs/reference/config/security/authorization-policy/#Source)
 - [LimitRange](https://kubernetes.io/docs/concepts/policy/limit-range/)
 - [ResourceQuotas](https://kubernetes.io/docs/concepts/policy/resource-quotas/)
 - [Kubeflow Notebook](https://www.kubeflow.org/docs/components/notebooks/overview/)
@@ -29,7 +30,7 @@ developing custom profile controllers. The mechanisms are defined in the
 
 ### [authpolicy.go](./cmd/authpolicy.go)
 
-Responsible for creating, removing and updating [Istio Authorization Policies](https://istio.io/latest/docs/reference/config/security/authorization-policy/#Source) using the [Istio client](https://github.com/istio/client-go) for a given `Profile`.
+Responsible for creating, removing and updating [Istio Authorization Policies](https://istio.io/latest/docs/reference/config/security/authorization-policy/#Source) using the [Istio client](https://github.com/istio/client-go) for a given `Profile`. Currently, the only `AuthorizationPolicy` is to block upload/download from protected-b `Notebook`'s.
 
 ### [limitrange.go](./cmd/limitrange.go)
 
