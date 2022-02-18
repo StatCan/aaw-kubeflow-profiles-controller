@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"context"
-	"strings"
+	"strconv"
 	"time"
 
 	kubeflowv1 "github.com/StatCan/profiles-controller/pkg/apis/kubeflow/v1"
@@ -22,6 +22,60 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
 )
+
+var quotaPrefixLabel = "quotas.statcan.gc.ca/"
+var defaultResources = corev1.ResourceList{
+	"requests.cpu": *resource.NewQuantity(70, resource.DecimalSI),
+	"limits.cpu":   *resource.NewQuantity(70, resource.DecimalSI),
+
+	// Memory
+	"requests.memory": *resource.NewScaledQuantity(368, resource.Giga),
+	"limits.memory":   *resource.NewScaledQuantity(368, resource.Giga),
+
+	// Storage
+	"requests.storage": *resource.NewScaledQuantity(4, resource.Tera),
+
+	// GPU
+	"requests.nvidia.com/gpu": *resource.NewQuantity(2, resource.DecimalSI),
+
+	// Pods
+	"pods": *resource.NewQuantity(100, resource.DecimalSI),
+
+	// Services
+	"services.nodeports":     *resource.NewQuantity(0, resource.DecimalSI),
+	"services.loadbalancers": *resource.NewQuantity(0, resource.DecimalSI),
+}
+
+// Override the default resources from profile labels
+func overrideResourceQuotas(profile *kubeflowv1.Profile) corev1.ResourceList {
+
+	overrides := map[corev1.ResourceName]resource.Quantity{}
+
+	// copy in the defaults
+	for k, v := range defaultResources {
+		overrides[k] = v
+	}
+
+	// Special case, quotas.statcan.gc.ca/gpu -> requests.nvidia.com/gpu
+	if val, ok := profile.Labels[quotaPrefixLabel+"gpu"]; ok {
+		numgpu, _ := strconv.Atoi(val)
+		overrides["requests.nvidia.com/gpu"] = *resource.NewQuantity(int64(numgpu), resource.DecimalSI)
+		klog.Infof("Overriding resource quota from label profile: %s, requests.nvidia.com/gpu: %d", profile.Name, int64(numgpu))
+	}
+
+	// Loop over again, searching profile labels for
+	// quotas.statcan.gc.ca/{key}
+	// We will not clobber requests.nvidia.com/gpu because
+	// quotas.statcan.gc.ca/requests.nvidia.com/gpu is not a valid label.
+	for key, _ := range defaultResources {
+		if overrideValue, ok := profile.Labels[quotaPrefixLabel+key.String()]; ok {
+			overrides[key] = resource.MustParse(overrideValue)
+			klog.Infof("Overriding resource quota from label profile %s, %s: %d", profile.Name, key.String(), overrides[key])
+		}
+	}
+
+	return overrides
+}
 
 var quotasCmd = &cobra.Command{
 	Use:   "quotas",
@@ -131,97 +185,6 @@ var quotasCmd = &cobra.Command{
 	},
 }
 
-var defaultResources = corev1.ResourceList{
-	// CPU
-	"requests.cpu": resource.MustParse("70"),
-	"limits.cpu":   resource.MustParse("70"),
-
-	// Memory
-	"requests.memory": resource.MustParse("368G"),
-	"limits.memory":   resource.MustParse("368G"),
-
-	// Storage
-	"requests.storage": resource.MustParse("4T"),
-
-	// GPU
-	"requests.nvidia.com/gpu": resource.MustParse("2"),
-
-	// Pods
-	"pods": resource.MustParse("100"),
-
-	// Services
-	"services.nodeports":     resource.MustParse("0"),
-	"services.loadbalancers": resource.MustParse("0"),
-}
-
-var quotaLabels = [9]string{
-	"quotas.statcan.gc.ca/requests.cpu", "quotas.statcan.gc.ca/limits.cpu",
-	"quotas.statcan.gc.ca/requests.memory", "quotas.statcan.gc.ca/limits.memory",
-	"quotas.statcan.gc.ca/requests.storage", "quotas.statcan.gc.ca/requests.nvidia.com/gpu",
-	"quotas.statcan.gc.ca/pods", "quotas.statcan.gc.ca/services.nodeports",
-	"quotas.statcan.gc.ca/services.loadbalancers",
-}
-
-var quotaPrefixLabel = "quotas.statcan.gc.ca/"
-
-func hasQuotaLabel(profileLabel string, key string, profile *kubeflowv1.Profile) bool {
-	if _, ok := profile.Labels[profileLabel]; ok {
-		if strings.HasPrefix(profileLabel, quotaPrefixLabel) {
-			s := strings.TrimPrefix(profileLabel, quotaPrefixLabel)
-			return s == key
-		}
-	}
-	return false
-}
-
-func overrideResourceQuotas(profile *kubeflowv1.Profile) {
-
-	for key := range defaultResources {
-		// CPU
-		if hasQuotaLabel(quotaLabels[0], key.String(), profile) {
-			cpuRequest := profile.Labels[quotaLabels[0]]
-			defaultResources[key] = resource.MustParse(cpuRequest)
-		}
-		if hasQuotaLabel(quotaLabels[1], key.String(), profile) {
-			cpuLimit := profile.Labels[quotaLabels[1]]
-			defaultResources[key] = resource.MustParse(cpuLimit)
-		}
-		// Memory
-		if hasQuotaLabel(quotaLabels[2], key.String(), profile) {
-			memoryRequest := profile.Labels[quotaLabels[2]]
-			defaultResources[key] = resource.MustParse(memoryRequest)
-		}
-		if hasQuotaLabel(quotaLabels[3], key.String(), profile) {
-			memoryLimit := profile.Labels[quotaLabels[3]]
-			defaultResources[key] = resource.MustParse(memoryLimit)
-		}
-		// Storage
-		if hasQuotaLabel(quotaLabels[4], key.String(), profile) {
-			storageRequest := profile.Labels[quotaLabels[4]]
-			defaultResources[key] = resource.MustParse(storageRequest)
-		}
-		// GPU
-		if hasQuotaLabel(quotaLabels[5], key.String(), profile) {
-			gpuRequest := profile.Labels[quotaLabels[5]]
-			defaultResources[key] = resource.MustParse(gpuRequest)
-		}
-		// Pods
-		if hasQuotaLabel(quotaLabels[6], key.String(), profile) {
-			pods := profile.Labels[quotaLabels[6]]
-			defaultResources[key] = resource.MustParse(pods)
-		}
-		// Services
-		if hasQuotaLabel(quotaLabels[7], key.String(), profile) {
-			nodeports := profile.Labels[quotaLabels[7]]
-			defaultResources[key] = resource.MustParse(nodeports)
-		}
-		if hasQuotaLabel(quotaLabels[8], key.String(), profile) {
-			loadbalancers := profile.Labels[quotaLabels[8]]
-			defaultResources[key] = resource.MustParse(loadbalancers)
-		}
-	}
-}
-
 // generateResourceQuotas generates resource quotas for the given profile.
 func generateResourceQuotas(profile *kubeflowv1.Profile) []*corev1.ResourceQuota {
 
@@ -236,7 +199,7 @@ func generateResourceQuotas(profile *kubeflowv1.Profile) []*corev1.ResourceQuota
 			},
 		},
 		Spec: corev1.ResourceQuotaSpec{
-			Hard: defaultResources,
+			Hard: overrideResourceQuotas(profile),
 		},
 	})
 
