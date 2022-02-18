@@ -1,22 +1,17 @@
 # profiles-controller
 
-This repository implements custom controllers for managing a variety of resources within kubeflow.
+This repository implements custom controllers for watching `Profile` resources from Kubeflow.
 
-**Note:** go-get or vendor this package as `k8s.io/profiles-controller`.
+## Terminology
 
-It makes use of the generators in [k8s.io/code-generator](https://github.com/kubernetes/code-generator)
-to generate a typed client, informers, listers and deep-copy functions. You can
-do this yourself using the `./hack/update-codegen.sh` script.
+Helpful links to k8s resources and other terminologies related to this project are provided below.
 
-The `update-codegen` script will automatically generate the following files &
-directories:
-
-- `pkg/apis/profilescontroller/v1alpha1/zz_generated.deepcopy.go`
-- `pkg/generated/`
-
-Changes should not be made to these files manually, and when creating your own
-controller based off of this implementation you should not copy these files and
-instead run the `update-codegen` script to generate your own.
+- [Profile](https://www.kubeflow.org/docs/components/multi-tenancy/getting-started/)
+- [LimitRange](https://kubernetes.io/docs/concepts/policy/limit-range/)
+- [ResourceQuotas](https://kubernetes.io/docs/concepts/policy/resource-quotas/)
+- [Kubeflow Notebook](https://www.kubeflow.org/docs/components/notebooks/overview/)
+- [Roles and RoleBinding (RBAC)](https://kubernetes.io/docs/reference/access-authn-authz/rbac/)
+- [Labels](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/)
 
 ## Details
 
@@ -32,19 +27,19 @@ For more information about profile controllers, see the documentation for the [c
 developing custom profile controllers. The mechanisms are defined in the
 [tools/cache folder](https://github.com/kubernetes/client-go/tree/master/tools/cache) of the library.
 
-### authpolicy.go
+### [authpolicy.go](./cmd/authpolicy.go)
 
-Responsible for creating, removing and updating authorization policies using the Istio client for a given profile.
+Responsible for creating, removing and updating [Istio Authorization Policies](https://istio.io/latest/docs/reference/config/security/authorization-policy/#Source) using the [Istio client](https://github.com/istio/client-go) for a given `Profile`.
 
-### limitrange.go
+### [limitrange.go](./cmd/limitrange.go)
 
-Responsible for creating, removing and updating limit ranges (resource limits) for a given profile.
+Responsible for creating, removing and updating `LimitRange` resources for a given profile. `LimitRange` resources are generated to limit the cpu and memory resources for the kubeflow profile's default container. `LimitRange` resources require the implementation of a controller managing `ResourceQuotas`, which is provided in this package (see [quotas.go](./cmd/quotas.go)). Implementing `LimitRange` resources allows any Pod to run associated with the `Profile`, restricted by a `ResourceQuota`.
 
-### minio.go
+### [minio.go](./cmd/minio.go)
 
-Responsible for the configuration of MinIO buckets for new profiles.
+Responsible for the configuration of MinIO buckets for the given `Profile`. Configured MinIO buckets may be used by the associated `Profile` for object storage accessible directly within their notebooks.
 
-### network.go
+### [network.go](./cmd/network.go)
 
 Responsible for the following networking policies:
 
@@ -61,169 +56,43 @@ Responsible for the following networking policies:
 - Egress to Elasticsearch
 - Egress to Artifactory
 
-### notebook.go
+### [notebook.go](./cmd/notebook.go)
 
-Responsible for the configuration of notebooks within Kubeflow.
+Responsible for the configuration of `Notebook` resources within Kubeflow. This controller adds a default option for running a protected-b `Notebook`.
 
-### quotas.go
+### [quotas.go](./cmd/quotas.go)
 
-Responsible for the generation of resource quotas for a given profile.
+Responsible for the generation of `ResourceQuotas` for a given profile. Management of `ResourceQuotas` is essential, as it provides the constraint for total amount of compute resources that are consumable within the `Profile`. Since the `ResourceQuotas` definition included in [quotas.go](./cmd/quotas.go) provides constraints for cpu and memory, the limits for the values must be defined. These limits are defined as `LimitRange` resources and are managed by [limitrange.go](./cmd/limitrange.go).
 
-### rbac.go
+#### Quota Labels
 
-Responsible for the generation of roles and role bindings for a given profile.
+In order for ArgoCD to sync `Profile` resources, the `/metadata/labels/` field needed to be ignored. However, this field is required in `ResourceQuota` resource generation. A `Label` is provided for each type of quota below, which allows `ResourceQuotas` to be overidden by the controller for each resource type:
 
-### root.go
+- quotas.statcan.gc.ca/requests.cpu
+- quotas.statcan.gc.ca/limits.cpu
+- quotas.statcan.gc.ca/requests.memory
+- quotas.statcan.gc.ca/limits.memory
+- quotas.statcan.gc.ca/requests.storage
+- quotas.statcan.gc.ca/pods
+- quotas.statcan.gc.ca/services.nodeports
+- quotas.statcan.gc.ca/services.loadbalancers
+
+A special case is considered for overriding gpu resources. Although the label `quotas.statcan.gc.ca/gpu` exists for the given `Profile`, the label `requests.nvidia.com/gpu` is overidden.
+
+### [rbac.go](./cmd/rbac.go)
+
+Responsible for the generation of `Roles` and `RoleBinding` resources for a given profile.
+
+A `Role` is created for each `Profile`, the following `RoleBinding`'s are created:
+
+- `ml-pipeline` role binding for the `Profile`.
+- `DAaas-AAW-Support` is granted a profile-support cluster role in the namespace for support purposes.
+
+### [root.go](./cmd/root.go)
 
 The root interface for the profile controllers.
-
-## Fetch profiles-controller and its dependencies
-
-Like the rest of Kubernetes, profiles-controller has used
-[godep](https://github.com/tools/godep) and `$GOPATH` for years and is
-now adopting go 1.11 modules. There are thus two alternative ways to
-go about fetching this demo and its dependencies.
-
-### Fetch with godep
-
-When NOT using go 1.11 modules, you can use the following commands.
-
-```sh
-go get -d k8s.io/profiles-controller
-cd $GOPATH/src/k8s.io/profiles-controller
-godep restore
-```
-
-### When using go 1.11 modules
-
-When using go 1.11 modules (`GO111MODULE=on`), issue the following
-commands --- starting in whatever working directory you like.
-
-```sh
-git clone https://github.com/kubernetes/profiles-controller.git
-cd profiles-controller
-```
-
-Note, however, that if you intend to
-generate code then you will also need the
-code-generator repo to exist in an old-style location. One easy way
-to do this is to use the command `go mod vendor` to create and
-populate the `vendor` directory.
-
-### A Note on kubernetes/kubernetes
-
-If you are developing Kubernetes according to
-https://github.com/kubernetes/community/blob/master/contributors/guide/github-workflow.md
-then you already have a copy of this demo in
-`kubernetes/staging/src/k8s.io/profiles-controller` and its dependencies
---- including the code generator --- are in usable locations
-(valid for all Go versions).
-
-## Purpose
-
-This is an example of how to build a kube-like controller with a single type.
-
-## Running
-
-**Prerequisite**: Since the profiles-controller uses `apps/v1` deployments, the Kubernetes cluster version should be greater than 1.9.
-
-```sh
-# assumes you have a working kubeconfig, not required if operating in-cluster
-go build -o profiles-controller .
-./profiles-controller -kubeconfig=$HOME/.kube/config
-
-# create a CustomResourceDefinition
-kubectl create -f artifacts/examples/crd.yaml
-
-# create a custom resource of type Foo
-kubectl create -f artifacts/examples/example-foo.yaml
-
-# check deployments created through the custom resource
-kubectl get deployments
-```
 
 ## Deployment
 
 A helm chart for deploying the profile controllers can be found [here](https://github.com/StatCan/charts/tree/master/stable/profiles-controller).
-Each profile controller has a corresponding k8s manifest.
-
-## Use Cases
-
-CustomResourceDefinitions can be used to implement custom resource types for your Kubernetes cluster.
-These act like most other Resources in Kubernetes, and may be `kubectl apply`'d, etc.
-
-Some example use cases:
-
-- Provisioning/Management of external datastores/databases (eg. CloudSQL/RDS instances)
-- Higher level abstractions around Kubernetes primitives (eg. a single Resource to define an etcd cluster, backed by a Service and a ReplicationController)
-
-## Defining types
-
-Each instance of your custom resource has an attached Spec, which should be defined via a `struct{}` to provide data format validation.
-In practice, this Spec is arbitrary key-value data that specifies the configuration/behavior of your Resource.
-
-For example, if you were implementing a custom resource for a Database, you might provide a DatabaseSpec like the following:
-
-```go
-type DatabaseSpec struct {
-	Databases []string `json:"databases"`
-	Users     []User   `json:"users"`
-	Version   string   `json:"version"`
-}
-
-type User struct {
-	Name     string `json:"name"`
-	Password string `json:"password"`
-}
-```
-
-## Validation
-
-To validate custom resources, use the [`CustomResourceValidation`](https://kubernetes.io/docs/tasks/access-kubernetes-api/extend-api-custom-resource-definitions/#validation) feature. Validation in the form of a [structured schema](https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/#specifying-a-structural-schema) is mandatory to be provided for `apiextensions.k8s.io/v1`.
-
-### Example
-
-The schema in [`crd.yaml`](./artifacts/examples/crd.yaml) applies the following validation on the custom resource:
-`spec.replicas` must be an integer and must have a minimum value of 1 and a maximum value of 10.
-
-## Subresources
-
-Custom Resources support `/status` and `/scale` [subresources](https://kubernetes.io/docs/tasks/access-kubernetes-api/custom-resources/custom-resource-definitions/#subresources). The `CustomResourceSubresources` feature is in GA from v1.16.
-
-### Example
-
-The CRD in [`crd-status-subresource.yaml`](./artifacts/examples/crd-status-subresource.yaml) enables the `/status` subresource for custom resources.
-This means that [`UpdateStatus`](./controller.go) can be used by the controller to update only the status part of the custom resource.
-
-To understand why only the status part of the custom resource should be updated, please refer to the [Kubernetes API conventions](https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status).
-
-In the above steps, use `crd-status-subresource.yaml` to create the CRD:
-
-```sh
-# create a CustomResourceDefinition supporting the status subresource
-kubectl create -f artifacts/examples/crd-status-subresource.yaml
-```
-
-## A Note on the API version
-
-The [group](https://kubernetes.io/docs/reference/using-api/#api-groups) version of the custom resource in `crd.yaml` is `v1alpha`, this can be evolved to a stable API version, `v1`, using [CRD Versioning](https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definition-versioning/).
-
-## Cleanup
-
-You can clean up the created CustomResourceDefinition with:
-
-```sh
-kubectl delete crd foos.profilescontroller.k8s.io
-```
-
-## Compatibility
-
-HEAD of this repository will match HEAD of k8s.io/apimachinery and
-k8s.io/client-go.
-
-## Where does it come from?
-
-`profiles-controller` is synced from
-https://github.com/kubernetes/kubernetes/blob/master/staging/src/k8s.io/sample-controller.
-Code changes are made in that location, merged into k8s.io/kubernetes and
-later synced here.
+Each controller has a corresponding k8s manifest.
