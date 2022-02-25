@@ -269,7 +269,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 	// Allow egress from unclassified workloads
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "notebooks-unclassified-allow-egress",
+			Name:      "unclassified-allow-same-namespace",
 			Namespace: profile.Name,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
@@ -279,10 +279,6 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 			PodSelector: metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
 					{
-						Key:      "notebook-name",
-						Operator: metav1.LabelSelectorOpExists,
-					},
-					{
 						Key:      "data.statcan.gc.ca/classification",
 						Operator: metav1.LabelSelectorOpNotIn,
 						Values:   []string{"protected-b"},
@@ -290,6 +286,66 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 				},
 			},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+			Ingress: []networkingv1.NetworkPolicyIngressRule{
+				{
+					From: []networkingv1.NetworkPolicyPeer{
+						{
+							PodSelector: &metav1.LabelSelector{
+								MatchExpressions: []metav1.LabelSelectorRequirement{
+									{
+										Key:      "data.statcan.gc.ca/classification",
+										Operator: metav1.LabelSelectorOpNotIn,
+										Values:   []string{"protected-b"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			Egress: []networkingv1.NetworkPolicyEgressRule{
+				{
+					To: []networkingv1.NetworkPolicyPeer{
+						{
+							PodSelector: &metav1.LabelSelector{
+								MatchExpressions: []metav1.LabelSelectorRequirement{
+									{
+										Key:      "data.statcan.gc.ca/classification",
+										Operator: metav1.LabelSelectorOpNotIn,
+										Values:   []string{"protected-b"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	// Allow egress from unclassified workloads
+	policies = append(policies, &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "unclassified-allow-egress",
+			Namespace: profile.Name,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+			},
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      "data.statcan.gc.ca/classification",
+						Operator: metav1.LabelSelectorOpNotIn,
+						Values:   []string{"protected-b"},
+					},
+				},
+			},
+			PolicyTypes: []networkingv1.PolicyType{
+				networkingv1.PolicyTypeEgress,
+				networkingv1.PolicyTypeIngress,
+			},
 			Egress: []networkingv1.NetworkPolicyEgressRule{
 				{
 					To: []networkingv1.NetworkPolicyPeer{
@@ -308,7 +364,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 	// Allow egress from unclassified workloads
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "notebooks-unclassified-allow-egress-to-ingress-gateway",
+			Name:      "unclassified-allow-egress-to-ingress-gateway",
 			Namespace: profile.Name,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
@@ -317,10 +373,6 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		Spec: networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "notebook-name",
-						Operator: metav1.LabelSelectorOpExists,
-					},
 					{
 						Key:      "data.statcan.gc.ca/classification",
 						Operator: metav1.LabelSelectorOpNotIn,
@@ -351,57 +403,10 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		},
 	})
 
-	// Allow egress to 443 from protected-b workloads
-	// This is need for Azure authentication
-	portHTTPS := intstr.FromInt(443)
-	policies = append(policies, &networkingv1.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "notebooks-protected-b-allow-https-egress",
-			Namespace: profile.Name,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
-			},
-		},
-		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "notebook-name",
-						Operator: metav1.LabelSelectorOpExists,
-					},
-					{
-						Key:      "data.statcan.gc.ca/classification",
-						Operator: metav1.LabelSelectorOpIn,
-						Values:   []string{"protected-b"},
-					},
-				},
-			},
-			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
-			Egress: []networkingv1.NetworkPolicyEgressRule{
-				{
-					Ports: []networkingv1.NetworkPolicyPort{
-						{
-							Protocol: &protocolTCP,
-							Port:     &portHTTPS,
-						},
-					},
-					To: []networkingv1.NetworkPolicyPeer{
-						{
-							IPBlock: &networkingv1.IPBlock{
-								CIDR:   "0.0.0.0/0",
-								Except: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
-							},
-						},
-					},
-				},
-			},
-		},
-	})
-
 	// Allow egress to daaas-system
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "notebooks-protected-b-gitlab-egress",
+			Name:      "protected-b-minio-egress",
 			Namespace: profile.Name,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
@@ -410,56 +415,6 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		Spec: networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "notebook-name",
-						Operator: metav1.LabelSelectorOpExists,
-					},
-					{
-						Key:      "data.statcan.gc.ca/classification",
-						Operator: metav1.LabelSelectorOpIn,
-						Values:   []string{"protected-b"},
-					},
-				},
-			},
-			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
-			Egress: []networkingv1.NetworkPolicyEgressRule{
-				{
-					To: []networkingv1.NetworkPolicyPeer{
-						{
-							NamespaceSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{
-									"namespace.statcan.gc.ca/purpose": "daaas",
-								},
-							},
-							PodSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{
-									"app":     "nginx-ingress",
-									"release": "gitlab",
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	})
-
-	// Allow egress to daaas-system
-	policies = append(policies, &networkingv1.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "notebooks-protected-b-minio-egress",
-			Namespace: profile.Name,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
-			},
-		},
-		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "notebook-name",
-						Operator: metav1.LabelSelectorOpExists,
-					},
 					{
 						Key:      "data.statcan.gc.ca/classification",
 						Operator: metav1.LabelSelectorOpIn,
@@ -490,7 +445,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 	port8200 := intstr.FromInt(8200)
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "notebooks-vault-egress",
+			Name:      "vault-egress",
 			Namespace: profile.Name,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
@@ -498,54 +453,8 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		},
 		Spec: networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "notebook-name",
-						Operator: metav1.LabelSelectorOpExists,
-					},
-				},
+				MatchExpressions: []metav1.LabelSelectorRequirement{},
 			},
-			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
-			Egress: []networkingv1.NetworkPolicyEgressRule{
-				{
-					Ports: []networkingv1.NetworkPolicyPort{
-						{
-							Protocol: &protocolTCP,
-							Port:     &port8200,
-						},
-					},
-					To: []networkingv1.NetworkPolicyPeer{
-						{
-							NamespaceSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{
-									"namespace.statcan.gc.ca/purpose": "daaas",
-								},
-							},
-							PodSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{
-									"app.kubernetes.io/instance": "vault",
-									"component":                  "server",
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	})
-
-	// Allow egress to Vault
-	port8200 = intstr.FromInt(8200)
-	policies = append(policies, &networkingv1.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "namespace-vault-egress",
-			Namespace: profile.Name,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
-			},
-		},
-		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
 			Egress: []networkingv1.NetworkPolicyEgressRule{
 				{
@@ -578,9 +487,11 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 	// Allow egress to Pipelines
 	port8888 := intstr.FromInt(8888)
 	port8887 := intstr.FromInt(8887)
+	port9000 := intstr.FromInt(9000)
+	port9001 := intstr.FromInt(9001)
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "notebooks-unclassified-pipelines-egress",
+			Name:      "unclassified-pipelines-egress",
 			Namespace: profile.Name,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
@@ -589,10 +500,6 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		Spec: networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "notebook-name",
-						Operator: metav1.LabelSelectorOpExists,
-					},
 					{
 						Key:      "data.statcan.gc.ca/classification",
 						Operator: metav1.LabelSelectorOpNotIn,
@@ -629,36 +536,6 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 						},
 					},
 				},
-			},
-		},
-	})
-
-	// Allow egress to Pipelines
-	port9000 := intstr.FromInt(9000)
-	policies = append(policies, &networkingv1.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "notebooks-unclassified-pipelines-minio-egress",
-			Namespace: profile.Name,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
-			},
-		},
-		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "notebook-name",
-						Operator: metav1.LabelSelectorOpExists,
-					},
-					{
-						Key:      "data.statcan.gc.ca/classification",
-						Operator: metav1.LabelSelectorOpNotIn,
-						Values:   []string{"protected-b"},
-					},
-				},
-			},
-			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
-			Egress: []networkingv1.NetworkPolicyEgressRule{
 				{
 					Ports: []networkingv1.NetworkPolicyPort{
 						{
@@ -686,64 +563,10 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		},
 	})
 
-	// Allow egress to Pipelines
-	port9000 = intstr.FromInt(9000)
-	policies = append(policies, &networkingv1.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "workflows-unclassified-pipelines-minio-egress",
-			Namespace: profile.Name,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
-			},
-		},
-		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "workflows.argoproj.io/workflow",
-						Operator: metav1.LabelSelectorOpExists,
-					},
-					{
-						Key:      "data.statcan.gc.ca/classification",
-						Operator: metav1.LabelSelectorOpNotIn,
-						Values:   []string{"protected-b"},
-					},
-				},
-			},
-			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
-			Egress: []networkingv1.NetworkPolicyEgressRule{
-				{
-					Ports: []networkingv1.NetworkPolicyPort{
-						{
-							Protocol: &protocolTCP,
-							Port:     &port9000,
-						},
-					},
-					To: []networkingv1.NetworkPolicyPeer{
-						{
-							NamespaceSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{
-									"namespace.statcan.gc.ca/purpose": "daaas",
-								},
-							},
-							PodSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{
-									"app":      "minio",
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	})
-
 	// Allow egress to MinIO
-	port9000 = intstr.FromInt(9000)
-	port9001 := intstr.FromInt(9001)
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "notebooks-unclassified-minio-egress",
+			Name:      "unclassified-minio-egress",
 			Namespace: profile.Name,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
@@ -752,10 +575,6 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		Spec: networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "notebook-name",
-						Operator: metav1.LabelSelectorOpExists,
-					},
 					{
 						Key:      "data.statcan.gc.ca/classification",
 						Operator: metav1.LabelSelectorOpNotIn,
