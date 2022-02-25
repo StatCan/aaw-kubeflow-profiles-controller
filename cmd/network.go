@@ -78,30 +78,28 @@ var networkCmd = &cobra.Command{
 				// Generate network policies
 				policies := generateNetworkPolicies(profile)
 
-				if profile.Name == "blair-drummond" {
-					// get network polices currently owned by the profile
-					existingPolicies, _ := networkPolicyLister.NetworkPolicies(profile.Name).List(labels.Everything())
+				// get network polices currently owned by the profile
+				existingPolicies, _ := networkPolicyLister.NetworkPolicies(profile.Name).List(labels.Everything())
 
-					// Cross-check against the new policies. Delete if
-					// an existing policy owned by the Profile is not in the new list.
-					for _, policy := range existingPolicies {
-						if isOwnedByUs(policy) {
+				// Cross-check against the new policies. Delete if
+				// an existing policy owned by the Profile is not in the new list.
+				for _, policy := range existingPolicies {
+					if isOwnedByUs(policy) {
 
-							// Delete if the existing policy is not in the new list
-							queueDeletion := true
-							for _, newPolicy := range policies {
-								if policy.Name == newPolicy.Name {
-									queueDeletion = false
-									break
-								}
+						// Delete if the existing policy is not in the new list
+						queueDeletion := true
+						for _, newPolicy := range policies {
+							if policy.Name == newPolicy.Name {
+								queueDeletion = false
+								break
 							}
+						}
 
-							if queueDeletion {
-								klog.Infof("removing network policy %s/%s", profile.Name, policy.Name)
-								err = kubeClient.NetworkingV1().NetworkPolicies(profile.Name).Delete(context.Background(), policy.Name, metav1.DeleteOptions{})
-								if err != nil {
-									return err
-								}
+						if queueDeletion {
+							klog.Infof("removing network policy %s/%s", profile.Name, policy.Name)
+							err = kubeClient.NetworkingV1().NetworkPolicies(profile.Name).Delete(context.Background(), policy.Name, metav1.DeleteOptions{})
+							if err != nil {
+								return err
 							}
 						}
 					}
