@@ -15,6 +15,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -22,6 +23,20 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
 )
+
+// Does the network policy have a Profile object as an owner?
+// If yes, we own it.
+func isOwnedByUs(netpol *networkingv1.NetworkPolicy) bool {
+	owners := netpol.GetOwnerReferences()
+	if owners != nil {
+		for _, obj := range owners {
+			if obj.Kind == "Profile" {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 var networkCmd = &cobra.Command{
 	Use:   "network",
@@ -62,6 +77,35 @@ var networkCmd = &cobra.Command{
 			func(profile *kubeflowv1.Profile) error {
 				// Generate network policies
 				policies := generateNetworkPolicies(profile)
+
+				if profile.Name == "blair-drummond" {
+					// get network polices currently owned by the profile
+					existingPolicies, _ := networkPolicyLister.NetworkPolicies(profile.Name).List(labels.Everything())
+
+					// Cross-check against the new policies. Delete if
+					// an existing policy owned by the Profile is not in the new list.
+					for _, policy := range existingPolicies {
+						if isOwnedByUs(policy) {
+
+							// Delete if the existing policy is not in the new list
+							queueDeletion := true
+							for _, newPolicy := range policies {
+								if policy.Name == newPolicy.Name {
+									queueDeletion = false
+									break
+								}
+							}
+
+							if queueDeletion {
+								klog.Infof("removing network policy %s/%s", profile.Name, policy.Name)
+								err = kubeClient.NetworkingV1().NetworkPolicies(profile.Name).Delete(context.Background(), policy.Name, metav1.DeleteOptions{})
+								if err != nil {
+									return err
+								}
+							}
+						}
+					}
+				}
 
 				for _, policyName := range []string{"notebooks-allow-ingress-gateway", "protected-b-notebooks-allow-ingress", "protected-b-allow-system", "protected-b-default-deny", "notebooks-allow-ingress"} {
 					_, err := networkPolicyLister.NetworkPolicies(profile.Name).Get(policyName)
