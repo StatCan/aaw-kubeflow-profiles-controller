@@ -1,0 +1,41 @@
+apiVersion: kubeflow.org/v1
+kind: Profile
+metadata:
+  name: alice
+  labels:
+    sourcecontrol.statcan.gc.ca/enabled: "true"
+spec:
+  owner:
+    kind: User
+    name: alice@cloud.statcan.ca
+---
+apiVersion: kubeflow.org/v1
+kind: Profile
+metadata:
+  name: bob
+  labels:
+    sourcecontrol.statcan.gc.ca/enabled: "false"
+spec:
+  owner:
+    kind: User
+    name: bob@cloud.statcan.ca
+---
+apiVersion: kubeflow.org/v1
+kind: Profile
+metadata:
+  name: carla
+spec:
+  owner:
+    kind: User
+    name: carla@cloud.statcan.ca
+---
+apiVersion: kubeflow.org/v1
+kind: Profile
+metadata:
+  name: roger
+  labels:
+    sourcecontrol.statcan.gc.ca/enabled: "true"
+spec:
+  owner:
+    kind: User
+    name: roger@cloud.statcan.ca
