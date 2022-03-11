@@ -121,7 +121,7 @@ func generatePodDefaults(profile *kubeflowv1.Profile) []*kubeflowv1alpha1.PodDef
 			},
 		},
 		Spec: kubeflowv1alpha1.PodDefaultSpec{
-			Desc: "Run a Protected B notebook",
+			Desc: "Run a Protected B notebook / Exécuter un bloc-notes protégé B",
 			Selector: metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"notebook.statcan.gc.ca/protected-b": "true",
