@@ -27,6 +27,12 @@ import (
 )
 var sourceControlEnabledLabel = "sourcecontrol.statcan.gc.ca/enabled"
 var giteaBannerConfigMapName = "gitea-banner"
+var argocdnamespace string
+func init() {
+	rootCmd.AddCommand(giteaCmd)
+	giteaCmd.PersistentFlags().StringVar(&argocdnamespace, "argocdnamespace", "argocd",
+		"The namespace of argocd")
+}
 
 var giteaCmd = &cobra.Command{
 	Use:   "gitea",
@@ -196,7 +202,7 @@ func generateGiteaArgoApp(profile *kubeflowv1.Profile, replicas int32) (*argocdv
 	app := &argocdv1alph1.Application{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "gitea-"+ profile.Name,
-			Namespace: "argocd",
+			Namespace: argocdnamespace,
 		},
 		Spec: argocdv1alph1.ApplicationSpec{
 			Project: "default",
