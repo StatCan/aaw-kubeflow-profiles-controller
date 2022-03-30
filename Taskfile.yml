@@ -156,3 +156,31 @@ tasks:
       - "{{.KUBECTL}} wait --for condition=established --timeout=60s crd/profiles.kubeflow.org"
       - "yq e '.metadata.name' cluster/profiles.yaml -o json | xargs -I{} sh -c '{{.KUBECTL}} create ns {} || true'"
       - "{{.KUBEAPPLY}} -f cluster/profiles.yaml"
+  
+  profile:delete:
+    prefix: ⚙️ profile < delete
+    desc: |
+      Deletes namespace(s) for test user(s) as defined in 
+      /cluster/profiles.yaml.
+    cmds:
+      - "yq e '.metadata.name' cluster/profiles.yaml -o json | xargs -I{} sh -c '{{.KUBECTL}} delete ns {} || true'"
+
+  argocd:install:
+    prefix: argocd > install
+    desc: installs arcgocd cluster wide, and sets up namespace for gitea
+    cmds:
+      - "{{.KUBECTL}} create ns argocd"
+      - "{{.KUBEAPPLY}} -f https://raw.githubusercontent.com/argoproj/argo-cd/release-2.3/manifests/install.yaml -n argocd"
+
+  argocd:uninstall:
+    prefix: argocd < uninstall
+    desc: uninstalls argocd
+    cmds:
+      - kubectl delete ns argocd
+  
+  argocd:password:
+    prefix: argocd < password
+    desc: get the password stored in argocd-initial-admin-secret
+    cmds:
+      - "echo username: admin"
+      - kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo 

@@ -14,7 +14,7 @@ kind: Profile
 metadata:
   name: bob
   labels:
-    sourcecontrol.statcan.gc.ca/enabled: "false"
+    sourcecontrol.statcan.gc.ca/enabled: "true"
 spec:
   owner:
     kind: User
@@ -24,6 +24,8 @@ apiVersion: kubeflow.org/v1
 kind: Profile
 metadata:
   name: carla
+  labels:
+    sourcecontrol.statcan.gc.ca/enabled: "true"
 spec:
   owner:
     kind: User
