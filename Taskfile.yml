@@ -1,6 +1,6 @@
 # See: https://taskfile.dev/#/usage
 version: "3"
-dotenv: ['.env']
+dotenv: [".env"]
 output: prefixed
 silent: true
 
@@ -9,7 +9,6 @@ vars:
     sh: |
       echo $(cd {{default "./" .GO_MODULE_PATH}} && go list ./... | tr '\n' ' ' || echo '"ERROR: Unable to discover Go package(s)"')
   LDFLAGS:
-
   CLUSTER_NAME: profiles-controller
   CONTEXT_NAME: "k3d-{{.CLUSTER_NAME}}"
   KUBECTL: "kubectl --context={{.CONTEXT_NAME}}"
@@ -44,7 +43,7 @@ tasks:
   default:
     prefix: ⚙️
     cmds:
-    - task -l
+      - task -l
     silent: true
 
   check:
@@ -119,7 +118,7 @@ tasks:
     prefix: ⚙️ > create
     desc: create k3d cluster
     cmds:
-    - k3d cluster create --config=cluster/config.yaml
+      - k3d cluster create --config=cluster/config.yaml
 
   k3d:create:dev:
     prefix: ⚙️ > create
@@ -127,22 +126,61 @@ tasks:
     deps:
       - k3d:create
     cmds:
-    - sed -i -e "s/0.0.0.0/host.docker.internal/g" ${HOME}/.kube/config
+      - sed -i -e "s/0.0.0.0/host.docker.internal/g" ${HOME}/.kube/config
 
   k3d:destroy:
     prefix: ⚙️ > destroy
     desc: destroy k3d cluster
     cmds:
-    - "k3d cluster delete {{.CLUSTER_NAME}}"
+      - "k3d cluster delete {{.CLUSTER_NAME}}"
 
   k3d:start:
     prefix: ⚙️ > start
     desc: starts knative environment
     cmds:
-    - "k3d cluster start {{.CLUSTER_NAME}}"
+      - "k3d cluster start {{.CLUSTER_NAME}}"
 
   k3d:stop:
     prefix: ⚙️ > stop
     desc: stop knative environment
     cmds:
-    - "k3d cluster stop {{.CLUSTER_NAME}}"
+      - "k3d cluster stop {{.CLUSTER_NAME}}"
+
+  profile:crd:
+    prefix: ⚙️ profile > crd
+    desc: |
+      Creates a namespace for test user, and creates a 
+      kubeflow profile given a profile.yaml file located in the cluster dir
+    cmds:
+      - "{{.KUBEAPPLY}} -f https://raw.githubusercontent.com/kubeflow/kubeflow/master/components/profile-controller/config/crd/bases/kubeflow.org_profiles.yaml"
+      - "{{.KUBECTL}} wait --for condition=established --timeout=60s crd/profiles.kubeflow.org"
+      - "yq e '.metadata.name' cluster/profiles.yaml -o json | xargs -I{} sh -c '{{.KUBECTL}} create ns {} || true'"
+      - "{{.KUBEAPPLY}} -f cluster/profiles.yaml"
+  
+  profile:delete:
+    prefix: ⚙️ profile < delete
+    desc: |
+      Deletes namespace(s) for test user(s) as defined in 
+      /cluster/profiles.yaml.
+    cmds:
+      - "yq e '.metadata.name' cluster/profiles.yaml -o json | xargs -I{} sh -c '{{.KUBECTL}} delete ns {} || true'"
+
+  argocd:install:
+    prefix: argocd > install
+    desc: installs arcgocd cluster wide, and sets up namespace for gitea
+    cmds:
+      - "{{.KUBECTL}} create ns argocd"
+      - "{{.KUBEAPPLY}} -f https://raw.githubusercontent.com/argoproj/argo-cd/release-2.3/manifests/install.yaml -n argocd"
+
+  argocd:uninstall:
+    prefix: argocd < uninstall
+    desc: uninstalls argocd
+    cmds:
+      - kubectl delete ns argocd
+  
+  argocd:password:
+    prefix: argocd < password
+    desc: get the password stored in argocd-initial-admin-secret
+    cmds:
+      - "echo username: admin"
+      - kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo 
