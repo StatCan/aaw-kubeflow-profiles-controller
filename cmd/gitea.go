@@ -211,7 +211,7 @@ func generateGiteaArgoApp(profile *kubeflowv1.Profile, replicas int32) (*argocdv
 				Name: "in-cluster",
 			},
 			Source: argocdv1alph1.ApplicationSource{
-				RepoURL: "https://gitea.com/cboin1996/helm-chart.git",
+				RepoURL: "https://github.com/blairdrummond/gitea-helm.git",
 				TargetRevision: "fix-extra-volume-mounts",
 				Path: ".",
 			},
