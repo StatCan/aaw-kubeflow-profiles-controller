@@ -187,17 +187,8 @@ var giteaCmd = &cobra.Command{
 	},
 }
 
-// generates the struct for argocd application that deploys gitea via helm.
-// Currently, as a workaround we are getting the helm chart from a forked repo.
-// To use the actual repo once it is fixed, replace the below entries.
-// RepoURL: "https://dl.gitea.io/charts/",
-// Chart: "gitea",
-// TargetRevision: "5.0.4",
-// Helm: &argocdv1alph1.ApplicationSourceHelm{
-// 	ReleaseName: "gitea",
-// 	Values: fmt.Sprintf(giteaHelmValuesYaml,replicas,
-// 						giteaBannerConfigMapName),
-// },
+// generates the struct for the argocd application that deploys gitea via the customized manifest
+// within https://github.com/StatCan/aaw-argocd-manifests/profiles-argocd-system/template/gitea
 func generateGiteaArgoApp(profile *kubeflowv1.Profile, replicas int32) (*argocdv1alph1.Application, error){
 	app := &argocdv1alph1.Application{
 		ObjectMeta: metav1.ObjectMeta{
@@ -211,9 +202,9 @@ func generateGiteaArgoApp(profile *kubeflowv1.Profile, replicas int32) (*argocdv
 				Name: "in-cluster",
 			},
 			Source: argocdv1alph1.ApplicationSource{
-				RepoURL: "https://github.com/blairdrummond/gitea-helm.git",
-				TargetRevision: "fix-extra-volume-mounts",
-				Path: ".",
+				RepoURL: "https://github.com/StatCan/aaw-argocd-manifests.git",
+				TargetRevision: "aaw-dev-cc-00",
+				Path: "profiles-argocd-system/template/gitea",
 			},
 			SyncPolicy: &argocdv1alph1.SyncPolicy{
 				Automated: &argocdv1alph1.SyncPolicyAutomated{
@@ -247,65 +238,6 @@ func generateBannerConfigMap(profile *kubeflowv1.Profile) (*corev1.ConfigMap, er
 	}
 	return cm, nil
 }
-
-// Variables must be formatted with fmt.Sprintf() in order to use this
-// string.
-var giteaHelmValuesYaml string = `
-replicaCount: %d
-
-extraVolumes:
-  - name: config-volume
-    configMap:
-      name: %s
-
-extraVolumeMounts:
-  - name: config-volume
-    mountPath: /data/gitea/templates/custom
-
-service:
-  http:
-    port: 80
-  ssh:
-    port: 22
-	
-gitea:
-  admin:
-    username: superuser
-    password: password
-    email: "gitea@local.domain"
-
-  metrics:
-    enabled: false
-    serviceMonitor:
-      enabled: false
-
-  config:
-    server:
-      DOMAIN: gitea
-      PROTOCOL: http
-      ROOT_URL: http://gitea
-      SSH_DOMAIN: gitea
-      ENABLE_PPROF: false
-	  HTTP_PORT: 3000
-
-postgresql:
-  enabled: true
-  global:
-    postgresql:
-      postgresqlDatabase: gitea
-      postgresqlUsername: gitea
-      postgresqlPassword: gitea
-      servicePort: 5432
-  persistence:
-    size: 1Gi
-
-memcached:
-  enabled: false
-  service:
-    port: 11211
-
-checkDeprecation: true
-`
 
 func init() {
 	rootCmd.AddCommand(giteaCmd)
