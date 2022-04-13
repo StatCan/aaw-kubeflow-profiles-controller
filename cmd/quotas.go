@@ -33,7 +33,7 @@ var defaultResources = corev1.ResourceList{
 	"limits.memory":   *resource.NewScaledQuantity(368, resource.Giga),
 
 	// Storage
-	"requests.storage": *resource.NewScaledQuantity(4, resource.Tera),
+	"requests.storage": *resource.NewScaledQuantity(100, resource.Tera),
 
 	// GPU
 	"requests.nvidia.com/gpu": *resource.NewQuantity(2, resource.DecimalSI),
