@@ -410,10 +410,10 @@ var blobcsiCmd = &cobra.Command{
 							break
 						}
 					}
-					if delete {
+					if delete || pv.Status.Phase == corev1.VolumeReleased || pv.Status.Phase == corev1.VolumeFailed {
 						err = deletePV(kubeClient, &pv)
 						if err != nil {
-							klog.Fatalf("Error deleting PV %s: %s", pv.Name, err.Error())
+							klog.Warningf("Error deleting PV %s: %s", pv.Name, err.Error())
 						}
 					}
 				}
@@ -432,7 +432,7 @@ var blobcsiCmd = &cobra.Command{
 					if delete {
 						err = deletePVC(kubeClient, &pvc)
 						if err != nil {
-							klog.Fatalf("Error deleting PVC %s/%s: %s", pvc.Namespace, pvc.Name, err.Error())
+							klog.Warningf("Error deleting PVC %s/%s: %s", pvc.Namespace, pvc.Name, err.Error())
 						}
 					}
 				}
@@ -480,6 +480,20 @@ var blobcsiCmd = &cobra.Command{
 			UpdateFunc: func(old, new interface{}) {
 				newVol := new.(*corev1.PersistentVolume)
 				oldVol := old.(*corev1.PersistentVolume)
+
+				if newVol.ResourceVersion == oldVol.ResourceVersion {
+					return
+				}
+
+				controller.HandleObject(new)
+			},
+			DeleteFunc: controller.HandleObject,
+		})
+
+		claimInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+			UpdateFunc: func(old, new interface{}) {
+				newVol := new.(*corev1.PersistentVolumeClaim)
+				oldVol := old.(*corev1.PersistentVolumeClaim)
 
 				if newVol.ResourceVersion == oldVol.ResourceVersion {
 					return
