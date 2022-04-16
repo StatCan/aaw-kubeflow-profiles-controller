@@ -13,3 +13,5 @@ profiles-controller
 
 # env
 .env
+
+.idea
