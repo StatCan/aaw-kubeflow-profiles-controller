@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"time"
 
@@ -10,6 +11,10 @@ import (
 	kubeflowclientset "github.com/StatCan/profiles-controller/pkg/generated/clientset/versioned"
 	kubeflowinformers "github.com/StatCan/profiles-controller/pkg/generated/informers/externalversions"
 	"github.com/StatCan/profiles-controller/pkg/signals"
+	istionetworkingv1beta1 "istio.io/api/networking/v1beta1"
+	istionetworkingclient "istio.io/client-go/pkg/apis/networking/v1beta1"
+	istioclientset "istio.io/client-go/pkg/clientset/versioned"
+	istioinformers "istio.io/client-go/pkg/informers/externalversions"
 	corev1 "k8s.io/api/core/v1"
 
 	argocdv1alph1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
@@ -25,9 +30,17 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
 )
+
+// The internal Gitea URL is specified in https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/manifest.yaml#L350
+const GITEA_SERVICE_URL = "gitea-http"
+
+// The port exposed by the Gitea service is specified in https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/manifest.yaml#L365
+const GITEA_SERVICE_PORT = 80
+
 var sourceControlEnabledLabel = "sourcecontrol.statcan.gc.ca/enabled"
 var giteaBannerConfigMapName = "gitea-banner"
 var argocdnamespace string
+
 func init() {
 	rootCmd.AddCommand(giteaCmd)
 	giteaCmd.PersistentFlags().StringVar(&argocdnamespace, "argocdnamespace", "argocd",
@@ -62,10 +75,16 @@ var giteaCmd = &cobra.Command{
 			klog.Fatalf("Error building argcd client: %v", err)
 		}
 
+		istioClient, err := istioclientset.NewForConfig(cfg)
+		if err != nil {
+			klog.Fatalf("error building Istio client: %v", err)
+		}
+
 		// Setup Kubeflow informers
 		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*(time.Duration(requeue_time)))
 		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*(time.Duration(requeue_time)))
 		argocdInformerFactory := argocdinformers.NewSharedInformerFactory(argocdClient, time.Minute*(time.Duration(requeue_time)))
+		istioInformerFactory := istioinformers.NewSharedInformerFactory(istioClient, time.Minute*(time.Duration(requeue_time)))
 
 		// Setup argocd informers
 		argoAppInformer := argocdInformerFactory.Argoproj().V1alpha1().Applications()
@@ -75,6 +94,9 @@ var giteaCmd = &cobra.Command{
 		configMapInformer := kubeInformerFactory.Core().V1().ConfigMaps()
 		configMapLister := configMapInformer.Lister()
 
+		// Setup virtual service informers
+		virtualServiceInformer := istioInformerFactory.Networking().V1beta1().VirtualServices()
+		virtualServiceLister := virtualServiceInformer.Lister()
 		// Setup controller
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
@@ -87,55 +109,76 @@ var giteaCmd = &cobra.Command{
 				} else {
 					replicas = 0
 				}
-				// Generate argocd application 
+				// Generate argocd application
 				giteaArgoCdApp, err := generateGiteaArgoApp(profile, replicas)
-
-				if err == nil {
-					currentGiteaArgoCdApp, err := argoAppLister.Applications(giteaArgoCdApp.Namespace).Get(giteaArgoCdApp.Name)
-					if errors.IsNotFound(err) {
-						if replicas != 0 {
-							klog.Infof("creating argo app %s/%s", giteaArgoCdApp.Namespace, giteaArgoCdApp.Name)
-							currentGiteaArgoCdApp, err = argocdClient.ArgoprojV1alpha1().Applications(giteaArgoCdApp.Namespace).Create(
-								context.Background(), giteaArgoCdApp, metav1.CreateOptions{})
-							if err != nil {
-								return err
-							}
-						}
-					} else if !reflect.DeepEqual(giteaArgoCdApp.Spec, currentGiteaArgoCdApp.Spec) {
-						klog.Infof("updating argo app %s/%s", giteaArgoCdApp.Namespace, giteaArgoCdApp.Name)
-						currentGiteaArgoCdApp.Spec = giteaArgoCdApp.Spec
-
-						_, err = argocdClient.ArgoprojV1alpha1().Applications(giteaArgoCdApp.Namespace).Update(context.Background(), 
-									currentGiteaArgoCdApp, metav1.UpdateOptions{})
+				if err != nil {
+					return err
+				}
+				currentGiteaArgoCdApp, err := argoAppLister.Applications(giteaArgoCdApp.Namespace).Get(giteaArgoCdApp.Name)
+				if errors.IsNotFound(err) {
+					if replicas != 0 {
+						klog.Infof("creating argo app %s/%s", giteaArgoCdApp.Namespace, giteaArgoCdApp.Name)
+						currentGiteaArgoCdApp, err = argocdClient.ArgoprojV1alpha1().Applications(giteaArgoCdApp.Namespace).Create(
+							context.Background(), giteaArgoCdApp, metav1.CreateOptions{})
 						if err != nil {
 							return err
 						}
+					}
+				} else if !reflect.DeepEqual(giteaArgoCdApp.Spec, currentGiteaArgoCdApp.Spec) {
+					klog.Infof("updating argo app %s/%s", giteaArgoCdApp.Namespace, giteaArgoCdApp.Name)
+					currentGiteaArgoCdApp.Spec = giteaArgoCdApp.Spec
+
+					_, err = argocdClient.ArgoprojV1alpha1().Applications(giteaArgoCdApp.Namespace).Update(context.Background(),
+						currentGiteaArgoCdApp, metav1.UpdateOptions{})
+					if err != nil {
+						return err
 					}
 				}
 
 				// Generate configMap
 				giteaConfigMap, err := generateBannerConfigMap(profile)
-				if err == nil {
-					currentGiteaConfigMap, err := configMapLister.ConfigMaps(giteaConfigMap.Namespace).Get(giteaConfigMap.Name)
-					if errors.IsNotFound(err) {
-						if replicas != 0 {
-							klog.Infof("creating configMap %s/%s", giteaConfigMap.Namespace, giteaConfigMap.Name)
-							currentGiteaConfigMap, err = kubeClient.CoreV1().ConfigMaps(giteaConfigMap.Namespace).Create(
-								context.Background(), giteaConfigMap, metav1.CreateOptions{})
-							if err != nil {
-								return err
-							}
-						}
-					} else if !reflect.DeepEqual(giteaConfigMap.Data, currentGiteaConfigMap.Data) {
-						klog.Infof("updating configMap %s/%s", giteaConfigMap.Namespace, giteaConfigMap.Name)
-						currentGiteaConfigMap.Data = giteaConfigMap.Data
-
-						_, err = kubeClient.CoreV1().ConfigMaps(giteaConfigMap.Namespace).Update(context.Background(), 
-							currentGiteaConfigMap, metav1.UpdateOptions{})
+				if err != nil {
+					return err
+				}
+				currentGiteaConfigMap, err := configMapLister.ConfigMaps(giteaConfigMap.Namespace).Get(giteaConfigMap.Name)
+				if errors.IsNotFound(err) {
+					if replicas != 0 {
+						klog.Infof("creating configMap %s/%s", giteaConfigMap.Namespace, giteaConfigMap.Name)
+						currentGiteaConfigMap, err = kubeClient.CoreV1().ConfigMaps(giteaConfigMap.Namespace).Create(
+							context.Background(), giteaConfigMap, metav1.CreateOptions{})
 						if err != nil {
 							return err
 						}
 					}
+				} else if !reflect.DeepEqual(giteaConfigMap.Data, currentGiteaConfigMap.Data) {
+					klog.Infof("updating configMap %s/%s", giteaConfigMap.Namespace, giteaConfigMap.Name)
+					currentGiteaConfigMap.Data = giteaConfigMap.Data
+
+					_, err = kubeClient.CoreV1().ConfigMaps(giteaConfigMap.Namespace).Update(context.Background(),
+						currentGiteaConfigMap, metav1.UpdateOptions{})
+					if err != nil {
+						return err
+					}
+				}
+				// Create the Istio virtual service
+				virtualService, err := generateIstioVirtualService(profile)
+				if err != nil {
+					return err
+				}
+				currentVirtualService, err := virtualServiceLister.VirtualServices(profile.Name).Get(virtualService.Name)
+				// If the virtual service is not found and the user has opted into having source control, create the virtual service.
+				if errors.IsNotFound(err) {
+					// Always create the virtual service
+					klog.Infof("Creating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
+					currentVirtualService, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Create(
+						context.Background(), virtualService, metav1.CreateOptions{},
+					)
+				} else if !reflect.DeepEqual(virtualService, currentVirtualService) {
+					klog.Infof("Updating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
+					currentVirtualService = virtualService
+					_, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Update(
+						context.Background(), currentVirtualService, metav1.UpdateOptions{},
+					)
 				}
 				return nil
 			},
@@ -189,54 +232,97 @@ var giteaCmd = &cobra.Command{
 
 // generates the struct for the argocd application that deploys gitea via the customized manifest
 // within https://github.com/StatCan/aaw-argocd-manifests/profiles-argocd-system/template/gitea
-func generateGiteaArgoApp(profile *kubeflowv1.Profile, replicas int32) (*argocdv1alph1.Application, error){
+func generateGiteaArgoApp(profile *kubeflowv1.Profile, replicas int32) (*argocdv1alph1.Application, error) {
 	app := &argocdv1alph1.Application{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "gitea-"+ profile.Name,
+			Name:      "gitea-" + profile.Name,
 			Namespace: argocdnamespace,
 		},
 		Spec: argocdv1alph1.ApplicationSpec{
 			Project: "default",
 			Destination: argocdv1alph1.ApplicationDestination{
 				Namespace: profile.Name,
-				Name: "in-cluster",
+				Name:      "in-cluster",
 			},
 			Source: argocdv1alph1.ApplicationSource{
-				RepoURL: "https://github.com/StatCan/aaw-argocd-manifests.git",
+				RepoURL:        "https://github.com/StatCan/aaw-argocd-manifests.git",
 				TargetRevision: "aaw-dev-cc-00",
-				Path: "profiles-argocd-system/template/gitea",
+				Path:           "profiles-argocd-system/template/gitea",
 			},
 			SyncPolicy: &argocdv1alph1.SyncPolicy{
 				Automated: &argocdv1alph1.SyncPolicyAutomated{
-					Prune: true,
+					Prune:    true,
 					SelfHeal: true,
 				},
 			},
 		},
 	}
-	
+
 	return app, nil
 }
-
 
 func generateBannerConfigMap(profile *kubeflowv1.Profile) (*corev1.ConfigMap, error) {
 	cm := &corev1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{
-			Kind: "ConfigMap",
+			Kind:       "ConfigMap",
 			APIVersion: "v1",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: giteaBannerConfigMapName,
+			Name:      giteaBannerConfigMapName,
 			Namespace: profile.Name,
 		},
 		Data: map[string]string{
 			"body_inner_pre.tmpl": "Welcome to AAW Gitea. " +
-								    "To login use username: superuser, password: password | " +
-									"Bienvenue à AAW Gitea. Pour vous connecter, utilisez le " + 
-									"nom d'utilisateur: superuser, le mot de passe: password",
+				"To login use username: superuser, password: password | " +
+				"Bienvenue à AAW Gitea. Pour vous connecter, utilisez le " +
+				"nom d'utilisateur: superuser, le mot de passe: password",
 		},
 	}
 	return cm, nil
+}
+
+func generateIstioVirtualService(profile *kubeflowv1.Profile) (*istionetworkingclient.VirtualService, error) {
+	// Get namespace from profile
+	namespace := profile.Name
+	// Create virtual service
+	virtualService := istionetworkingclient.VirtualService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-gitea-virtualservice", namespace),
+			Namespace: namespace,
+			// Indicate that the profile owns the virtualservice resource
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+			},
+		},
+		Spec: istionetworkingv1beta1.VirtualService{
+			// Routing rules are applied to all traffic that goes through the kubeflow gateway
+			Gateways: []string{
+				"kubeflow/kubeflow-gateway",
+			},
+			Hosts: []string{
+				"*",
+			},
+			Http: []*istionetworkingv1beta1.HTTPRoute{
+				{
+					Name: "gitea-redirect",
+					Rewrite: &istionetworkingv1beta1.HTTPRewrite{
+						Uri: "/",
+					},
+					Route: []*istionetworkingv1beta1.HTTPRouteDestination{
+						{
+							Destination: &istionetworkingv1beta1.Destination{
+								Host: fmt.Sprintf("%s.%s.svc.cluster.local", GITEA_SERVICE_URL, namespace),
+								Port: &istionetworkingv1beta1.PortSelector{
+									Number: GITEA_SERVICE_PORT,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	return &virtualService, nil
 }
 
 func init() {
