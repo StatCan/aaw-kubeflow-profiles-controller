@@ -34,7 +34,13 @@ Responsible for creating, removing and updating [Istio Authorization Policies](h
 
 ### [gitea.go](./cmd/gitea.go)
 
-Responsible for deploying [gitea](https://github.com/go-gitea/gitea) as [argocd](https://github.com/argoproj/argo-cd) applications per `Profile`. Currently, [argocd](https://github.com/argoproj/argo-cd) applications are deployed by the gitea controller based on the customized gitea manifest found [here](https://github.com/StatCan/aaw-argocd-manifests/tree/aaw-dev-cc-00/profiles-argocd-system/template/gitea). 
+Responsible for deploying [gitea](https://github.com/go-gitea/gitea) as [argocd](https://github.com/argoproj/argo-cd) applications per `Profile`. Currently, [argocd](https://github.com/argoproj/argo-cd) applications are deployed by the gitea controller based on the customized gitea manifest found [here](https://github.com/StatCan/aaw-argocd-manifests/tree/aaw-dev-cc-00/profiles-argocd-system/template/gitea).
+
+The diagram below highlights the key components involved with the Gitea controller[^1]
+
+![Gitea Controller Diagram](diagrams/gitea_controller.png)
+
+[^1]: Istio icons provided by [Istio Media Resources](https://istio.io/latest/about/media-resources/)
 
 ### [limitrange.go](./cmd/limitrange.go)
 
