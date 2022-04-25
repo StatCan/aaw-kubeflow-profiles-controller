@@ -13,3 +13,6 @@ profiles-controller
 
 # env
 .env
+
+# Debugger artifacts
+__debug_bin
