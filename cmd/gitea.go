@@ -34,6 +34,9 @@ import (
 // The internal Gitea URL is specified in https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/manifest.yaml#L350
 const GITEA_SERVICE_URL = "gitea-http"
 
+// The url prefix that is used to redirect to Gitea
+const GITEA_URL_PREFIX = "gitea"
+
 // The port exposed by the Gitea service is specified in https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/manifest.yaml#L365
 const GITEA_SERVICE_PORT = 80
 
@@ -173,7 +176,7 @@ var giteaCmd = &cobra.Command{
 					currentVirtualService, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Create(
 						context.Background(), virtualService, metav1.CreateOptions{},
 					)
-				} else if !reflect.DeepEqual(virtualService, currentVirtualService) {
+				} else if !reflect.DeepEqual(virtualService.Spec, currentVirtualService.Spec) {
 					klog.Infof("Updating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
 					currentVirtualService = virtualService
 					_, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Update(
@@ -304,9 +307,15 @@ func generateIstioVirtualService(profile *kubeflowv1.Profile) (*istionetworkingc
 			},
 			Http: []*istionetworkingv1beta1.HTTPRoute{
 				{
-					Name: "gitea-redirect",
-					Rewrite: &istionetworkingv1beta1.HTTPRewrite{
-						Uri: "/",
+					Name: "gitea-route",
+					Match: []*istionetworkingv1beta1.HTTPMatchRequest{
+						{
+							Uri: &istionetworkingv1beta1.StringMatch{
+								MatchType: &istionetworkingv1beta1.StringMatch_Prefix{
+									Prefix: fmt.Sprintf("/%s/%s/", GITEA_URL_PREFIX, namespace),
+								},
+							},
+						},
 					},
 					Route: []*istionetworkingv1beta1.HTTPRouteDestination{
 						{
@@ -317,6 +326,21 @@ func generateIstioVirtualService(profile *kubeflowv1.Profile) (*istionetworkingc
 								},
 							},
 						},
+					},
+				},
+				{
+					Name: "gitea-redirect",
+					Match: []*istionetworkingv1beta1.HTTPMatchRequest{
+						{
+							Uri: &istionetworkingv1beta1.StringMatch{
+								MatchType: &istionetworkingv1beta1.StringMatch_Prefix{
+									Prefix: fmt.Sprintf("/%s/?ns=%s", GITEA_SERVICE_URL, namespace),
+								},
+							},
+						},
+					},
+					Redirect: &istionetworkingv1beta1.HTTPRedirect{
+						Uri: fmt.Sprintf("/%s/%s/", GITEA_URL_PREFIX, namespace),
 					},
 				},
 			},
