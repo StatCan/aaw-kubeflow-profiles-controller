@@ -1,3 +1,5 @@
+import os
+
 from diagrams import Cluster
 from diagrams import Diagram
 from diagrams import Edge
@@ -13,7 +15,14 @@ from diagrams.k8s.network import Service
 
 from diagrams.custom import Custom
 
-with Diagram("Gitea Controller", show=False):
+
+def myself() -> str:
+    f = os.path.basename(__file__)
+    no_ext = ".".join(f.split(".")[:-1])
+    return no_ext
+
+
+with Diagram(myself(), show=False):
     with Cluster("Azure"):
         postgres = DatabaseForPostgresqlServers("Azure Managed Postgres")
     with Cluster("Kubernetes Cluster"):
