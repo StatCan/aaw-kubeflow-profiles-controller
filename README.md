@@ -38,7 +38,19 @@ Responsible for deploying [gitea](https://github.com/go-gitea/gitea) as [argocd]
 
 The diagram below highlights the key components involved with the Gitea controller[^1]
 
-![Gitea Controller Diagram](diagrams/gitea_controller.png)
+![Gitea Controller Diagram](docs/diagrams/gitea_controller.png)
+
+#### Gitea User Interface
+
+The Gitea user interface is embedded within the [Kubeflow dashboard](https://github.com/StatCan/aaw-kubeflow-manifests/blob/aaw-dev-cc-00/kustomize/apps/centraldashboard/base/centraldashboard-config.yaml)'s user interface, rendered by an iframe.
+
+Requests to a namespace's Gitea server are made to the Kubeflow base url with the suffix `/gitea/?ns=<user-namespace>`, where the user's namespace is passed as an http parameter. An Istio Virtual Service created by the `gitea.go` controller contains an http route that redirects traffic from `/gitea/?ns=<user-namespace>` to `/gitea/<user-namespace>/`. A second http route routes traffic from `/gitea/<user-namespace>/` to the Gitea instance in the user's namespace.
+
+The [Gitea application server](https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/values.yaml#L41) sets the `ROOT_URL` environment variable to contain the Kubeflow base URL with the `/gitea/<user-namespace>/`. This is required as it is the application's responsibility to establish the URLS that will be used in the browser to retrieve static assets and send requests to application endpoints.
+
+> TODO: It looks like each user namespace that opts into using Gitea has an ArgoCD application programmatically generated that deploys the manifests defined here https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/manifest.yaml#L49. Can we apply a Kustomize patch or similar to allow each user's Gitea application to overwrite the setting `stringData.Server.ROOT_URL` in the Gitea secret to have the prefix `/gitea/<user-namespace>`? It is currently just set to `/gitea/` which is not sufficient to distinguish between namespaces.
+
+To allow requests to reach the user's Gitea instance, a Network Policy is set in the user's namespace that allows ingress traffic from the kubeflow-gateway to be sent to any pods in the user's namespace that match the `app: gitea` label selector.
 
 [^1]: Istio icons provided by [Istio Media Resources](https://istio.io/latest/about/media-resources/)
 
