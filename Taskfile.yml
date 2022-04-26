@@ -169,8 +169,8 @@ tasks:
     prefix: argocd > install
     desc: installs arcgocd cluster wide, and sets up namespace for gitea
     cmds:
-      - "{{.KUBECTL}} create ns argocd"
-      - "{{.KUBEAPPLY}} -f https://raw.githubusercontent.com/argoproj/argo-cd/release-2.3/manifests/install.yaml -n argocd"
+      - "{{.KUBECTL}} create ns argocd || true"
+      - "{{.KUBEAPPLY}} -f https://raw.githubusercontent.com/argoproj/argo-cd/release-2.1/manifests/install.yaml -n argocd"
 
   argocd:uninstall:
     prefix: argocd < uninstall

@@ -7,6 +7,7 @@ go 1.16
 require (
 	github.com/argoproj/argo-cd/v2 v2.3.2
 	github.com/hashicorp/vault/api v1.3.1
+	github.com/lib/pq v1.10.5 // indirect
 	github.com/minio/minio-go/v7 v7.0.21
 	github.com/spf13/cobra v1.3.0
 	istio.io/api v0.0.0-20220127171628-dd6bd11b8b31
