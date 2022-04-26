@@ -23,7 +23,6 @@ import (
 	istionetworkingclient "istio.io/client-go/pkg/apis/networking/v1beta1"
 	istioclientset "istio.io/client-go/pkg/clientset/versioned"
 	istioinformers "istio.io/client-go/pkg/informers/externalversions"
-	corev1 "k8s.io/api/core/v1"
 
 	argocdv1alph1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 	argocdclientset "github.com/argoproj/argo-cd/v2/pkg/client/clientset/versioned"
@@ -374,7 +373,7 @@ func provisionDb(db *sql.DB, profile *kubeflowv1.Profile, psqlparams *Psqlparams
 	// 2. CREATE ROLE
 	err = createRole(db, profilename, profiledbpassword)
 	pqError, ok := err.(pq.Error)
-	
+	klog.Infof("%s, %s", pqError, ok)
 	if err != nil {
 		// check if the role already exists
 		if strings.Contains(err.Error(), "already exists") {
