@@ -290,7 +290,7 @@ func generateIstioVirtualService(profile *kubeflowv1.Profile) (*istionetworkingc
 	// Create virtual service
 	virtualService := istionetworkingclient.VirtualService{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-gitea-virtualservice", namespace),
+			Name:      "gitea-virtualservice",
 			Namespace: namespace,
 			// Indicate that the profile owns the virtualservice resource
 			OwnerReferences: []metav1.OwnerReference{
