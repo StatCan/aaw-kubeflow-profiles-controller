@@ -13,6 +13,8 @@ The diagram below illustrates how profiles controller components are rolled out 
 [^3]: Argo icon provided by [CNCF branding](https://cncf-branding.netlify.app/projects/argo/).
 [^4]: Moby (Docker) icon provided by [icons8](https://icons8.com/icons/set/docker)
 
+
+
 ## Terminology
 
 Helpful links to k8s resources and other terminologies related to this project are provided below.
@@ -49,7 +51,7 @@ Responsible for deploying [gitea](https://github.com/go-gitea/gitea) as [argocd]
 
 The diagram below highlights the key components involved with the Gitea controller[^5]
 
-![Gitea Controller Diagram](diagrams/gitea_controller.png)
+![Gitea Controller Diagram](docs/diagrams/gitea_controller.png)
 
 [^5]: Istio icons provided by [Istio Media Resources](https://istio.io/latest/about/media-resources/)
 
