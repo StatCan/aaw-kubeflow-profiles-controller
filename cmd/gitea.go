@@ -12,17 +12,17 @@ import (
 	"strings"
 	"time"
 
-	pq "github.com/lib/pq"
-
 	kubeflowv1 "github.com/StatCan/profiles-controller/pkg/apis/kubeflow/v1"
 	"github.com/StatCan/profiles-controller/pkg/controllers/profiles"
 	kubeflowclientset "github.com/StatCan/profiles-controller/pkg/generated/clientset/versioned"
 	kubeflowinformers "github.com/StatCan/profiles-controller/pkg/generated/informers/externalversions"
 	"github.com/StatCan/profiles-controller/pkg/signals"
+	pq "github.com/lib/pq"
 	istionetworkingv1beta1 "istio.io/api/networking/v1beta1"
 	istionetworkingclient "istio.io/client-go/pkg/apis/networking/v1beta1"
 	istioclientset "istio.io/client-go/pkg/clientset/versioned"
 	istioinformers "istio.io/client-go/pkg/informers/externalversions"
+	_ "k8s.io/client-go/plugin/pkg/client/auth/azure"
 
 	argocdv1alph1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 	argocdclientset "github.com/argoproj/argo-cd/v2/pkg/client/clientset/versioned"
@@ -54,10 +54,10 @@ var argocdnamespace string
 
 type Psqlparams struct {
 	hostname string
-	port int
+	port     string
 	username string
-	passwd string
-	dbname string
+	passwd   string
+	dbname   string
 }
 
 var psqlparams Psqlparams
@@ -67,11 +67,12 @@ func init() {
 	giteaCmd.PersistentFlags().StringVar(&argocdnamespace, "argocdnamespace", "argocd",
 		"The namespace of argocd")
 
-	psqlparams = Psqlparams{hostname: os.Getenv("GITEA_PSQL_HOSTNAME"),
-		port: 5432,
-		username: os.Getenv("GITEA_PSQL_ADMIN_UNAME"),
-		passwd: os.Getenv("GITEA_PSQL_ADMIN_PASSWD"),
-		dbname: os.Getenv("GITEA_PSQL_MAINTENANCE_DB")}
+	psqlparams = Psqlparams{
+		hostname: parseEnvVar("GITEA_PSQL_HOSTNAME"),
+		port:     parseEnvVar("GITEA_PSQL_PORT"),
+		username: parseEnvVar("GITEA_PSQL_ADMIN_UNAME"),
+		passwd:   parseEnvVar("GITEA_PSQL_ADMIN_PASSWD"),
+		dbname:   parseEnvVar("GITEA_PSQL_MAINTENANCE_DB")}
 }
 
 var giteaCmd = &cobra.Command{
@@ -103,8 +104,8 @@ var giteaCmd = &cobra.Command{
 		}
 
 		// Establisth a connection to the db.
-		db, err := connect(psqlparams.hostname, 
-		psqlparams.port, psqlparams.username, psqlparams.passwd, psqlparams.dbname)
+		db, err := connect(psqlparams.hostname,
+			psqlparams.port, psqlparams.username, psqlparams.passwd, psqlparams.dbname)
 		if err != nil {
 			klog.Fatalf("Could not establish connection to PSQL!")
 		}
@@ -151,14 +152,14 @@ var giteaCmd = &cobra.Command{
 				if err != nil {
 					return err
 				}
-				
+
 				currentGiteaArgoCdApp, err := argoAppLister.Applications(giteaArgoCdApp.Namespace).Get(giteaArgoCdApp.Name)
 				if errors.IsNotFound(err) {
 					if replicas != 0 {
 						klog.Infof("provisioning postgres for profile '%s'!", profile.Name)
 						err := provisionDb(db, profile, &psqlparams, kubeClient, secretLister, replicas)
 						if err != nil {
-							return err								
+							return err
 						}
 
 						klog.Infof("creating argo app %s/%s", giteaArgoCdApp.Namespace, giteaArgoCdApp.Name)
@@ -172,8 +173,8 @@ var giteaCmd = &cobra.Command{
 					klog.Infof("updating argo app %s/%s", giteaArgoCdApp.Namespace, giteaArgoCdApp.Name)
 					currentGiteaArgoCdApp.Spec = giteaArgoCdApp.Spec
 
-					_, err = argocdClient.ArgoprojV1alpha1().Applications(giteaArgoCdApp.Namespace).Update(context.Background(), 
-								currentGiteaArgoCdApp, metav1.UpdateOptions{})
+					_, err = argocdClient.ArgoprojV1alpha1().Applications(giteaArgoCdApp.Namespace).Update(context.Background(),
+						currentGiteaArgoCdApp, metav1.UpdateOptions{})
 					if err != nil {
 						return err
 					}
@@ -205,25 +206,25 @@ var giteaCmd = &cobra.Command{
 					}
 				}
 				// Create the Istio virtual service
-				virtualService, err := generateIstioVirtualService(profile)
-				if err != nil {
-					return err
-				}
-				currentVirtualService, err := virtualServiceLister.VirtualServices(profile.Name).Get(virtualService.Name)
-				// If the virtual service is not found and the user has opted into having source control, create the virtual service.
-				if errors.IsNotFound(err) {
-					// Always create the virtual service
-					klog.Infof("Creating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
-					currentVirtualService, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Create(
-						context.Background(), virtualService, metav1.CreateOptions{},
-					)
-				} else if !reflect.DeepEqual(virtualService.Spec, currentVirtualService.Spec) {
-					klog.Infof("Updating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
-					currentVirtualService = virtualService
-					_, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Update(
-						context.Background(), currentVirtualService, metav1.UpdateOptions{},
-					)
-				}
+				//virtualService, err := generateIstioVirtualService(profile)
+				//if err != nil {
+				//return err
+				//}
+				//currentVirtualService, err := virtualServiceLister.VirtualServices(profile.Name).Get(virtualService.Name)
+				//// If the virtual service is not found and the user has opted into having source control, create the virtual service.
+				//if errors.IsNotFound(err) {
+				//// Always create the virtual service
+				//klog.Infof("Creating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
+				//currentVirtualService, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Create(
+				//context.Background(), virtualService, metav1.CreateOptions{},
+				//)
+				//} else if !reflect.DeepEqual(virtualService.Spec, currentVirtualService.Spec) {
+				//klog.Infof("Updating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
+				//currentVirtualService = virtualService
+				//_, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Update(
+				//context.Background(), currentVirtualService, metav1.UpdateOptions{},
+				//)
+				//}
 				return nil
 			},
 		)
@@ -292,9 +293,9 @@ func generateGiteaArgoApp(profile *kubeflowv1.Profile, replicas int32) (*argocdv
 				// TODO: Restore reference to dev cluster manifest.
 				// RepoURL: "https://github.com/StatCan/aaw-argocd-manifests.git",
 				// TargetRevision: "aaw-dev-cc-00",
-				RepoURL: "https://github.com/cboin1996/aaw-argocd-manifests.git",
+				RepoURL:        "https://github.com/cboin1996/aaw-argocd-manifests.git",
 				TargetRevision: "feat-azm-postgres",
-				Path: "./profiles-argocd-system/template/gitea",
+				Path:           "./profiles-argocd-system/template/gitea",
 			},
 			SyncPolicy: &argocdv1alph1.SyncPolicy{
 				Automated: &argocdv1alph1.SyncPolicyAutomated{
@@ -357,22 +358,31 @@ func generateRandomStringURLSafe(n int) (string, error) {
 	return base64.URLEncoding.EncodeToString(b), err
 }
 
+func parseEnvVar(envname string) string {
+	value, exists := os.LookupEnv(envname)
+	if exists != true {
+		klog.Fatalf("Environment var %s does not exist, and must be set prior to controller startup!",
+			envname)
+	}
+	return value
+}
+
 // Provision postgres db for use with gitea for the given profile
 // Responsible for provisioning the db and creating the k8s secret for the db
 func provisionDb(db *sql.DB, profile *kubeflowv1.Profile, psqlparams *Psqlparams,
 	kubeclient kubernetes.Interface, secretLister v1.SecretLister, replicas int32) error {
 	dbname := fmt.Sprintf("gitea_%s", profile.Name)
 	profiledbpassword, err := generateRandomStringURLSafe(32)
-	profilename := profile.Name
+	profilename := strings.Replace(profile.Name, "-", "_", -1)
 	if err != nil {
 		klog.Errorf("Could not generate password for profile %s!", err)
 		return nil
 	}
-	// 1. CREATE SECRET FOR PROFILE, CONTAINING HOSTNAME, DBNAME, USERNAME, PASSWORD! 
-	secret := generatePsqlSecret(profile, dbname, psqlparams.hostname, profilename, profiledbpassword)
+	// 1. CREATE SECRET FOR PROFILE, CONTAINING HOSTNAME, DBNAME, USERNAME, PASSWORD!
+	secret := generatePsqlSecret(profile, dbname, psqlparams, profilename, profiledbpassword)
 	// 2. CREATE ROLE
 	err = createRole(db, profilename, profiledbpassword)
-	pqError, ok := err.(pq.Error)
+	pqError, ok := err.(*pq.Error)
 	klog.Infof("%s, %s", pqError, ok)
 	if err != nil {
 		// check if the role already exists
@@ -393,7 +403,7 @@ func provisionDb(db *sql.DB, profile *kubeflowv1.Profile, psqlparams *Psqlparams
 	if err != nil {
 		return err
 	}
-	// 4. CREATE DB 
+	// 4. CREATE DB
 	err = createDb(db, dbname, profilename)
 	if err != nil {
 		if !strings.Contains(err.Error(), "already exists") {
@@ -405,11 +415,11 @@ func provisionDb(db *sql.DB, profile *kubeflowv1.Profile, psqlparams *Psqlparams
 }
 
 //Establish a connection wih a database provided the host, port admin user, password, and database name
-func connect(host string, port int, username string, passwd string, dbname string) (*sql.DB, error) {
-	connStr := fmt.Sprintf("postgres://%s@%s:%s@%s:%d/%s?sslmode=require", 
+func connect(host string, port string, username string, passwd string, dbname string) (*sql.DB, error) {
+	connStr := fmt.Sprintf("postgres://%s@%s:%s@%s:%s/%s?sslmode=require",
 		username, host, url.QueryEscape(passwd), host, port, dbname)
-	klog.Infof("Attempting to establish connection " +
-			   "using postgres driver with con. string: %s\n", connStr)
+	klog.Infof("Attempting to establish connection "+
+		"using postgres driver with con. string: %s\n", connStr)
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		klog.Errorf("Connection failed, error: %s\n", err)
@@ -429,6 +439,7 @@ func alterRole(db *sql.DB, role string, passwd string) error {
 	query := fmt.Sprintf("ALTER ROLE %s WITH PASSWORD '%s'", role, passwd)
 	return performQuery(db, query)
 }
+
 // Creates a role within a given database handle
 func createRole(db *sql.DB, role string, passwd string) error {
 	query := fmt.Sprintf("CREATE ROLE %s WITH LOGIN PASSWORD '%s'", role, passwd)
@@ -450,14 +461,14 @@ func createDb(db *sql.DB, dbname string, role string) error {
 
 // Wrapper function for submitting a query to a database handle.
 func performQuery(db *sql.DB, query string) error {
-	klog.Infof("Attempting query: %s", query)
+	klog.Infof("Attempting query: '%s'", query)
 	result, err := db.Exec(query)
 	if err != nil {
 		klog.Errorf("Error returned for query %s: %v", query, err)
 		return err
 	}
 	klog.Infof("Recieved result for query '%s': \n\t - %v\n", query, result)
-	return nil	
+	return nil
 }
 
 // Creates or updates the secret for the namespaced gitea db.
@@ -476,7 +487,7 @@ func managePsqlSecret(secret *corev1.Secret, kubeClient kubernetes.Interface, se
 		klog.Infof("updating secret %s/%s", secret.Namespace, secret.Name)
 		currentSecret.Data = secret.Data
 
-		_, err = kubeClient.CoreV1().Secrets(secret.Namespace).Update(context.Background(), 
+		_, err = kubeClient.CoreV1().Secrets(secret.Namespace).Update(context.Background(),
 			currentSecret, metav1.UpdateOptions{})
 		if err != nil {
 			return err
@@ -486,23 +497,23 @@ func managePsqlSecret(secret *corev1.Secret, kubeClient kubernetes.Interface, se
 }
 
 // Generates a secret for the gitea db
-func generatePsqlSecret(profile *kubeflowv1.Profile, dbname string, hostname string, username string, password string) *corev1.Secret{
-	secret := &corev1.Secret {
+func generatePsqlSecret(profile *kubeflowv1.Profile, dbname string, psqlparams *Psqlparams, username string, password string) *corev1.Secret {
+	secret := &corev1.Secret{
 		TypeMeta: metav1.TypeMeta{
-			Kind: "Secret",
+			Kind:       "Secret",
 			APIVersion: "v1",
 		},
 
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "gitea-postgresql-secret",
+			Name:      "gitea-postgresql-secret",
 			Namespace: profile.Name,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
 			},
 		},
 		StringData: map[string]string{
-			"database" : fmt.Sprintf("DB_TYPE=postgres\nSSL_MODE=require\nNAME=%s\nHOST=%s\nUSER=%s\nPASSWD=%s",
-				dbname, hostname, username, password),
+			"database": fmt.Sprintf("DB_TYPE=postgres\nSSL_MODE=require\nNAME=%s\nHOST=%s:%s\nUSER=%s@%s\nPASSWD=%s",
+				dbname, psqlparams.hostname, psqlparams.port, username, psqlparams.hostname, password),
 		},
 	}
 	return secret
