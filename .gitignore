@@ -16,3 +16,7 @@ profiles-controller
 
 # Debugger artifacts
 __debug_bin
+
+# VSCode
+.vscode
+!.vscode/launch.json
