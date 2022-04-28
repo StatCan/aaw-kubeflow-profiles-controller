@@ -38,7 +38,19 @@ Responsible for deploying [gitea](https://github.com/go-gitea/gitea) as [argocd]
 
 The diagram below highlights the key components involved with the Gitea controller[^1]
 
-![Gitea Controller Diagram](diagrams/gitea_controller.png)
+![Gitea Controller Diagram](docs/diagrams/gitea_controller.png)
+
+#### Gitea User Interface
+
+The Gitea user interface is embedded within the [Kubeflow dashboard](https://github.com/StatCan/aaw-kubeflow-manifests/blob/aaw-dev-cc-00/kustomize/apps/centraldashboard/base/centraldashboard-config.yaml)'s user interface, rendered by an iframe.
+
+Requests to a namespace's Gitea server are made to the Kubeflow base url with the suffix `/gitea/?ns=<user-namespace>`, where the user's namespace is passed as an http parameter. An Istio Virtual Service created by the `gitea.go` controller contains an http route that redirects traffic from `/gitea/?ns=<user-namespace>` to `/gitea/<user-namespace>/`. A second http route routes traffic from `/gitea/<user-namespace>/` to the Gitea instance in the user's namespace.
+
+The [Gitea application server](https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/) sets the `ROOT_URL` environment variable to contain the Kubeflow base URL with the `/gitea/<user-namespace>/`. This is required as it is the application's responsibility to establish the URLS that will be used in the browser to retrieve static assets and send requests to application endpoints.
+
+The Gitea application [values.yaml file](https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/values.yaml#L37-L45) makes use of [pod fields as environment variables](https://kubernetes.io/docs/tasks/inject-data-application/environment-variable-expose-pod-information/) and [dependent environment variables](https://kubernetes.io/docs/tasks/inject-data-application/define-interdependent-environment-variables/#define-an-environment-dependent-variable-for-a-container) to create a `ROOT_URL` that depends on the user's namespace. Additionally, an [upstream gitea issue](https://github.com/go-gitea/gitea/issues/6397) indicates that it is possible to set multiple domains in the `ROOT_URL` environment variable by using the syntax `ROOT_URL=https://(domain1,domain2)/gitea/`, which is how the dev/prod domains are set without needing to check the deployment environment.
+
+To allow requests to reach the user's Gitea instance, a Network Policy is set in the user's namespace that allows ingress traffic from the kubeflow-gateway to be sent to any pods in the user's namespace that match the `app: gitea` label selector.
 
 [^1]: Istio icons provided by [Istio Media Resources](https://istio.io/latest/about/media-resources/)
 

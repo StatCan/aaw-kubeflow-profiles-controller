@@ -297,12 +297,7 @@ func generateGiteaArgoApp(profile *kubeflowv1.Profile, replicas int32) (*argocdv
 				TargetRevision: "feat-azm-postgres",
 				Path:           "./profiles-argocd-system/template/gitea",
 			},
-			SyncPolicy: &argocdv1alph1.SyncPolicy{
-				Automated: &argocdv1alph1.SyncPolicyAutomated{
-					Prune:    true,
-					SelfHeal: true,
-				},
-			},
+			SyncPolicy: &argocdv1alph1.SyncPolicy{},
 		},
 	}
 
@@ -525,7 +520,7 @@ func generateIstioVirtualService(profile *kubeflowv1.Profile) (*istionetworkingc
 	// Create virtual service
 	virtualService := istionetworkingclient.VirtualService{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-gitea-virtualservice", namespace),
+			Name:      "gitea-virtualservice",
 			Namespace: namespace,
 			// Indicate that the profile owns the virtualservice resource
 			OwnerReferences: []metav1.OwnerReference{
@@ -551,6 +546,9 @@ func generateIstioVirtualService(profile *kubeflowv1.Profile) (*istionetworkingc
 								},
 							},
 						},
+					},
+					Rewrite: &istionetworkingv1beta1.HTTPRewrite{
+						Uri: "/",
 					},
 					Route: []*istionetworkingv1beta1.HTTPRouteDestination{
 						{
