@@ -317,6 +317,9 @@ func generateIstioVirtualService(profile *kubeflowv1.Profile) (*istionetworkingc
 							},
 						},
 					},
+					Rewrite: &istionetworkingv1beta1.HTTPRewrite{
+						Uri: "/",
+					},
 					Route: []*istionetworkingv1beta1.HTTPRouteDestination{
 						{
 							Destination: &istionetworkingv1beta1.Destination{
