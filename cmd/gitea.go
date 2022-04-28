@@ -252,12 +252,7 @@ func generateGiteaArgoApp(profile *kubeflowv1.Profile, replicas int32) (*argocdv
 				TargetRevision: "aaw-dev-cc-00",
 				Path:           "profiles-argocd-system/template/gitea",
 			},
-			SyncPolicy: &argocdv1alph1.SyncPolicy{
-				Automated: &argocdv1alph1.SyncPolicyAutomated{
-					Prune:    true,
-					SelfHeal: true,
-				},
-			},
+			SyncPolicy: &argocdv1alph1.SyncPolicy{},
 		},
 	}
 
