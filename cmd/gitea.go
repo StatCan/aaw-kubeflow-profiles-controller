@@ -337,7 +337,14 @@ func generateIstioVirtualService(profile *kubeflowv1.Profile) (*istionetworkingc
 						{
 							Uri: &istionetworkingv1beta1.StringMatch{
 								MatchType: &istionetworkingv1beta1.StringMatch_Prefix{
-									Prefix: fmt.Sprintf("/%s/?ns=%s", GITEA_SERVICE_URL, namespace),
+									Prefix: fmt.Sprintf("/%s/", GITEA_SERVICE_URL),
+								},
+							},
+							QueryParams: map[string]*istionetworkingv1beta1.StringMatch{
+								"ns": {
+									MatchType: &istionetworkingv1beta1.StringMatch_Exact{
+										Exact: namespace,
+									},
 								},
 							},
 						},
