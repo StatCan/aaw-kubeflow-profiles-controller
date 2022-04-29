@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"regexp"
 	"strings"
 	"time"
 
@@ -20,8 +21,9 @@ import (
 	pq "github.com/lib/pq"
 	istionetworkingv1beta1 "istio.io/api/networking/v1beta1"
 	istionetworkingclient "istio.io/client-go/pkg/apis/networking/v1beta1"
-	istioclientset "istio.io/client-go/pkg/clientset/versioned"
-	istioinformers "istio.io/client-go/pkg/informers/externalversions"
+
+	//istioclientset "istio.io/client-go/pkg/clientset/versioned"
+	//istioinformers "istio.io/client-go/pkg/informers/externalversions"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/azure"
 
 	argocdv1alph1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
@@ -109,16 +111,16 @@ var giteaCmd = &cobra.Command{
 		if err != nil {
 			klog.Fatalf("Could not establish connection to PSQL!")
 		}
-		istioClient, err := istioclientset.NewForConfig(cfg)
-		if err != nil {
-			klog.Fatalf("error building Istio client: %v", err)
-		}
+		//istioClient, err := istioclientset.NewForConfig(cfg)
+		//if err != nil {
+		//klog.Fatalf("error building Istio client: %v", err)
+		//}
 
 		// Setup Kubeflow informers
 		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*(time.Duration(requeue_time)))
 		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*(time.Duration(requeue_time)))
 		argocdInformerFactory := argocdinformers.NewSharedInformerFactory(argocdClient, time.Minute*(time.Duration(requeue_time)))
-		istioInformerFactory := istioinformers.NewSharedInformerFactory(istioClient, time.Minute*(time.Duration(requeue_time)))
+		//istioInformerFactory := istioinformers.NewSharedInformerFactory(istioClient, time.Minute*(time.Duration(requeue_time)))
 
 		// Setup argocd informers
 		argoAppInformer := argocdInformerFactory.Argoproj().V1alpha1().Applications()
@@ -132,8 +134,9 @@ var giteaCmd = &cobra.Command{
 		secretLister := secretInformer.Lister()
 
 		// Setup virtual service informers
-		virtualServiceInformer := istioInformerFactory.Networking().V1beta1().VirtualServices()
-		virtualServiceLister := virtualServiceInformer.Lister()
+		//virtualServiceInformer := istioInformerFactory.Networking().V1beta1().VirtualServices()
+		//virtualServiceLister := virtualServiceInformer.Lister()
+
 		// Setup controller
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
@@ -366,23 +369,33 @@ func parseEnvVar(envname string) string {
 // Responsible for provisioning the db and creating the k8s secret for the db
 func provisionDb(db *sql.DB, profile *kubeflowv1.Profile, psqlparams *Psqlparams,
 	kubeclient kubernetes.Interface, secretLister v1.SecretLister, replicas int32) error {
-	dbname := fmt.Sprintf("gitea_%s", profile.Name)
+	psqlDuplicateErrorCode := pq.ErrorCode("42710")
+	pqParseErrorMsg := "Could not cast error '%s' to type pq.Error!"
+	// prepare profile specific db items
+	profilename := fmt.Sprintf("gitea_%s", strings.Replace(profile.Name, "-", "_", -1))
+	dbname := profilename
+
 	profiledbpassword, err := generateRandomStringURLSafe(32)
-	profilename := strings.Replace(profile.Name, "-", "_", -1)
 	if err != nil {
 		klog.Errorf("Could not generate password for profile %s!", err)
-		return nil
+		return err
 	}
 	// 1. CREATE SECRET FOR PROFILE, CONTAINING HOSTNAME, DBNAME, USERNAME, PASSWORD!
 	secret := generatePsqlSecret(profile, dbname, psqlparams, profilename, profiledbpassword)
 	// 2. CREATE ROLE
-	err = createRole(db, profilename, profiledbpassword)
-	pqError, ok := err.(*pq.Error)
-	klog.Infof("%s, %s", pqError, ok)
+	query := fmt.Sprintf("CREATE ROLE %s WITH LOGIN PASSWORD %s",
+		pq.QuoteIdentifier(profilename), pq.QuoteLiteral(profiledbpassword))
+	err = performQuery(db, query)
 	if err != nil {
+		pqError, ok := err.(*pq.Error)
+		if !ok {
+			return fmt.Errorf(pqParseErrorMsg, err)
+		}
 		// check if the role already exists
-		if strings.Contains(err.Error(), "already exists") {
-			err = alterRole(db, profilename, profiledbpassword)
+		if pqError.Code == psqlDuplicateErrorCode {
+			query = fmt.Sprintf("ALTER ROLE %s WITH PASSWORD %s", pq.QuoteIdentifier(profilename),
+				pq.QuoteLiteral(profiledbpassword))
+			err = performQuery(db, query)
 			if err != nil {
 				return err
 			}
@@ -393,15 +406,22 @@ func provisionDb(db *sql.DB, profile *kubeflowv1.Profile, psqlparams *Psqlparams
 	} else {
 		managePsqlSecret(secret, kubeclient, secretLister, replicas)
 	}
-	// 3. GRANT ADMIN TO ROLE
-	err = grantRole(db, profilename, psqlparams.username)
+	// 3. GRANT ADMIN PERMISSIONS FOR CONFIGURING ROLE
+	query = fmt.Sprintf("GRANT %s to %s", pq.QuoteIdentifier(profilename), pq.QuoteIdentifier(psqlparams.username))
+	err = performQuery(db, query)
 	if err != nil {
 		return err
 	}
 	// 4. CREATE DB
-	err = createDb(db, dbname, profilename)
+	query = fmt.Sprintf(`CREATE DATABASE %s WITH OWNER %s TEMPLATE template0 ENCODING UTF8 LC_COLLATE "en-US" LC_CTYPE "en-US"`,
+		pq.QuoteIdentifier(dbname), pq.QuoteIdentifier(profilename))
+	err = performQuery(db, query)
 	if err != nil {
-		if !strings.Contains(err.Error(), "already exists") {
+		pqError, ok := err.(*pq.Error)
+		if !ok {
+			return fmt.Errorf(pqParseErrorMsg, err)
+		}
+		if pqError.Code == psqlDuplicateErrorCode {
 			return err
 		}
 	}
@@ -413,8 +433,10 @@ func provisionDb(db *sql.DB, profile *kubeflowv1.Profile, psqlparams *Psqlparams
 func connect(host string, port string, username string, passwd string, dbname string) (*sql.DB, error) {
 	connStr := fmt.Sprintf("postgres://%s@%s:%s@%s:%s/%s?sslmode=require",
 		username, host, url.QueryEscape(passwd), host, port, dbname)
+	maskedConnStr := fmt.Sprintf("postgres://%s@%s:%s@%s:%s/%s?sslmode=require",
+		"****MASKED****", host, "****MASKED****", host, port, dbname)
 	klog.Infof("Attempting to establish connection "+
-		"using postgres driver with con. string: %s\n", connStr)
+		"using postgres driver with con. string (secrets masked): %s\n", maskedConnStr)
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		klog.Errorf("Connection failed, error: %s\n", err)
@@ -429,40 +451,20 @@ func connect(host string, port string, username string, passwd string, dbname st
 	return db, err
 }
 
-// Alters a role's password within a given database handle
-func alterRole(db *sql.DB, role string, passwd string) error {
-	query := fmt.Sprintf("ALTER ROLE %s WITH PASSWORD '%s'", role, passwd)
-	return performQuery(db, query)
-}
-
-// Creates a role within a given database handle
-func createRole(db *sql.DB, role string, passwd string) error {
-	query := fmt.Sprintf("CREATE ROLE %s WITH LOGIN PASSWORD '%s'", role, passwd)
-	return performQuery(db, query)
-}
-
-// Adds role1 as a member of role2 within a given database handle
-func grantRole(db *sql.DB, role1 string, role2 string) error {
-	query := fmt.Sprintf("GRANT %s to %s", role1, role2)
-	return performQuery(db, query)
-}
-
-// Performs gitea specific initialization for a given database handle
-func createDb(db *sql.DB, dbname string, role string) error {
-	query := fmt.Sprintf(
-		`CREATE DATABASE %s WITH OWNER %s TEMPLATE template0 ENCODING UTF8 LC_COLLATE "en-US" LC_CTYPE "en-US";`, dbname, role)
-	return performQuery(db, query)
-}
-
 // Wrapper function for submitting a query to a database handle.
-func performQuery(db *sql.DB, query string) error {
-	klog.Infof("Attempting query: '%s'", query)
-	result, err := db.Exec(query)
+// Any queries are printed as is, with PASSWORD parameters masked.
+func performQuery(db *sql.DB, query string, args ...any) error {
+	// mask any passwords within the query
+	r := regexp.MustCompile("PASSWORD '.*'")
+	maskedQuery := r.ReplaceAllString(query, "PASSWORD ****MASKED****")
+
+	klog.Infof("Attempting query '%s'!", maskedQuery)
+	_, err := db.Exec(query, args...)
 	if err != nil {
-		klog.Errorf("Error returned for query %s: %v", query, err)
+		klog.Errorf("Error returned for query %s: %v", maskedQuery, err)
 		return err
 	}
-	klog.Infof("Recieved result for query '%s': \n\t - %v\n", query, result)
+	klog.Infof("Query '%s' successful", maskedQuery)
 	return nil
 }
 
@@ -478,9 +480,9 @@ func managePsqlSecret(secret *corev1.Secret, kubeClient kubernetes.Interface, se
 				return err
 			}
 		}
-	} else if !reflect.DeepEqual(secret.Data, currentSecret.Data) {
-		klog.Infof("updating secret %s/%s", secret.Namespace, secret.Name)
-		currentSecret.Data = secret.Data
+	} else if !reflect.DeepEqual(secret.StringData, currentSecret.StringData) {
+		klog.Infof("updating secret %s", secret.Namespace, secret.Name)
+		currentSecret.StringData = secret.StringData
 
 		_, err = kubeClient.CoreV1().Secrets(secret.Namespace).Update(context.Background(),
 			currentSecret, metav1.UpdateOptions{})
