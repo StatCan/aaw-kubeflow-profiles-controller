@@ -335,15 +335,13 @@ func generateIstioVirtualService(profile *kubeflowv1.Profile) (*istionetworkingc
 					Name: "gitea-redirect",
 					Match: []*istionetworkingv1beta1.HTTPMatchRequest{
 						{
-							Uri: &istionetworkingv1beta1.StringMatch{
-								MatchType: &istionetworkingv1beta1.StringMatch_Prefix{
-									Prefix: fmt.Sprintf("/%s/", GITEA_SERVICE_URL),
-								},
-							},
-							QueryParams: map[string]*istionetworkingv1beta1.StringMatch{
-								"ns": {
+							Headers: map[string]*istionetworkingv1beta1.StringMatch{
+								// TODO: this should be refactored once we upgrade to Kubeflow > 1.4,
+								// we will no longer need to check the http referer header once namespaced
+								// menu items are supported.
+								"referer": {
 									MatchType: &istionetworkingv1beta1.StringMatch_Exact{
-										Exact: namespace,
+										Exact: fmt.Sprintf("https://kubeflow.aaw-dev.cloud.statcan.ca/_/gitea/?ns=%s", namespace),
 									},
 								},
 							},
