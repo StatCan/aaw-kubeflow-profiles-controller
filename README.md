@@ -2,6 +2,35 @@
 
 This repository implements custom controllers for watching `Profile` resources from Kubeflow.
 
+## Overview
+
+The diagram below illustrates how profiles controller components are rolled out on the cluster.[^1][^2][^3][^4]
+
+![Kubeflow Profile Controller Overview](docs/diagrams/profiles_controller_overview.png)
+
+[^1]: Gitlab icons provided by [Gitlab Press Kit](https://about.gitlab.com/press/press-kit/).
+[^2]: Github icons provided by [Github logos](https://github.com/logos).
+[^3]: Argo icon provided by [CNCF branding](https://cncf-branding.netlify.app/projects/argo/).
+[^4]: Moby (Docker) icon provided by [icons8](https://icons8.com/icons/set/docker)
+
+### How to Create a Controller
+
+**Note**: Modifying a controller is a subset of these steps; if you are only updating an existing controller, ignore the steps that don't apply.
+
+1. Create a `.go` file in the `cmd` folder of **this** repository with the name of your controller. Your controller must create a `cobra.Command` and register it with the `rootCmd` of the application. Your controller will be invoked with the entrypoint `./profiles-controller <your controller name>`.
+2. Modify the profiles-controller helm chart in the [StatCan charts](https://github.com/StatCan/charts) repo. Add the deployment containing your new controller and update the `values.yaml` file accordingly with any new parameters specific to your container.
+3. Once your new controller is ready, merge your branch to the `main` branch of **this** repository. A Github action in **this** repository runs a build job (see `.github/workflows/build.yml`) that builds the profiles-controller container image and pushes it to Azure container registry. The pushed image is tagged with the commit SHA of the git commit that triggered the Github Action.
+4. Go to the build job in the Github action and copy the commit SHA that the image is tagged with to your clipboard. This can be found at the top of the step called **Run docker build** in the **build** job.
+5. Go to the [aaw-argocd-manifests](https://github.com/StatCan/aaw-argocd-manifests) repository and open the `application.jsonnet` file that deploys the `profiles-controller` ArgoCD application in the `daaas-system` namespace. In this file, paste the commit SHA from the previous step to the `image.tag` field. This updates the image tag for the base image used by the `profiles-controller` deployment. Note that you can make this edit directly through Github's editing features. This edit should be merged into either the `aaw-dev-cc-00` branch or the `aaw-prod-cc-00` branch depending on whether the update applies to the dev or prod environments. The `profiles-controller` ArgoCD application watches for changes to the `application.jsonnet` file on these branches.
+
+
+### Controllers that Deploy Per-Namespace Applications
+
+Some controllers deploy per-namespace applications for each user (e.g. Gitea, S3Proxy). In this case, a few additional steps may be required.
+
+1. The `profiles-argocd-system` folder of the [aaw-argocd-manifests](https://github.com/StatCan/aaw-argocd-manifests) repository contains manifests that get deployed by per-namespace ArgoCD applications. The intended pattern is that Kubernetes manifests are applied directly with Kustomize patches as required.
+2. Depending on what a particular per-namespace application looks like, there may be a manual step required where a developer must build the manifests by, for example, templating a helm chart and saving the output in a `manifest.yaml` file. In this case, a PR must be made to either the `aaw-dev-cc-00` or `aaw-prod-cc-00` branches of the aaw-argocd-manifests repo with the newly build `manifest.yaml` file.
+
 ## Terminology
 
 Helpful links to k8s resources and other terminologies related to this project are provided below.
@@ -36,7 +65,7 @@ Responsible for creating, removing and updating [Istio Authorization Policies](h
 
 Responsible for deploying [gitea](https://github.com/go-gitea/gitea) as [argocd](https://github.com/argoproj/argo-cd) applications per `Profile`. Currently, [argocd](https://github.com/argoproj/argo-cd) applications are deployed by the gitea controller based on the customized gitea manifest found [here](https://github.com/StatCan/aaw-argocd-manifests/tree/aaw-dev-cc-00/profiles-argocd-system/template/gitea).
 
-The diagram below highlights the key components involved with the Gitea controller[^1]
+The diagram below highlights the key components involved with the Gitea controller[^5]
 
 ![Gitea Controller Diagram](docs/diagrams/gitea_controller.png)
 
@@ -52,7 +81,7 @@ The Gitea application [values.yaml file](https://github.com/StatCan/aaw-argocd-m
 
 To allow requests to reach the user's Gitea instance, a Network Policy is set in the user's namespace that allows ingress traffic from the kubeflow-gateway to be sent to any pods in the user's namespace that match the `app: gitea` label selector.
 
-[^1]: Istio icons provided by [Istio Media Resources](https://istio.io/latest/about/media-resources/)
+[^5]: Istio icons provided by [Istio Media Resources](https://istio.io/latest/about/media-resources/)
 
 ### [limitrange.go](./cmd/limitrange.go)
 
