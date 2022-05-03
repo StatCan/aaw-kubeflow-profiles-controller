@@ -10,6 +10,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,8 +23,8 @@ import (
 	istionetworkingv1beta1 "istio.io/api/networking/v1beta1"
 	istionetworkingclient "istio.io/client-go/pkg/apis/networking/v1beta1"
 
-	//istioclientset "istio.io/client-go/pkg/clientset/versioned"
-	//istioinformers "istio.io/client-go/pkg/informers/externalversions"
+	istioclientset "istio.io/client-go/pkg/clientset/versioned"
+	istioinformers "istio.io/client-go/pkg/informers/externalversions"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/azure"
 
 	argocdv1alph1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
@@ -111,16 +112,16 @@ var giteaCmd = &cobra.Command{
 		if err != nil {
 			klog.Fatalf("Could not establish connection to PSQL!")
 		}
-		//istioClient, err := istioclientset.NewForConfig(cfg)
-		//if err != nil {
-		//klog.Fatalf("error building Istio client: %v", err)
-		//}
+		istioClient, err := istioclientset.NewForConfig(cfg)
+		if err != nil {
+			klog.Fatalf("error building Istio client: %v", err)
+		}
 
 		// Setup Kubeflow informers
 		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*(time.Duration(requeue_time)))
 		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*(time.Duration(requeue_time)))
 		argocdInformerFactory := argocdinformers.NewSharedInformerFactory(argocdClient, time.Minute*(time.Duration(requeue_time)))
-		//istioInformerFactory := istioinformers.NewSharedInformerFactory(istioClient, time.Minute*(time.Duration(requeue_time)))
+		istioInformerFactory := istioinformers.NewSharedInformerFactory(istioClient, time.Minute*(time.Duration(requeue_time)))
 
 		// Setup argocd informers
 		argoAppInformer := argocdInformerFactory.Argoproj().V1alpha1().Applications()
@@ -134,8 +135,12 @@ var giteaCmd = &cobra.Command{
 		secretLister := secretInformer.Lister()
 
 		// Setup virtual service informers
-		//virtualServiceInformer := istioInformerFactory.Networking().V1beta1().VirtualServices()
+		virtualServiceInformer := istioInformerFactory.Networking().V1beta1().VirtualServices()
 		//virtualServiceLister := virtualServiceInformer.Lister()
+
+		// Setup ServiceEntry informers
+		serviceEntryInformer := istioInformerFactory.Networking().V1beta1().ServiceEntries()
+		serviceEntryLister := serviceEntryInformer.Lister()
 
 		// Setup controller
 		controller := profiles.NewController(
@@ -228,10 +233,32 @@ var giteaCmd = &cobra.Command{
 				//context.Background(), currentVirtualService, metav1.UpdateOptions{},
 				//)
 				//}
+
+				// Create the Istio Service Entry
+				serviceEntry, err := generateServiceEntry(profile, psqlparams)
+				if err != nil {
+					return err
+				}
+				currentServiceEntry, err := serviceEntryLister.ServiceEntries(serviceEntry.Namespace).Get(serviceEntry.Name)
+				// If the ServiceEntry is not found and the user has opted into having source control, create ServiceEntry
+				if errors.IsNotFound(err) {
+					if replicas != 0 {
+						klog.Infof("Creating Istio ServiceEntry %s/%s", serviceEntry.Namespace, serviceEntry.Name)
+						currentServiceEntry, err = istioClient.NetworkingV1beta1().ServiceEntries(serviceEntry.Namespace).Create(
+							context.Background(), serviceEntry, metav1.CreateOptions{},
+						)
+					}
+				} else if !reflect.DeepEqual(serviceEntry.Spec, currentServiceEntry.Spec) {
+					klog.Infof("Updating Istio ServiceEntry %s/%s", serviceEntry.Namespace, serviceEntry.Name)
+					currentServiceEntry = serviceEntry
+					_, err = istioClient.NetworkingV1beta1().ServiceEntries(serviceEntry.Namespace).Update(
+						context.Background(), currentServiceEntry, metav1.UpdateOptions{},
+					)
+				}
 				return nil
 			},
 		)
-
+		// Declare Event Handlers for Informers
 		argoAppInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 			UpdateFunc: func(old, new interface{}) {
 				newDep := new.(*argocdv1alph1.Application)
@@ -260,17 +287,73 @@ var giteaCmd = &cobra.Command{
 			DeleteFunc: controller.HandleObject,
 		})
 
+		secretInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+			UpdateFunc: func(old, new interface{}) {
+				newDep := new.(*corev1.Secret)
+				oldDep := old.(*corev1.Secret)
+
+				if newDep.ResourceVersion == oldDep.ResourceVersion {
+					return
+				}
+				controller.HandleObject(new)
+			},
+			DeleteFunc: controller.HandleObject,
+		})
+
+		virtualServiceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+			UpdateFunc: func(old, new interface{}) {
+				newDep := new.(*istionetworkingclient.VirtualService)
+				oldDep := old.(*istionetworkingclient.VirtualService)
+
+				if newDep.ResourceVersion == oldDep.ResourceVersion {
+					return
+				}
+
+				controller.HandleObject(new)
+			},
+			DeleteFunc: controller.HandleObject,
+		})
+
+		serviceEntryInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+			UpdateFunc: func(old, new interface{}) {
+				newDep := new.(*istionetworkingclient.ServiceEntry)
+				oldDep := old.(*istionetworkingclient.ServiceEntry)
+
+				if newDep.ResourceVersion == oldDep.ResourceVersion {
+					return
+				}
+
+				controller.HandleObject(new)
+			},
+			DeleteFunc: controller.HandleObject,
+		})
 		// Start informers
 		kubeInformerFactory.Start(stopCh)
 		kubeflowInformerFactory.Start(stopCh)
 		argocdInformerFactory.Start(stopCh)
+		istioInformerFactory.Start(stopCh)
 
-		// Wait for caches
-		klog.Info("Waiting for informer caches to sync")
+		// Wait for caches to sync
+		klog.Info("Waiting for configMap informer caches to sync")
+		if ok := cache.WaitForCacheSync(stopCh, configMapInformer.Informer().HasSynced); !ok {
+			klog.Fatalf("failed to wait for caches to sync")
+		}
+		klog.Info("Waiting for secret informer caches to sync")
+		if ok := cache.WaitForCacheSync(stopCh, secretInformer.Informer().HasSynced); !ok {
+			klog.Fatalf("failed to wait for caches to sync")
+		}
+		klog.Info("Waiting for argo informer caches to sync")
 		if ok := cache.WaitForCacheSync(stopCh, argoAppInformer.Informer().HasSynced); !ok {
 			klog.Fatalf("failed to wait for caches to sync")
 		}
-
+		klog.Info("Waiting for istio serviceEntry informer caches to sync")
+		if ok := cache.WaitForCacheSync(stopCh, serviceEntryInformer.Informer().HasSynced); !ok {
+			klog.Fatalf("failed to wait for caches to sync")
+		}
+		// klog.Info("Waiting for istio VirtualService informer caches to sync")
+		// if ok := cache.WaitForCacheSync(stopCh, virtualServiceInformer.Informer().HasSynced); !ok {
+		// 	klog.Fatalf("failed to wait for caches to sync")
+		// }
 		// Run the controller
 		if err = controller.Run(2, stopCh); err != nil {
 			klog.Fatalf("error running controller: %v", err)
@@ -481,7 +564,7 @@ func managePsqlSecret(secret *corev1.Secret, kubeClient kubernetes.Interface, se
 			}
 		}
 	} else if !reflect.DeepEqual(secret.StringData, currentSecret.StringData) {
-		klog.Infof("updating secret %s", secret.Namespace, secret.Name)
+		klog.Infof("updating secret %s/%s", secret.Namespace, secret.Name)
 		currentSecret.StringData = secret.StringData
 
 		_, err = kubeClient.CoreV1().Secrets(secret.Namespace).Update(context.Background(),
@@ -582,6 +665,47 @@ func generateIstioVirtualService(profile *kubeflowv1.Profile) (*istionetworkingc
 		},
 	}
 	return &virtualService, nil
+}
+
+func generateServiceEntry(profile *kubeflowv1.Profile, psqlparams Psqlparams) (*istionetworkingclient.ServiceEntry, error) {
+	// Get the namespace from the profile
+	namespace := profile.Name
+
+	// Cast port to uint, required by istio
+	port, err := strconv.ParseUint(psqlparams.port, 10, 32)
+	if err != nil {
+		klog.Errorf("Error while generating ServiceEntry: Could not parse port to int: %s", err)
+		return nil, err
+	}
+
+	// Create the ServiceEntry struct
+	serviceEntry := istionetworkingclient.ServiceEntry{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "gitea-postgresql-service-entry",
+			Namespace: namespace,
+			// Indicate that the profile owns the ServiceEntry resource
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+			},
+		},
+		Spec: istionetworkingv1beta1.ServiceEntry{
+			ExportTo: []string{
+				".",
+			},
+			Hosts: []string{
+				psqlparams.hostname,
+			},
+			Ports: []*istionetworkingv1beta1.Port{
+				{
+					Name:     "gitea-tcp-pgsql",
+					Number:   uint32(port),
+					Protocol: "TCP",
+				},
+			},
+			Resolution: istionetworkingv1beta1.ServiceEntry_DNS,
+		},
+	}
+	return &serviceEntry, nil
 }
 
 func init() {
