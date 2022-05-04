@@ -377,6 +377,7 @@ func generateGiteaArgoApp(profile *kubeflowv1.Profile, replicas int32) (*argocdv
 			Source: argocdv1alph1.ApplicationSource{
 				RepoURL:        "https://github.com/StatCan/aaw-argocd-manifests.git",
 				TargetRevision: "aaw-dev-cc-00",
+				Path:           "profiles-argocd-system/template/gitea",
 			},
 			SyncPolicy: &argocdv1alph1.SyncPolicy{},
 		},
