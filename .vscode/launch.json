@@ -15,7 +15,8 @@
                 "--kubeconfig",
                 "${env:KUBECONFIG}",
                 "gitea"
-            ]
+            ],
+            "envFile": "${workspaceFolder}/.env"
         },
         {
             "name": "Debug Network Policy Profile Controller",
