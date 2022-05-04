@@ -69,13 +69,6 @@ func init() {
 	rootCmd.AddCommand(giteaCmd)
 	giteaCmd.PersistentFlags().StringVar(&argocdnamespace, "argocdnamespace", "argocd",
 		"The namespace of argocd")
-
-	psqlparams = Psqlparams{
-		hostname: parseEnvVar("GITEA_PSQL_HOSTNAME"),
-		port:     parseEnvVar("GITEA_PSQL_PORT"),
-		username: parseEnvVar("GITEA_PSQL_ADMIN_UNAME"),
-		passwd:   parseEnvVar("GITEA_PSQL_ADMIN_PASSWD"),
-		dbname:   parseEnvVar("GITEA_PSQL_MAINTENANCE_DB")}
 }
 
 var giteaCmd = &cobra.Command{
@@ -83,6 +76,12 @@ var giteaCmd = &cobra.Command{
 	Short: "Configure gitea",
 	Long: `Configure gitea for Kubeflow resources.* Statefulset	`,
 	Run: func(cmd *cobra.Command, args []string) {
+		psqlparams = Psqlparams{
+			hostname: parseEnvVar("GITEA_PSQL_HOSTNAME"),
+			port:     parseEnvVar("GITEA_PSQL_PORT"),
+			username: parseEnvVar("GITEA_PSQL_ADMIN_UNAME"),
+			passwd:   parseEnvVar("GITEA_PSQL_ADMIN_PASSWD"),
+			dbname:   parseEnvVar("GITEA_PSQL_MAINTENANCE_DB")}
 		// Setup signals so we can shutdown cleanly
 		stopCh := signals.SetupSignalHandler()
 		// Create Kubernetes config
