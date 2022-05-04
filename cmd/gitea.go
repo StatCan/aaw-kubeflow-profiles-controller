@@ -250,7 +250,7 @@ var giteaCmd = &cobra.Command{
 					}
 				} else if !reflect.DeepEqual(serviceEntry.Spec, currentServiceEntry.Spec) {
 					klog.Infof("Updating Istio ServiceEntry %s/%s", serviceEntry.Namespace, serviceEntry.Name)
-					currentServiceEntry = serviceEntry
+					currentServiceEntry.Spec = serviceEntry.Spec
 					_, err = istioClient.NetworkingV1beta1().ServiceEntries(serviceEntry.Namespace).Update(
 						context.Background(), currentServiceEntry, metav1.UpdateOptions{},
 					)
@@ -538,7 +538,7 @@ func connect(host string, port string, username string, passwd string, dbname st
 // Any queries are printed as is, with PASSWORD parameters masked.
 func performQuery(db *sql.DB, query string, args ...any) error {
 	// mask any passwords within the query
-	r := regexp.MustCompile("PASSWORD '.*'")
+	r := regexp.MustCompile("PASSWORD *'.*'")
 	maskedQuery := r.ReplaceAllString(query, "PASSWORD ****MASKED****")
 
 	klog.Infof("Attempting query '%s'!", maskedQuery)
@@ -711,7 +711,7 @@ func generateServiceEntry(profile *kubeflowv1.Profile, psqlparams Psqlparams) (*
 			},
 			Ports: []*istionetworkingv1beta1.Port{
 				{
-					Name:     "gitea-tcp-pgsql",
+					Name:     "tcp-pgsql",
 					Number:   uint32(port),
 					Protocol: "TCP",
 				},

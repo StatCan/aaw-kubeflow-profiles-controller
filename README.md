@@ -42,6 +42,7 @@ Helpful links to k8s resources and other terminologies related to this project a
 - [Kubeflow Notebook](https://www.kubeflow.org/docs/components/notebooks/overview/)
 - [Roles and RoleBinding (RBAC)](https://kubernetes.io/docs/reference/access-authn-authz/rbac/)
 - [Labels](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/)
+- [Blob CSI Driver](https://github.com/kubernetes-sigs/blob-csi-driver)
 
 ## Details
 
@@ -60,6 +61,16 @@ developing custom profile controllers. The mechanisms are defined in the
 ### [authpolicy.go](./cmd/authpolicy.go)
 
 Responsible for creating, removing and updating [Istio Authorization Policies](https://istio.io/latest/docs/reference/config/security/authorization-policy/#Source) using the [Istio client](https://github.com/istio/client-go) for a given `Profile`. Currently, the only `AuthorizationPolicy` is to block upload/download from protected-b `Notebook`'s.
+
+### [blob-csi.go](./cmd/blob-csi.go)
+
+Creates an Azure Blob Storage container for a user in a few storage accounts (e.g. `standard`, `protected-b`, etc.) and binds a PersistentVolume to the container using the [blob-csi driver](https://github.com/kubernetes-sigs/blob-csi-driver). This relies on secrets stored in a system namespace --- secrets are not accessible by users. The controller also creates a PVC in the users namespace bound to this specific PV.
+
+- Supports read-write and read-only PersistentVolumes using mountOptions.
+- PVCs are ReadWriteMany or ReadOnlyMany, respectively
+- Supports both protected-b and unclassified mounts.
+
+*This will deprecate the minio controller.*
 
 ### [gitea.go](./cmd/gitea.go)
 

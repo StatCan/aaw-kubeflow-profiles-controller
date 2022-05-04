@@ -5,6 +5,7 @@ module github.com/StatCan/profiles-controller
 go 1.18
 
 require (
+	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v0.3.0
 	github.com/argoproj/argo-cd/v2 v2.3.2
 	github.com/hashicorp/vault/api v1.3.1
 	github.com/lib/pq v1.10.5
