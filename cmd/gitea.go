@@ -136,7 +136,7 @@ var giteaCmd = &cobra.Command{
 
 		// Setup virtual service informers
 		virtualServiceInformer := istioInformerFactory.Networking().V1beta1().VirtualServices()
-		//virtualServiceLister := virtualServiceInformer.Lister()
+		virtualServiceLister := virtualServiceInformer.Lister()
 
 		// Setup ServiceEntry informers
 		serviceEntryInformer := istioInformerFactory.Networking().V1beta1().ServiceEntries()
@@ -214,25 +214,25 @@ var giteaCmd = &cobra.Command{
 					}
 				}
 				// Create the Istio virtual service
-				//virtualService, err := generateIstioVirtualService(profile)
-				//if err != nil {
-				//return err
-				//}
-				//currentVirtualService, err := virtualServiceLister.VirtualServices(profile.Name).Get(virtualService.Name)
-				//// If the virtual service is not found and the user has opted into having source control, create the virtual service.
-				//if errors.IsNotFound(err) {
-				//// Always create the virtual service
-				//klog.Infof("Creating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
-				//currentVirtualService, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Create(
-				//context.Background(), virtualService, metav1.CreateOptions{},
-				//)
-				//} else if !reflect.DeepEqual(virtualService.Spec, currentVirtualService.Spec) {
-				//klog.Infof("Updating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
-				//currentVirtualService = virtualService
-				//_, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Update(
-				//context.Background(), currentVirtualService, metav1.UpdateOptions{},
-				//)
-				//}
+				virtualService, err := generateIstioVirtualService(profile)
+				if err != nil {
+					return err
+				}
+				currentVirtualService, err := virtualServiceLister.VirtualServices(profile.Name).Get(virtualService.Name)
+				// If the virtual service is not found and the user has opted into having source control, create the virtual service.
+				if errors.IsNotFound(err) {
+					// Always create the virtual service
+					klog.Infof("Creating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
+					currentVirtualService, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Create(
+						context.Background(), virtualService, metav1.CreateOptions{},
+					)
+				} else if !reflect.DeepEqual(virtualService.Spec, currentVirtualService.Spec) {
+					klog.Infof("Updating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
+					currentVirtualService = virtualService
+					_, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Update(
+						context.Background(), currentVirtualService, metav1.UpdateOptions{},
+					)
+				}
 
 				// Create the Istio Service Entry
 				serviceEntry, err := generateServiceEntry(profile, psqlparams)
@@ -350,10 +350,10 @@ var giteaCmd = &cobra.Command{
 		if ok := cache.WaitForCacheSync(stopCh, serviceEntryInformer.Informer().HasSynced); !ok {
 			klog.Fatalf("failed to wait for caches to sync")
 		}
-		// klog.Info("Waiting for istio VirtualService informer caches to sync")
-		// if ok := cache.WaitForCacheSync(stopCh, virtualServiceInformer.Informer().HasSynced); !ok {
-		// 	klog.Fatalf("failed to wait for caches to sync")
-		// }
+		klog.Info("Waiting for istio VirtualService informer caches to sync")
+		if ok := cache.WaitForCacheSync(stopCh, virtualServiceInformer.Informer().HasSynced); !ok {
+			klog.Fatalf("failed to wait for caches to sync")
+		}
 		// Run the controller
 		if err = controller.Run(2, stopCh); err != nil {
 			klog.Fatalf("error running controller: %v", err)
@@ -376,12 +376,8 @@ func generateGiteaArgoApp(profile *kubeflowv1.Profile, replicas int32) (*argocdv
 				Name:      "in-cluster",
 			},
 			Source: argocdv1alph1.ApplicationSource{
-				// TODO: Restore reference to dev cluster manifest.
-				// RepoURL: "https://github.com/StatCan/aaw-argocd-manifests.git",
-				// TargetRevision: "aaw-dev-cc-00",
-				RepoURL:        "https://github.com/cboin1996/aaw-argocd-manifests.git",
-				TargetRevision: "feat-azm-postgres",
-				Path:           "./profiles-argocd-system/template/gitea",
+				RepoURL:        "https://github.com/StatCan/aaw-argocd-manifests.git",
+				TargetRevision: "aaw-dev-cc-00",
 			},
 			SyncPolicy: &argocdv1alph1.SyncPolicy{},
 		},
