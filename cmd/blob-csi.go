@@ -37,6 +37,32 @@ const azureNamespace = "azure-blob-csi-system"
 
 var capacity resource.Quantity = *resource.NewScaledQuantity(100, resource.Giga)
 
+/*
+	MOUNT OPTIONS
+	=============
+
+	allow_other is needed for non-root users to mount storage
+
+	> -o allow_other
+
+	https://github.com/Azure/azure-storage-fuse/issues/496#issuecomment-704406829
+
+	The other mount options come from upstream, and are performance/cost optimizations
+
+	https://raw.githubusercontent.com/kubernetes-sigs/blob-csi-driver/master/deploy/example/storageclass-blobfuse.yaml
+*/
+var mountOptions = []string{
+	"-o allow_other",
+	"- --file-cache-timeout-in-seconds=120",
+	"- --use-attr-cache=true",
+	"- --cancel-list-on-mount-seconds=10", // prevent billing charges on mounting
+	"- -o attr_timeout=120",
+	"- -o entry_timeout=120",
+	"- -o negative_timeout=120",
+	"- --log-level=LOG_WARNING", // # LOG_WARNING, LOG_INFO, LOG_DEBUG
+	"- --cache-size-mb=1000",    // # Default will be 80% of available memory, eviction will happen beyond that.
+}
+
 // Conf for MinIO
 type AzureContainer struct {
 	Name           string
@@ -107,12 +133,10 @@ func pvForProfile(profile *kubeflowv1.Profile, instance AzureContainer) *corev1.
 
 	volumeName := pvVolumeName(namespace, instance)
 	secretName, secretNamespace := parseSecret(instance.SecretRef)
+	// Create local copy of the global variable
+	mountOptions := mountOptions
 
 	var accessMode corev1.PersistentVolumeAccessMode
-	mountOptions := []string{
-		// https://github.com/Azure/azure-storage-fuse/issues/496#issuecomment-704406829
-		"-o allow_other",
-	}
 	if instance.ReadOnly {
 		accessMode = corev1.ReadOnlyMany
 		// Doesn't work.
