@@ -74,10 +74,10 @@ type AzureContainer struct {
 
 var instances []AzureContainer
 var defaultInstances = `
-	{"name": "standard", "classification": "unclassified", "secret": "azure-secret/azure-blob-csi-system", "capacity": "100Gi", "readOnly": false}
-	{"name": "premium", "classification": "unclassified", "secret": "azure-secret-premium/azure-blob-csi-system", "capacity": "100Gi", "readOnly": false}
-	{"name": "standard-ro", "classification": "protected-b", "secret": "azure-secret/azure-blob-csi-system", "capacity": "100Gi", "readOnly": true}
-	{"name": "premium-ro", "classification": "protected-b", "secret": "azure-secret-premium/azure-blob-csi-system", "capacity": "100Gi", "readOnly": true}
+	{"name": "standard", "classification": "unclassified", "secretRef": "azure-secret/azure-blob-csi-system", "capacity": "100Gi", "readOnly": false}
+	{"name": "premium", "classification": "unclassified", "secretRef": "azure-secret-premium/azure-blob-csi-system", "capacity": "100Gi", "readOnly": false}
+	{"name": "standard-ro", "classification": "protected-b", "secretRef": "azure-secret/azure-blob-csi-system", "capacity": "100Gi", "readOnly": true}
+	{"name": "premium-ro", "classification": "protected-b", "secretRef": "azure-secret-premium/azure-blob-csi-system", "capacity": "100Gi", "readOnly": true}
 `
 
 // Sets the global instances variable
@@ -463,12 +463,12 @@ var blobcsiCmd = &cobra.Command{
 
 				for _, instance := range instances {
 					if !instance.ReadOnly {
-						klog.Infof("Creating Container %s/%s... ", instance.Name, profile)
+						klog.Infof("Creating Container %s/%s... ", instance.Name, profile.Name)
 						err := createContainer(blobClients[instance.Name], profile.Name)
 						if err == nil {
-							klog.Infof("Created Container %s/%s.", instance.Name, profile)
+							klog.Infof("Created Container %s/%s.", instance.Name, profile.Name)
 						} else if strings.Contains(err.Error(), "ContainerAlreadyExists") {
-							klog.Warningf("Container %s/%s Already Exists.", instance.Name, profile)
+							klog.Warningf("Container %s/%s Already Exists.", instance.Name, profile.Name)
 						} else {
 							klog.Fatalf(err.Error())
 							return err
