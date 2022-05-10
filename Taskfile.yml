@@ -11,6 +11,8 @@ vars:
   LDFLAGS:
   CLUSTER_NAME: profiles-controller
   CONTEXT_NAME: "k3d-{{.CLUSTER_NAME}}"
+  ISTIO_VERSION: "1.13.3"
+  ISTIOCTL: "istioctl --context={{.CONTEXT_NAME}}"
   KUBECTL: "kubectl --context={{.CONTEXT_NAME}}"
   KUBEAPPLY: "{{.KUBECTL}} apply"
   KUSTOMIZE: "{{.KUBEAPPLY}} --kustomize"
@@ -149,38 +151,51 @@ tasks:
   profile:crd:
     prefix: ⚙️ profile > crd
     desc: |
-      Creates a namespace for test user, and creates a 
+      Creates a namespace for test user, and creates a
       kubeflow profile given a profile.yaml file located in the cluster dir
     cmds:
       - "{{.KUBEAPPLY}} -f https://raw.githubusercontent.com/kubeflow/kubeflow/master/components/profile-controller/config/crd/bases/kubeflow.org_profiles.yaml"
       - "{{.KUBECTL}} wait --for condition=established --timeout=60s crd/profiles.kubeflow.org"
       - "yq e '.metadata.name' cluster/profiles.yaml -o json | xargs -I{} sh -c '{{.KUBECTL}} create ns {} || true'"
       - "{{.KUBEAPPLY}} -f cluster/profiles.yaml"
-  
+
   profile:delete:
     prefix: ⚙️ profile < delete
     desc: |
-      Deletes namespace(s) for test user(s) as defined in 
+      Deletes namespace(s) for test user(s) as defined in
       /cluster/profiles.yaml.
     cmds:
       - "yq e '.metadata.name' cluster/profiles.yaml -o json | xargs -I{} sh -c '{{.KUBECTL}} delete ns {} || true'"
+      - "yq e '.metadata.name' cluster/profiles.yaml -o json | xargs -I{} sh -c '{{.KUBECTL}} delete profile {} || true'"
 
   argocd:install:
     prefix: argocd > install
     desc: installs arcgocd cluster wide, and sets up namespace for gitea
     cmds:
-      - "{{.KUBECTL}} create ns argocd"
-      - "{{.KUBEAPPLY}} -f https://raw.githubusercontent.com/argoproj/argo-cd/release-2.3/manifests/install.yaml -n argocd"
+      - "{{.KUBECTL}} create ns argocd || true"
+      - "{{.KUBEAPPLY}} -f https://raw.githubusercontent.com/argoproj/argo-cd/release-2.1/manifests/install.yaml -n argocd"
 
   argocd:uninstall:
     prefix: argocd < uninstall
     desc: uninstalls argocd
     cmds:
       - kubectl delete ns argocd
-  
+
   argocd:password:
     prefix: argocd < password
     desc: get the password stored in argocd-initial-admin-secret
     cmds:
       - "echo username: admin"
-      - kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo 
+      - kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo
+
+  istioctl:install:
+    prefix: istioctl > install
+    desc: Downloads Istioctl onto the user's machine in $HOME/bin.
+    cmds:
+      - ISTIO_ALREADY_INSTALLED=$(command -v istioctl) && if [[ $ISTIO_ALREADY_INSTALLED ]]; then echo istioctl is already installed; else curl -L https://istio.io/downloadIstio | ISTIO_VERSION={{.ISTIO_VERSION}} TARGET_ARCH=x86_64 sh - && mv istio-{{.ISTIO_VERSION}}/bin/istioctl $HOME/bin && rm -r istio-{{.ISTIO_VERSION}}; fi
+
+  istio:install:
+    prefix: istio > install
+    desc: Installs Istio onto the cluster in the current context using the demo istio profile.
+    cmds:
+      - "{{.ISTIOCTL}} install --set profile=demo -y"
