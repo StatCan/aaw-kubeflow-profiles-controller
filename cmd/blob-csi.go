@@ -53,14 +53,14 @@ var capacity resource.Quantity = *resource.NewScaledQuantity(100, resource.Giga)
 */
 var mountOptions = []string{
 	"-o allow_other",
-	"- --file-cache-timeout-in-seconds=120",
-	"- --use-attr-cache=true",
-	"- --cancel-list-on-mount-seconds=10", // prevent billing charges on mounting
-	"- -o attr_timeout=120",
-	"- -o entry_timeout=120",
-	"- -o negative_timeout=120",
-	"- --log-level=LOG_WARNING", // # LOG_WARNING, LOG_INFO, LOG_DEBUG
-	"- --cache-size-mb=1000",    // # Default will be 80% of available memory, eviction will happen beyond that.
+	"--file-cache-timeout-in-seconds=120",
+	"--use-attr-cache=true",
+	"--cancel-list-on-mount-seconds=10", // prevent billing charges on mounting
+	"-o attr_timeout=120",
+	"-o entry_timeout=120",
+	"-o negative_timeout=120",
+	"--log-level=LOG_WARNING", // # LOG_WARNING, LOG_INFO, LOG_DEBUG
+	"--cache-size-mb=1000",    // # Default will be 80% of available memory, eviction will happen beyond that.
 }
 
 // Conf for MinIO
