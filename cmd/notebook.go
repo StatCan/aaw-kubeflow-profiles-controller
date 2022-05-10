@@ -142,11 +142,11 @@ func generatePodDefaults(profile *kubeflowv1.Profile) []*kubeflowv1alpha1.PodDef
 			Desc: "Mount Buckets to ~/buckets / Monter le stockage sur ~/buckets",
 			Selector: metav1.LabelSelector{
 				MatchLabels: map[string]string{
-					"minio-mounts": "true",
+					"data.statcan.gc.ca/inject-blob-volumes": "true",
 				},
 			},
 			Annotations: map[string]string{
-				"data.statcan.gc.ca/inject-boathouse": "true",
+				"data.statcan.gc.ca/inject-blob-volumes": "true",
 			},
 		},
 	})
