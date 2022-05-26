@@ -199,3 +199,35 @@ tasks:
     desc: Installs Istio onto the cluster in the current context using the demo istio profile.
     cmds:
       - "{{.ISTIOCTL}} install --set profile=demo -y"
+
+  env:create:
+    prefix: env > create
+    desc: |
+      Creates a .env file if it does not already exist, and adds unsensitive values to it, with 
+      instructions for values that are sensitive.
+    cmds:
+      - touch .env
+      - echo "GITEA_PSQL_ADMIN_PASSWD=" >> .env
+      - echo "GITEA_PSQL_ADMIN_UNAME=" >> .env
+      - echo "GITEA_PSQL_HOSTNAME=" >> .env
+      - echo "GITEA_PSQL_MAINTENANCE_DB=" >> .env
+      - echo "GITEA_PSQL_PORT=" >> .env
+      - echo "BLOB_CSI_UNCLASS_OPA_ENDPOINT=http://localhost:8181/v1/data" >> .env
+      - echo "BLOB_CSI_PROTECTED_B_OPA_ENDPOINT=http://localhost:8182/v1/data" >> .env
+      - echo "BLOB_CSI_OPA_DAEMON_TICKER_MILLIS=2000"
+      - echo "BLOB_CSI_FDI_PV_STORAGE_CAP=100Gi"
+      - echo "I have created a .env file template for you. Should any values be missing, contact an \
+        aaw developer for help."
+    status:
+      - test -f ./.env
+    
+  blobcsi:dev:
+    prefix: blobcsi:dev
+    desc: setup local environment for development.
+    cmds:
+      - echo "To enable local testing for blobcsi, you need to be able to query the OPA gateways locally!"
+      - echo "Run the below commands in separate terminals"
+      - echo "kubectl port-forward -n fdi-gateway-unclassified-system service/minio-gateway-opa 8181:8181"
+      - echo "kubectl port-forward -n fdi-gateway-protected-b-system service/minio-gateway-opa 8182:8181"
+      - echo "Run the vscode debugger for blob-csi!"
+    deps: [env:create]

@@ -33,7 +33,7 @@ Some controllers deploy per-namespace applications for each user (e.g. Gitea, S3
 
 ## Terminology
 
-Helpful links to k8s resources and other terminologies related to this project are provided below.
+Helpful links to k8s resources, technologies and other terminologies related to this project are provided below.
 
 - [Profile](https://www.kubeflow.org/docs/components/multi-tenancy/getting-started/)
 - [Istio AuthorizationPolicy](https://istio.io/latest/docs/reference/config/security/authorization-policy/#Source)
@@ -43,6 +43,7 @@ Helpful links to k8s resources and other terminologies related to this project a
 - [Roles and RoleBinding (RBAC)](https://kubernetes.io/docs/reference/access-authn-authz/rbac/)
 - [Labels](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/)
 - [Blob CSI Driver](https://github.com/kubernetes-sigs/blob-csi-driver)
+- [Open Policy Agent (OPA)](https://www.openpolicyagent.org/)
 
 ## Details
 
@@ -70,7 +71,12 @@ Creates an Azure Blob Storage container for a user in a few storage accounts (e.
 - PVCs are ReadWriteMany or ReadOnlyMany, respectively
 - Supports both protected-b and unclassified mounts.
 
+In addition, the controller is responsible for managing links from `PersistentVolume`'s to any buckets from Fair Data Infrasure (FDI) Section of DAaas.  This is accomplished by querying unclassified and protected-b `OPA` gateways which return `json` responses containing buckets along with permissions. 
+
 *This will deprecate the minio controller.*
+
+#### Local Development
+The [Taskfile](./Taskfile.yml) includes task `blobcsi:dev` for preparing your local environment for development and testing. Due to the controller's dependency on Azure [blob-csi driver](https://github.com/kubernetes-sigs/blob-csi-driver) a cluster with the [blob-csi driver](https://github.com/kubernetes-sigs/blob-csi-driver) installed is required. As such, it is recommended to debug and test against the development k8s context for AAW. With the local environment configured, the Vscode Debugger can be used through `Run and Debug: blobcsi Controller` in the debug pane.
 
 ### [gitea.go](./cmd/gitea.go)
 

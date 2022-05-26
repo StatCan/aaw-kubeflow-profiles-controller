@@ -7,8 +7,10 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
@@ -17,6 +19,7 @@ import (
 	kubeflowclientset "github.com/StatCan/profiles-controller/pkg/generated/clientset/versioned"
 	kubeflowinformers "github.com/StatCan/profiles-controller/pkg/generated/informers/externalversions"
 	"github.com/StatCan/profiles-controller/pkg/signals"
+	"github.com/StatCan/profiles-controller/util"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -70,17 +73,147 @@ type AzureContainer struct {
 	SecretRef      string
 	Capacity       string
 	ReadOnly       bool
+	Owner          string // the owner could be AAW or FDI for example
+}
+
+// High level structure for storing OPA responses and metadata
+// for querying the opa gateway
+type OpaData struct {
+	Result map[string]Bucket `json:"result"` // stores the json response from opa gateway as struct
+	Classification string // a classification field to describe the classification of the buckets
+	Ticker *time.Ticker
+	Lock *sync.RWMutex
+	KillDaemon chan(bool)
+}
+
+// Single Bucket struct for Opa Response
+type Bucket struct {
+	Readers []string
+	Writers []string
 }
 
 var instances []AzureContainer
+
+const classificationUnclassified = "unclassified"
+const classificationProtb = "protected-b"
+const aawContainerOwner = "AAW"
+const fdiContainerOwner = "FDI"
+
 var defaultInstances = `
-	{"name": "standard", "classification": "unclassified", "secretRef": "azure-secret/azure-blob-csi-system", "capacity": "100Gi", "readOnly": false}
-	{"name": "premium", "classification": "unclassified", "secretRef": "azure-secret-premium/azure-blob-csi-system", "capacity": "100Gi", "readOnly": false}
-	{"name": "standard-ro", "classification": "protected-b", "secretRef": "azure-secret/azure-blob-csi-system", "capacity": "100Gi", "readOnly": true}
-	{"name": "premium-ro", "classification": "protected-b", "secretRef": "azure-secret-premium/azure-blob-csi-system", "capacity": "100Gi", "readOnly": true}
+	{"name": "standard", "classification": "unclassified", "secretRef": "azure-secret/azure-blob-csi-system", "capacity": "100Gi", "readOnly": false, "owner": "AAW"}
+	{"name": "premium", "classification": "unclassified", "secretRef": "azure-secret-premium/azure-blob-csi-system", "capacity": "100Gi", "readOnly": false, "owner": "AAW"}
+	{"name": "standard-ro", "classification": "protected-b", "secretRef": "azure-secret/azure-blob-csi-system", "capacity": "100Gi", "readOnly": true, "owner": "AAW"}
+	{"name": "premium-ro", "classification": "protected-b", "secretRef": "azure-secret-premium/azure-blob-csi-system", "capacity": "100Gi", "readOnly": true, "owner": "AAW"}
 `
 
-// Sets the global instances variable
+// Performs an Http get request against given url, unmarshal the response as json
+// and return the data as []byte
+func performHttpGet(url string) ([]byte, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	
+	return body, nil
+}
+
+// This function can be run as a goroutine given a ticker, and it will populate 
+// the OpaData struct with data while it runs at the given ticker's interval.
+func (data *OpaData) dataDaemon(url string) {
+	rqMsg := "(%s) Executing request against url '%s' at time: %s\n"
+	errMsg := "(%s) Error while executing request against url '%s': %s\n"
+	unmarshallMsg := "(%s) Error unmarshalling http response recv'd from url '%s': %s\n"
+	marshalledData := &OpaData{}
+	for {
+		select {
+		// if done channel is true, no longer perform any tasks
+		case <- data.KillDaemon:
+			klog.Infof("(%s) Recv'd stop from done channel, exiting loop!", data.Classification)
+			return
+		// as long as the ticker channel is open, execute requests
+		// and populate the data struct.
+		case t := <- data.Ticker.C:
+			klog.Infof(rqMsg, data.Classification, url, t)
+			// query the opa gateway
+			bytes, err := performHttpGet(url)
+			if err != nil {
+				klog.Errorf(errMsg, data.Classification, url, err)
+				continue
+			}
+			// parse the response into structured data
+			err = json.Unmarshal(bytes, &marshalledData)
+			if err != nil {
+				klog.Errorf(unmarshallMsg, data.Classification, url, err)
+				continue
+			}
+			delete(marshalledData.Result, "httpapi") // do not need httpapi key returned from opa
+			// only update the data if all of above was a success!
+			data.Lock.Lock()
+			data.Result = marshalledData.Result
+			data.Lock.Unlock()
+		}
+	}
+}
+
+func (data *OpaData) generateInstances(namespace string, capacity string) ([]AzureContainer, error) {
+	var generated []AzureContainer
+	fdiPvNameTemplate := "%s-fdi-%s-%s" // ex. "cboin-fdi-unclassified-bucket101"	
+	// read the value stored in data struct
+	data.Lock.RLock()
+	opaData := data
+	data.Lock.RUnlock()
+	// only proceed if the daemon has populated opa data
+	if opaData.Result != nil {
+		return nil, nil
+	}
+	// build instances based on opa response.
+	for bucketName, bucketContents := range data.Result {
+		isReader := false
+		// determine if the given profile namespace is a reader for the bucket
+		for _, readerNamespace := range bucketContents.Readers {
+			if readerNamespace == namespace {
+				isReader = true
+			}
+		}
+		// determine if the given profile namespace is a writer for the bucket
+		isWriter := false
+		for _, writerNamespace := range bucketContents.Writers {
+		    if writerNamespace == namespace {
+				isWriter = true
+			}	
+		}
+		readOnly := false
+		if isReader && !isWriter {
+			// if reader and not writer, readonly permissions for the given profile
+		    readOnly = true	
+		} else if isReader && isWriter {
+			// if reader and writer, than the user should have read and write permissions.
+			readOnly = false
+		} else { 
+			// if given profile does not satisfy above conditions (is not reader or writer)
+			// skip this bucket as they lack permissions
+			continue
+		}
+		instance := AzureContainer{
+			Name: fmt.Sprintf(fdiPvNameTemplate, namespace, data.Classification, bucketName),
+			Classification: data.Classification,
+			SecretRef: "",
+			Capacity: capacity,
+			ReadOnly: readOnly,
+			Owner: fdiContainerOwner,
+		}
+		generated = append(generated, instance)
+		
+	}
+	return generated, nil
+}
+
+// Sets the global instances variable. Expecting json-like structure, exactly like that of the defaultinstances variable.
 func configInstances() {
 	var config string
 	if _, err := os.Stat("instances.json"); os.IsNotExist(err) {
@@ -231,27 +364,32 @@ func pvcForProfile(profile *kubeflowv1.Profile, instance AzureContainer) *corev1
 }
 
 func deletePV(client *kubernetes.Clientset, pv *corev1.PersistentVolume) error {
-	klog.Infof("deleting pv %s", pv.Name)
-	// We **Should** delete the PVCs after, but this is handled in the control loop.
-	return client.CoreV1().PersistentVolumes().Delete(
-		context.Background(),
-		pv.Name,
-		metav1.DeleteOptions{},
-	)
+	klog.Infof("Test: deleting pv %s", pv.Name)
+	// TODO: UNCOMMENT ONCE DONE TESTING AND DELETE THIS TODO
+	//// We **Should** delete the PVCs after, but this is handled in the control loop.
+	//return client.CoreV1().PersistentVolumes().Delete(
+	//	context.Background(),
+	//	pv.Name,
+	//	metav1.DeleteOptions{},
+	//)
+	return nil
 }
 
 func deletePVC(client *kubernetes.Clientset, pvc *corev1.PersistentVolumeClaim) error {
-	klog.Infof("deleting pvc %s/%s", pvc.Namespace, pvc.Name)
-	response := client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Delete(
-		context.Background(),
-		pvc.Name,
-		metav1.DeleteOptions{},
-	)
+	klog.Infof("Test: deleting pvc %s/%s", pvc.Namespace, pvc.Name)
+
+	// TODO: UNCOMMENT ONCE DONE TESTING AND DELETE THIS TODO
+	// response := client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Delete(
+	// context.Background(),
+	// pvc.Name,
+	// metav1.DeleteOptions{},
+	// )
 
 	// The PVC won't get released if it's attached to pods.
-	killBoundPods(client, pvc)
+	// killBoundPods(client, pvc)
 
-	return response
+	// return response
+	return nil
 }
 
 // The PVC won't get released if it's attached to pods.
@@ -320,6 +458,9 @@ func getBlobClient(client *kubernetes.Clientset, instance AzureContainer) (azblo
 		cred,
 		nil,
 	)
+	if err != nil {
+		return azblob.ServiceClient{}, err
+	}
 	return service, nil
 }
 
@@ -337,7 +478,9 @@ var blobcsiCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		// Setup signals so we can shutdown cleanly
 		stopCh := signals.SetupSignalHandler()
-
+		unclassOpaGatewayUrl := util.ParseEnvVar("BLOB_CSI_UNCLASS_OPA_ENDPOINT")
+		protbOpaGatewayUrl := util.ParseEnvVar("BLOB_CSI_PROTECTED_B_OPA_ENDPOINT")
+		fdiPvStorageCapacity := util.ParseEnvVar("BLOB_CSI_FDI_PV_STORAGE_CAP")
 		// Create Kubernetes config
 		cfg, err := clientcmd.BuildConfigFromFlags(apiserver, kubeconfig)
 		if err != nil {
@@ -353,6 +496,21 @@ var blobcsiCmd = &cobra.Command{
 		if err != nil {
 			klog.Fatalf("error building Kubeflow client: %v", err)
 		}
+		// initialize OpaData struct for unclassified OPA gateway
+		unclassOpaData := &OpaData{Result: nil, 
+								   Classification: "unclassified",
+								   Ticker: time.NewTicker(500*time.Millisecond),
+								   Lock: new(sync.RWMutex)}
+		// Spawn thread which will populate the unclassified OpaData struct
+		go unclassOpaData.dataDaemon(unclassOpaGatewayUrl)
+		
+		// initialize OpaData struct for protb OPA gateway
+		protbOpaData := &OpaData{Result: nil, 
+								 Classification: "protected-b",
+								 Ticker: time.NewTicker(500*time.Millisecond),
+								 Lock: new(sync.RWMutex)}
+		// spawn thread for populating prot-b OpaData struct
+		go protbOpaData.dataDaemon(protbOpaGatewayUrl)
 
 		// Setup informers
 		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*(time.Duration(requeue_time)))
@@ -414,6 +572,12 @@ var blobcsiCmd = &cobra.Command{
 						}
 					}
 				}
+				// TODO:Append any instances discovered as a result of querying the Opa gateways for
+				// unclassified and protected-b
+				klog.Infof("Unclass data : %s", unclassOpaData)
+				klog.Infof("Protb data : %s", protbOpaData)
+				unclassInstances, err := unclassOpaData.generateInstances(profile.Name, fdiPvStorageCapacity)
+				protbInstances, err := protbOpaData.generateInstances(profile.Name, fdiPvStorageCapacity)
 
 				// Generate the desired-state Claims and Volumes
 				generatedVolumes := []corev1.PersistentVolume{}
@@ -461,40 +625,42 @@ var blobcsiCmd = &cobra.Command{
 					}
 				}
 
-				for _, instance := range instances {
-					if !instance.ReadOnly {
-						klog.Infof("Creating Container %s/%s... ", instance.Name, profile.Name)
-						err := createContainer(blobClients[instance.Name], profile.Name)
-						if err == nil {
-							klog.Infof("Created Container %s/%s.", instance.Name, profile.Name)
-						} else if strings.Contains(err.Error(), "ContainerAlreadyExists") {
-							klog.Warningf("Container %s/%s Already Exists.", instance.Name, profile.Name)
-						} else {
-							klog.Fatalf(err.Error())
-							return err
-						}
-					}
-				}
 
-				// Create PV if it doesn't exist
-				for _, pv := range generatedVolumes {
-					if _, exists := pvExistsMap[pv.Name]; !exists {
-						_, err := createPV(kubeClient, &pv)
-						if err != nil {
-							return err
-						}
-					}
-				}
 
-				// Create PVC if it doesn't exist
-				for _, pvc := range generatedClaims {
-					if _, exists := pvcExistsMap[pvc.Name]; !exists {
-						_, err := createPVC(kubeClient, &pvc)
-						if err != nil {
-							return err
-						}
-					}
-				}
+				// for _, instance := range instances {
+				// 	if !instance.ReadOnly {
+				// 		klog.Infof("Creating Container %s/%s... ", instance.Name, profile.Name)
+				// 		err := createContainer(blobClients[instance.Name], profile.Name)
+				// 		if err == nil {
+				// 			klog.Infof("Created Container %s/%s.", instance.Name, profile.Name)
+				// 		} else if strings.Contains(err.Error(), "ContainerAlreadyExists") {
+				// 			klog.Warningf("Container %s/%s Already Exists.", instance.Name, profile.Name)
+				// 		} else {
+				// 			klog.Fatalf(err.Error())
+				// 			return err
+				// 		}
+				// 	}
+				// }
+
+				// // Create PV if it doesn't exist
+				// for _, pv := range generatedVolumes {
+				// 	if _, exists := pvExistsMap[pv.Name]; !exists {
+				// 		_, err := createPV(kubeClient, &pv)
+				// 		if err != nil {
+				// 			return err
+				// 		}
+				// 	}
+				// }
+
+				// // Create PVC if it doesn't exist
+				// for _, pvc := range generatedClaims {
+				// 	if _, exists := pvcExistsMap[pvc.Name]; !exists {
+				// 		_, err := createPVC(kubeClient, &pvc)
+				// 		if err != nil {
+				// 			return err
+				// 		}
+				// 	}
+				// }
 
 				return nil
 			},
@@ -534,6 +700,10 @@ var blobcsiCmd = &cobra.Command{
 
 		// Run the controller
 		if err = controller.Run(2, stopCh); err != nil {
+			unclassOpaData.KillDaemon <- true
+			unclassOpaData.Ticker.Stop()
+			protbOpaData.KillDaemon <- true
+			protbOpaData.Ticker.Stop()
 			klog.Fatalf("error running controller: %v", err)
 		}
 	},
