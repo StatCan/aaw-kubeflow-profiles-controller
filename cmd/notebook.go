@@ -21,10 +21,8 @@ import (
 
 var notebookCmd = &cobra.Command{
 	Use:   "notebook",
-	Short: "Configure notebook related items",
-	Long: `Configure notebook related items.
-* PodDefaults
-	`,
+	Short: "Configure notebook pod defaults",
+	Long:  `Configure notebook pod defaults.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Setup signals so we can shutdown cleanly
 		stopCh := signals.SetupSignalHandler()
@@ -64,7 +62,7 @@ var notebookCmd = &cobra.Command{
 					}
 
 					if !reflect.DeepEqual(podDefault.Spec, currentPodDefault.Spec) {
-						klog.Infof("updating network policy %s/%s", podDefault.Namespace, podDefault.Name)
+						klog.Infof("updating pod default %s/%s", podDefault.Namespace, podDefault.Name)
 						currentPodDefault.Spec = podDefault.Spec
 
 						_, err = kubeflowClient.KubeflowV1alpha1().PodDefaults(podDefault.Namespace).Update(context.Background(), currentPodDefault, metav1.UpdateOptions{})
@@ -80,10 +78,10 @@ var notebookCmd = &cobra.Command{
 
 		podDefaultInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 			UpdateFunc: func(old, new interface{}) {
-				newNP := new.(*kubeflowv1alpha1.PodDefault)
-				oldNP := old.(*kubeflowv1alpha1.PodDefault)
+				newPD := new.(*kubeflowv1alpha1.PodDefault)
+				oldPD := old.(*kubeflowv1alpha1.PodDefault)
 
-				if newNP.ResourceVersion == oldNP.ResourceVersion {
+				if newPD.ResourceVersion == oldPD.ResourceVersion {
 					return
 				}
 
@@ -109,10 +107,52 @@ var notebookCmd = &cobra.Command{
 }
 
 func generatePodDefaults(profile *kubeflowv1.Profile) []*kubeflowv1alpha1.PodDefault {
-	policies := []*kubeflowv1alpha1.PodDefault{}
+	defaults := []*kubeflowv1alpha1.PodDefault{}
+
+	defaults = append(defaults, &kubeflowv1alpha1.PodDefault{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "minio-mounts",
+			Namespace: profile.Name,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+			},
+		},
+		Spec: kubeflowv1alpha1.PodDefaultSpec{
+			Desc: "Mount MinIO storage to ~/minio (experimental) / Monter le stockage MinIO sur ~/minio (expérimental)",
+			Selector: metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"minio-mounts": "true",
+				},
+			},
+			Annotations: map[string]string{
+				"data.statcan.gc.ca/inject-boathouse": "true",
+			},
+		},
+	})
+
+	defaults = append(defaults, &kubeflowv1alpha1.PodDefault{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "blob-csi-mounts",
+			Namespace: profile.Name,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+			},
+		},
+		Spec: kubeflowv1alpha1.PodDefaultSpec{
+			Desc: "Mount Buckets to ~/buckets / Monter le stockage sur ~/buckets",
+			Selector: metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"data.statcan.gc.ca/inject-blob-volumes": "true",
+				},
+			},
+			Annotations: map[string]string{
+				"data.statcan.gc.ca/inject-blob-volumes": "true",
+			},
+		},
+	})
 
 	// Default Protected B deny
-	policies = append(policies, &kubeflowv1alpha1.PodDefault{
+	defaults = append(defaults, &kubeflowv1alpha1.PodDefault{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "protected-b",
 			Namespace: profile.Name,
@@ -133,7 +173,7 @@ func generatePodDefaults(profile *kubeflowv1.Profile) []*kubeflowv1alpha1.PodDef
 		},
 	})
 
-	return policies
+	return defaults
 }
 
 func init() {

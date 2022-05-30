@@ -14,9 +14,13 @@ profiles-controller
 # env
 .env
 
+# GoLand
+.idea
+
 # Debugger artifacts
 __debug_bin
 
 # VSCode
 .vscode
 !.vscode/launch.json
+
