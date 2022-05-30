@@ -83,6 +83,13 @@ To allow requests to reach the user's Gitea instance, a Network Policy is set in
 
 [^5]: Istio icons provided by [Istio Media Resources](https://istio.io/latest/about/media-resources/)
 
+### Gitlab (Cloud Main Connectivity)
+
+See the diagram.[^1][^2]
+
+[^1]: Jupyterlab icon from [wikimedia-commons](https://commons.wikimedia.org/wiki/File:Jupyter_logo.svg)
+[^2]: Fortigate icon from [iconduck](https://iconduck.com/icons/780/fortinet)
+
 ### [limitrange.go](./cmd/limitrange.go)
 
 Responsible for creating, removing and updating `LimitRange` resources for a given profile. `LimitRange` resources are generated to limit the cpu and memory resources for the kubeflow profile's default container. `LimitRange` resources require the implementation of a controller managing `ResourceQuotas`, which is provided in this package (see [quotas.go](./cmd/quotas.go)). Implementing `LimitRange` resources allows any Pod to run associated with the `Profile`, restricted by a `ResourceQuota`.
