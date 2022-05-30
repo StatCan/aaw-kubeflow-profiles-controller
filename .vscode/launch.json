@@ -29,6 +29,15 @@
                 "${env:KUBECONFIG}",
                 "network"
             ]
-        }
+        },
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "justMyCode": false,
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/docs/diagrams/"
+        },
     ]
 }
