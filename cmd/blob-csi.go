@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -66,6 +67,21 @@ var mountOptions = []string{
 	"--cache-size-mb=1000",    // # Default will be 80% of available memory, eviction will happen beyond that.
 }
 
+// Conf for FDI Integration
+type FDIConfig struct {
+	Classification          string // unclassified or prot-b
+	OPAGatewayUrl		    string // url for the opa gateway which serves json for fdi buckets
+	SPNSecretName           string // service principal secret name
+	SPNSecretNamespace      string // service principal secret namespace
+	PVCapacity              string
+	StorageAccount          string // fdi storage account in azure portal
+	ResourceGroup  		    string // fdi resource group in azure portal
+	AzureStorageAuthType    string // value of spn dictates service principal auth
+	AzureStorageSPNClientID string // fdi client id for service principal in azure portal
+	AzureStorageSPNTenantID string // fdi tenant id for service principal in azure portal
+	AzureStorageAADEndpoint string // azure active directory endpoint
+}
+
 // Conf for MinIO
 type AzureContainer struct {
 	Name           string
@@ -78,12 +94,12 @@ type AzureContainer struct {
 
 // High level structure for storing OPA responses and metadata
 // for querying the opa gateway
-type OpaData struct {
+type FdiOpaConnector struct {
 	Result map[string]Bucket `json:"result"` // stores the json response from opa gateway as struct
-	Classification string // a classification field to describe the classification of the buckets
 	Ticker *time.Ticker
 	Lock *sync.RWMutex
 	KillDaemon chan(bool)
+	FdiConfig FDIConfig
 }
 
 // Single Bucket struct for Opa Response
@@ -124,55 +140,55 @@ func performHttpGet(url string) ([]byte, error) {
 
 // This function can be run as a goroutine given a ticker, and it will populate 
 // the OpaData struct with data while it runs at the given ticker's interval.
-func (data *OpaData) dataDaemon(url string) {
+func (connector *FdiOpaConnector) dataDaemon() {
 	rqMsg := "(%s) Executing request against url '%s' at time: %s\n"
 	errMsg := "(%s) Error while executing request against url '%s': %s\n"
 	unmarshallMsg := "(%s) Error unmarshalling http response recv'd from url '%s': %s\n"
-	marshalledData := &OpaData{}
+	marshalledData := &FdiOpaConnector{}
 	for {
 		select {
 		// if done channel is true, no longer perform any tasks
-		case <- data.KillDaemon:
-			klog.Infof("(%s) Recv'd stop from done channel, exiting loop!", data.Classification)
+		case <- connector.KillDaemon:
+			klog.Infof("(%s) Recv'd stop from done channel, exiting loop!", connector.FdiConfig.Classification)
 			return
 		// as long as the ticker channel is open, execute requests
 		// and populate the data struct.
-		case t := <- data.Ticker.C:
-			klog.Infof(rqMsg, data.Classification, url, t)
+		case t := <- connector.Ticker.C:
+			klog.Infof(rqMsg, connector.FdiConfig.Classification, connector.FdiConfig.OPAGatewayUrl, t)
 			// query the opa gateway
-			bytes, err := performHttpGet(url)
+			bytes, err := performHttpGet(connector.FdiConfig.OPAGatewayUrl)
 			if err != nil {
-				klog.Errorf(errMsg, data.Classification, url, err)
+				klog.Errorf(errMsg, connector.FdiConfig.Classification, connector.FdiConfig.OPAGatewayUrl, err)
 				continue
 			}
 			// parse the response into structured data
 			err = json.Unmarshal(bytes, &marshalledData)
 			if err != nil {
-				klog.Errorf(unmarshallMsg, data.Classification, url, err)
+				klog.Errorf(unmarshallMsg, connector.FdiConfig.Classification, connector.FdiConfig.OPAGatewayUrl, err)
 				continue
 			}
 			delete(marshalledData.Result, "httpapi") // do not need httpapi key returned from opa
 			// only update the data if all of above was a success!
-			data.Lock.Lock()
-			data.Result = marshalledData.Result
-			data.Lock.Unlock()
+			connector.Lock.Lock()
+			connector.Result = marshalledData.Result
+			connector.Lock.Unlock()
 		}
 	}
 }
 
-func (data *OpaData) generateInstances(namespace string, capacity string) ([]AzureContainer, error) {
+func (connector *FdiOpaConnector) generateInstances(namespace string) ([]AzureContainer, error) {
 	var generated []AzureContainer
 	fdiPvNameTemplate := "%s-fdi-%s-%s" // ex. "cboin-fdi-unclassified-bucket101"	
 	// read the value stored in data struct
-	data.Lock.RLock()
-	opaData := data
-	data.Lock.RUnlock()
+	connector.Lock.RLock()
+	opaData := connector
+	connector.Lock.RUnlock()
 	// only proceed if the daemon has populated opa data
 	if opaData.Result != nil {
 		return nil, nil
 	}
 	// build instances based on opa response.
-	for bucketName, bucketContents := range data.Result {
+	for bucketName, bucketContents := range connector.Result {
 		isReader := false
 		// determine if the given profile namespace is a reader for the bucket
 		for _, readerNamespace := range bucketContents.Readers {
@@ -200,10 +216,10 @@ func (data *OpaData) generateInstances(namespace string, capacity string) ([]Azu
 			continue
 		}
 		instance := AzureContainer{
-			Name: fmt.Sprintf(fdiPvNameTemplate, namespace, data.Classification, bucketName),
-			Classification: data.Classification,
-			SecretRef: "",
-			Capacity: capacity,
+			Name: fmt.Sprintf(fdiPvNameTemplate, namespace, connector.FdiConfig.Classification, bucketName),
+			Classification: connector.FdiConfig.Classification,
+			SecretRef: fmt.Sprintf("%s/%s", connector.FdiConfig.SPNSecretNamespace, connector.FdiConfig.SPNSecretName),
+			Capacity: connector.FdiConfig.PVCapacity,
 			ReadOnly: readOnly,
 			Owner: fdiContainerOwner,
 		}
@@ -478,9 +494,11 @@ var blobcsiCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		// Setup signals so we can shutdown cleanly
 		stopCh := signals.SetupSignalHandler()
-		unclassOpaGatewayUrl := util.ParseEnvVar("BLOB_CSI_UNCLASS_OPA_ENDPOINT")
-		protbOpaGatewayUrl := util.ParseEnvVar("BLOB_CSI_PROTECTED_B_OPA_ENDPOINT")
-		fdiPvStorageCapacity := util.ParseEnvVar("BLOB_CSI_FDI_PV_STORAGE_CAP")
+		opaDaemonTickerDelayMillis, err := strconv.Atoi(util.ParseEnvVar("BLOB_CSI_FDI_OPA_DAEMON_TICKER_MILLIS"))
+		if err != nil {
+			klog.Fatalf("Invalid value for BLOB_CSI_FDI_OPA_DAEMON_TICKER_MILLIS, expecting integer.")
+		}
+
 		// Create Kubernetes config
 		cfg, err := clientcmd.BuildConfigFromFlags(apiserver, kubeconfig)
 		if err != nil {
@@ -497,20 +515,48 @@ var blobcsiCmd = &cobra.Command{
 			klog.Fatalf("error building Kubeflow client: %v", err)
 		}
 		// initialize OpaData struct for unclassified OPA gateway
-		unclassOpaData := &OpaData{Result: nil, 
-								   Classification: "unclassified",
-								   Ticker: time.NewTicker(500*time.Millisecond),
-								   Lock: new(sync.RWMutex)}
+		unclassFdiOpaConnector := &FdiOpaConnector{
+			Result: nil, 
+ 		    Ticker: time.NewTicker(time.Duration(opaDaemonTickerDelayMillis)*time.Millisecond),
+		    Lock: new(sync.RWMutex),
+			FdiConfig: FDIConfig{
+				Classification: "unclassified",
+				OPAGatewayUrl: util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_OPA_ENDPOINT"),
+				SPNSecretName: util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_SPN_SECRET_NAME"),
+				SPNSecretNamespace: util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_SPN_SECRET_NAMESPACE"),
+				PVCapacity: util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_PV_STORAGE_CAP"),
+				StorageAccount: util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_STORAGE_ACCOUNT"),
+				ResourceGroup: util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_RESOURCE_GROUP"),
+				AzureStorageAuthType: util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_AUTH_TYPE"),
+				AzureStorageSPNClientID: util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_SPN_CLIENTID"),
+				AzureStorageSPNTenantID: util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_SPN_TENANTID"),
+				AzureStorageAADEndpoint: util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_AAD_ENDPOINT"),
+			},	
+		}
 		// Spawn thread which will populate the unclassified OpaData struct
-		go unclassOpaData.dataDaemon(unclassOpaGatewayUrl)
+		go unclassFdiOpaConnector.dataDaemon()
 		
 		// initialize OpaData struct for protb OPA gateway
-		protbOpaData := &OpaData{Result: nil, 
-								 Classification: "protected-b",
-								 Ticker: time.NewTicker(500*time.Millisecond),
-								 Lock: new(sync.RWMutex)}
+		protbFdiOpaConnector := &FdiOpaConnector{
+			Result: nil, 
+			Ticker: time.NewTicker(time.Duration(opaDaemonTickerDelayMillis)*time.Millisecond),
+			Lock: new(sync.RWMutex),
+			FdiConfig: FDIConfig{ 
+				Classification: "protected-b",
+				OPAGatewayUrl: util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_OPA_ENDPOINT"),
+				SPNSecretName: util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_SPN_SECRET_NAME"),
+				SPNSecretNamespace: util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_SPN_SECRET_NAMESPACE"),
+				PVCapacity: util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_PV_STORAGE_CAP"),
+				StorageAccount: util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_STORAGE_ACCOUNT"),
+				ResourceGroup: util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_RESOURCE_GROUP"),
+				AzureStorageAuthType: util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AUTH_TYPE"),
+				AzureStorageSPNClientID: util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_SPN_CLIENTID"),
+				AzureStorageSPNTenantID: util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_SPN_TENANTID"),
+				AzureStorageAADEndpoint: util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AAD_ENDPOINT"),
+			},
+		}
 		// spawn thread for populating prot-b OpaData struct
-		go protbOpaData.dataDaemon(protbOpaGatewayUrl)
+		go protbFdiOpaConnector.dataDaemon()
 
 		// Setup informers
 		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*(time.Duration(requeue_time)))
@@ -540,7 +586,10 @@ var blobcsiCmd = &cobra.Command{
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
 			func(profile *kubeflowv1.Profile) error {
-
+				// TODO: REMOVE THIS DEBUG CONDITION
+				if profile.Name != "christian-boin" {
+					return nil
+				}
 				// Get all Volumes associated to this profile
 				volumes := []corev1.PersistentVolume{}
 				allvolumes, err := volumeLister.List(labels.Everything())
@@ -572,13 +621,7 @@ var blobcsiCmd = &cobra.Command{
 						}
 					}
 				}
-				// TODO:Append any instances discovered as a result of querying the Opa gateways for
-				// unclassified and protected-b
-				klog.Infof("Unclass data : %s", unclassOpaData)
-				klog.Infof("Protb data : %s", protbOpaData)
-				unclassInstances, err := unclassOpaData.generateInstances(profile.Name, fdiPvStorageCapacity)
-				protbInstances, err := protbOpaData.generateInstances(profile.Name, fdiPvStorageCapacity)
-
+				
 				// Generate the desired-state Claims and Volumes
 				generatedVolumes := []corev1.PersistentVolume{}
 				generatedClaims := []corev1.PersistentVolumeClaim{}
@@ -586,7 +629,15 @@ var blobcsiCmd = &cobra.Command{
 					generatedVolumes = append(generatedVolumes, *pvForProfile(profile, instance))
 					generatedClaims = append(generatedClaims, *pvcForProfile(profile, instance))
 				}
+				
+				// TODO:Append any instances discovered as a result of querying the Opa gateways for
+				// unclassified and protected-b
+				klog.Infof("Unclass data : %s", unclassFdiOpaConnector)
+				klog.Infof("Protb data : %s", protbFdiOpaConnector)
+				unclassInstances, err := unclassFdiOpaConnector.generateInstances(profile.Name)
+				protbInstances, err := protbFdiOpaConnector.generateInstances(profile.Name)
 
+				
 				// First pass - schedule deletion of PVs no longer desired.
 				pvExistsMap := map[string]bool{}
 				for _, pv := range volumes {
@@ -627,40 +678,49 @@ var blobcsiCmd = &cobra.Command{
 
 
 
-				// for _, instance := range instances {
-				// 	if !instance.ReadOnly {
-				// 		klog.Infof("Creating Container %s/%s... ", instance.Name, profile.Name)
-				// 		err := createContainer(blobClients[instance.Name], profile.Name)
-				// 		if err == nil {
-				// 			klog.Infof("Created Container %s/%s.", instance.Name, profile.Name)
-				// 		} else if strings.Contains(err.Error(), "ContainerAlreadyExists") {
-				// 			klog.Warningf("Container %s/%s Already Exists.", instance.Name, profile.Name)
-				// 		} else {
-				// 			klog.Fatalf(err.Error())
-				// 			return err
-				// 		}
-				// 	}
-				// }
+				for _, instance := range instances {
+					if instance.Owner == fdiContainerOwner {
+						// containers are maintained by fdi, and asssumed to already exist.
+						continue
+					} else if instance.Owner == aawContainerOwner {
+						// aaw containers are created by this code for the given profile
+						if !instance.ReadOnly {
+							klog.Infof("Creating Container %s/%s... ", instance.Name, profile.Name)
+							err := createContainer(blobClients[instance.Name], profile.Name)
+							if err == nil {
+								klog.Infof("Created Container %s/%s.", instance.Name, profile.Name)
+							} else if strings.Contains(err.Error(), "ContainerAlreadyExists") {
+								klog.Warningf("Container %s/%s Already Exists.", instance.Name, profile.Name)
+							} else {
+								klog.Fatalf(err.Error())
+								return err
+							}
+						}
+					} else {
+						klog.Fatalf("No blobClient logic for `%s` owner implemented yet. Must specify one of [%s, %s]", 
+			            	instance.Owner, fdiContainerOwner, aawContainerOwner)
+					}
+				}
 
-				// // Create PV if it doesn't exist
-				// for _, pv := range generatedVolumes {
-				// 	if _, exists := pvExistsMap[pv.Name]; !exists {
-				// 		_, err := createPV(kubeClient, &pv)
-				// 		if err != nil {
-				// 			return err
-				// 		}
-				// 	}
-				// }
+				// Create PV if it doesn't exist
+				for _, pv := range generatedVolumes {
+					if _, exists := pvExistsMap[pv.Name]; !exists {
+						_, err := createPV(kubeClient, &pv)
+						if err != nil {
+							return err
+						}
+					}
+				}
 
-				// // Create PVC if it doesn't exist
-				// for _, pvc := range generatedClaims {
-				// 	if _, exists := pvcExistsMap[pvc.Name]; !exists {
-				// 		_, err := createPVC(kubeClient, &pvc)
-				// 		if err != nil {
-				// 			return err
-				// 		}
-				// 	}
-				// }
+				// Create PVC if it doesn't exist
+				for _, pvc := range generatedClaims {
+					if _, exists := pvcExistsMap[pvc.Name]; !exists {
+						_, err := createPVC(kubeClient, &pvc)
+						if err != nil {
+							return err
+						}
+					}
+				}
 
 				return nil
 			},
@@ -700,10 +760,10 @@ var blobcsiCmd = &cobra.Command{
 
 		// Run the controller
 		if err = controller.Run(2, stopCh); err != nil {
-			unclassOpaData.KillDaemon <- true
-			unclassOpaData.Ticker.Stop()
-			protbOpaData.KillDaemon <- true
-			protbOpaData.Ticker.Stop()
+			unclassFdiOpaConnector.KillDaemon <- true
+			unclassFdiOpaConnector.Ticker.Stop()
+			protbFdiOpaConnector.KillDaemon <- true
+			protbFdiOpaConnector.Ticker.Stop()
 			klog.Fatalf("error running controller: %v", err)
 		}
 	},
