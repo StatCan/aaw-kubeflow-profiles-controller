@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -41,32 +40,6 @@ const classificationLabel = "data.statcan.gc.ca/classification"
 const azureNamespace = "azure-blob-csi-system"
 
 var capacity resource.Quantity = *resource.NewScaledQuantity(100, resource.Giga)
-
-/*
-	MOUNT OPTIONS
-	=============
-
-	allow_other is needed for non-root users to mount storage
-
-	> -o allow_other
-
-	https://github.com/Azure/azure-storage-fuse/issues/496#issuecomment-704406829
-
-	The other mount options come from upstream, and are performance/cost optimizations
-
-	https://raw.githubusercontent.com/kubernetes-sigs/blob-csi-driver/master/deploy/example/storageclass-blobfuse.yaml
-*/
-var mountOptions = []string{
-	"-o allow_other",
-	"--file-cache-timeout-in-seconds=120",
-	"--use-attr-cache=true",
-	"--cancel-list-on-mount-seconds=10", // prevent billing charges on mounting
-	"-o attr_timeout=120",
-	"-o entry_timeout=120",
-	"-o negative_timeout=120",
-	"--log-level=LOG_WARNING", // # LOG_WARNING, LOG_INFO, LOG_DEBUG
-	"--cache-size-mb=1000",    // # Default will be 80% of available memory, eviction will happen beyond that.
-}
 
 // Configuration for FDI containers
 // If an AzureContainer is of classification FDI, 
@@ -115,25 +88,19 @@ type Bucket struct {
 	Writers []string
 }
 
-// Holds the container aawContainerConfigs configuration for AAW containers that will created per profile.
-var aawContainerConfigs []AzureContainerConfig
-
-const classificationUnclassified = "unclassified"
-const classificationProtb = "protected-b"
-
 const AawContainerOwner = "AAW"
 const FdiContainerOwner = "FDI"
 // Helper for listing valid container owners
 func getValidContainerOwners() []string {
 	return []string{AawContainerOwner, FdiContainerOwner}
 }
+
 var defaultAawContainerConfigs = `
 	{"name": "standard", "classification": "unclassified", "secretRef": "azure-secret/azure-blob-csi-system", "capacity": "100Gi", "readOnly": false, "owner": "AAW"}
 	{"name": "premium", "classification": "unclassified", "secretRef": "azure-secret-premium/azure-blob-csi-system", "capacity": "100Gi", "readOnly": false, "owner": "AAW"}
 	{"name": "standard-ro", "classification": "protected-b", "secretRef": "azure-secret/azure-blob-csi-system", "capacity": "100Gi", "readOnly": true, "owner": "AAW"}
 	{"name": "premium-ro", "classification": "protected-b", "secretRef": "azure-secret-premium/azure-blob-csi-system", "capacity": "100Gi", "readOnly": true, "owner": "AAW"}
 `
-
 // Performs an Http get request against given url, unmarshal the response as json
 // and return the data as []byte
 func performHttpGet(url string) ([]byte, error) {
@@ -153,8 +120,7 @@ func performHttpGet(url string) ([]byte, error) {
 // This function can be run as a goroutine given a ticker, and it will populate 
 // the connector.Result field with data while it runs at the given ticker's interval.
 func (connector *FdiOpaConnector) dataDaemon() {
-	rqMsg := "(%s) Executing request against url '%s' at time: %s\n"
-	errMsg := "(%s) Error while executing request against url '%s': %s\n"
+	errMsg := "(%s) Error while executing request against url '%s' at time '%s': %s\n"
 	unmarshallMsg := "(%s) Error unmarshalling http response recv'd from url '%s': %s\n"
 	marshalledData := &FdiOpaConnector{}
 	for {
@@ -166,17 +132,16 @@ func (connector *FdiOpaConnector) dataDaemon() {
 		// as long as the ticker channel is open, execute requests
 		// and populate the data struct.
 		case t := <- connector.Ticker.C:
-			klog.Infof(rqMsg, connector.FdiConfig.Classification, connector.FdiConfig.OPAGatewayUrl, t)
 			// query the opa gateway
 			bytes, err := performHttpGet(connector.FdiConfig.OPAGatewayUrl)
 			if err != nil {
-				klog.Errorf(errMsg, connector.FdiConfig.Classification, connector.FdiConfig.OPAGatewayUrl, err)
+				klog.Errorf(errMsg, connector.FdiConfig.Classification, connector.FdiConfig.OPAGatewayUrl, t, err)
 				continue
 			}
 			// parse the response into structured data
 			err = json.Unmarshal(bytes, &marshalledData)
 			if err != nil {
-				klog.Errorf(unmarshallMsg, connector.FdiConfig.Classification, connector.FdiConfig.OPAGatewayUrl, err)
+				klog.Errorf(unmarshallMsg, connector.FdiConfig.Classification, connector.FdiConfig.OPAGatewayUrl, t, err)
 				continue
 			}
 			delete(marshalledData.Result, "httpapi") // do not need httpapi key returned from opa
@@ -188,16 +153,15 @@ func (connector *FdiOpaConnector) dataDaemon() {
 	}
 }
 
-func (connector *FdiOpaConnector) generateContainerConfigs(namespace string) ([]AzureContainerConfig, error) {
+func (connector *FdiOpaConnector) generateContainerConfigs(namespace string) []AzureContainerConfig {
 	var generated []AzureContainerConfig
-	fdiPvNameTemplate := "%s-fdi-%s-%s" // ex. "cboin-fdi-unclassified-bucket101"	
 	// read the value stored in data struct
 	connector.Lock.RLock()
 	opaData := connector
 	connector.Lock.RUnlock()
 	// only proceed if the daemon has populated opa data
-	if opaData.Result != nil {
-		return nil, nil
+	if opaData.Result == nil {
+		return nil
 	}
 	// build instances based on opa response.
 	for bucketName, bucketContents := range connector.Result {
@@ -228,9 +192,9 @@ func (connector *FdiOpaConnector) generateContainerConfigs(namespace string) ([]
 			continue
 		}
 		containerConfig := AzureContainerConfig{
-			Name: fmt.Sprintf(fdiPvNameTemplate, namespace, connector.FdiConfig.Classification, bucketName),
+			Name: bucketName,
 			Classification: connector.FdiConfig.Classification,
-			SecretRef: fmt.Sprintf("%s/%s", connector.FdiConfig.SPNSecretNamespace, connector.FdiConfig.SPNSecretName),
+			SecretRef: fmt.Sprintf("%s/%s", connector.FdiConfig.SPNSecretName, connector.FdiConfig.SPNSecretNamespace),
 			Capacity: connector.FdiConfig.PVCapacity,
 			ReadOnly: readOnly,
 			Owner: FdiContainerOwner,
@@ -238,11 +202,14 @@ func (connector *FdiOpaConnector) generateContainerConfigs(namespace string) ([]
 		generated = append(generated, containerConfig)
 		
 	}
-	return generated, nil
+	return generated
 }
 
-// Sets the global aawContainerConfigs variable. Expecting json-like structure, exactly like that of the defaultAawContainerConfigs variable.
-func configAawContainers() {
+// Generate container configs for AAW. Expecting json-like structure, exactly like that of the defaultAawContainerConfigs variable.
+func generateAawContainerConfigs() []AzureContainerConfig {
+	// Holds the container aawContainerConfigs configuration for AAW containers that will created per profile.
+	var aawContainerConfigs []AzureContainerConfig
+
 	var config string
 	if _, err := os.Stat("instances.json"); os.IsNotExist(err) {
 		config = defaultAawContainerConfigs
@@ -267,6 +234,7 @@ func configAawContainers() {
 		fmt.Println(containerConfig)
 		aawContainerConfigs = append(aawContainerConfigs, containerConfig)
 	}
+	return aawContainerConfigs
 }
 
 // name/namespace -> (name, namespace)
@@ -283,37 +251,43 @@ func parseSecret(name string) (string, string) {
 }
 
 // PV names must be globally unique (they're a cluster resource)
-func pvVolumeName(namespace string, instance AzureContainerConfig) string {
-	return namespace + "-" + instance.Name
+// Names will be built starting with namespace, followed by -{postfix} 
+// for each postfix in postfixes
+func buildPvName(namespace string, postfixes ...string) string {
+	pvName := namespace
+	for _, postfix := range postfixes {
+		pvName = pvName + fmt.Sprintf("-%s", strings.ToLower(postfix))
+	}
+	return pvName
 }
 
-// Generate the desired PV Spec, depending on the type of AzureContainer
+// Generate the desired PV Spec, depending on the type of AzureContainer. 
 // Currently, types of AAW and FDI are implemented for the Owners field within
 // the AzureContainer struct
 func pvForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerConfig, configInterface interface{}) (*corev1.PersistentVolume, error) {
-	// FDI authenticates with service principal
-	// Configure PV attributes to reflect this.
-	if containerConfig.Owner == FdiContainerOwner {
-		parsedconfig, ok := configInterface.(FDIConfig)
-		if !ok {
-			return nil, errors.New(fmt.Sprintf("Invalid configuration passed for %s owned container.", FdiContainerOwner))
-		}
-	} else if containerConfig.Owner == AawContainerOwner {
-		// for now, aaw is default, and no config is needed
-	} else {
-		return nil, errors.New(fmt.Sprintf("No PV configuration exists for owner '%s'. Valid owners are: %s", containerConfig.Owner,
-			getValidContainerOwners()))
+	/*
+		MOUNT OPTIONS
+		=============
+		allow_other is needed for non-root users to mount storage
+		> -o allow_other
+		https://github.com/Azure/azure-storage-fuse/issues/496#issuecomment-704406829
+		The other mount options come from upstream, and are performance/cost optimizations
+		https://raw.githubusercontent.com/kubernetes-sigs/blob-csi-driver/master/deploy/example/storageclass-blobfuse.yaml
+	*/
+	var mountOptions = []string{
+		"-o allow_other",
+		"--file-cache-timeout-in-seconds=120",
+		"--use-attr-cache=true",
+		"--cancel-list-on-mount-seconds=10", // prevent billing charges on mounting
+		"-o attr_timeout=120",
+		"-o entry_timeout=120",
+		"-o negative_timeout=120",
+		"--log-level=LOG_WARNING", // # LOG_WARNING, LOG_INFO, LOG_DEBUG
+		"--cache-size-mb=1000",    // # Default will be 80% of available memory, eviction will happen beyond that.
 	}
-
-
-
 	namespace := profile.Name
-
-	volumeName := pvVolumeName(namespace, containerConfig)
 	secretName, secretNamespace := parseSecret(containerConfig.SecretRef)
-	// Create local copy of the global variable
-	mountOptions := mountOptions
-
+	var volumeName string	
 	var accessMode corev1.PersistentVolumeAccessMode
 	if containerConfig.ReadOnly {
 		accessMode = corev1.ReadOnlyMany
@@ -322,6 +296,38 @@ func pvForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerCon
 	} else {
 		accessMode = corev1.ReadWriteMany
 	}
+	var volumeAttributes map[string]string
+	if containerConfig.Owner == AawContainerOwner {
+		// for now, aaw is default, and no additional over the base scenario
+		volumeName = buildPvName(namespace, containerConfig.Name)
+		volumeAttributes = map[string]string{
+			"containerName": namespace,
+		}
+	} else if containerConfig.Owner == FdiContainerOwner {
+		// Configure PV attributes specific to the Owner of the container the PV will be connected to.
+		// FDI authenticates with service principal
+		fdiConfig, ok := configInterface.(FDIConfig)
+		if !ok {
+			return nil, fmt.Errorf("invalid configuration passed for %s owned container", FdiContainerOwner)
+		}
+		volumeName = buildPvName(namespace, containerConfig.Owner, containerConfig.Classification, containerConfig.Name)
+		volumeAttributes = map[string]string{
+			"containerName": containerConfig.Name,
+			"storageAccount": fdiConfig.StorageAccount,
+			"resourceGroup": fdiConfig.ResourceGroup,
+			"AzureStorageAuthType": fdiConfig.AzureStorageAuthType,
+			"AzureStorageSPNClientId": fdiConfig.AzureStorageSPNClientID,
+			"AzureStorageSPNTenantId": fdiConfig.AzureStorageSPNTenantID,
+			"AzureStorageAADEndpoint": fdiConfig.AzureStorageAADEndpoint,
+		}
+		// FDI system uses adls storage, so we must provide this flag in mount options
+		mountOptions = append(mountOptions, "--use-adls=true")
+	} else {
+		// Throw error for any other owner, until something is implemented.
+		return nil, fmt.Errorf("no PV configuration exists for owner '%s'. Valid owners are: %s", containerConfig.Owner,
+			getValidContainerOwners())
+	}
+
 
 	pv := &corev1.PersistentVolume{
 		ObjectMeta: metav1.ObjectMeta{
@@ -347,9 +353,7 @@ func pvForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerCon
 						Namespace: secretNamespace,
 					},
 					ReadOnly: containerConfig.ReadOnly,
-					VolumeAttributes: map[string]string{
-						"containerName": namespace,
-					},
+					VolumeAttributes: volumeAttributes, 
 					VolumeHandle: volumeName,
 				},
 			},
@@ -367,15 +371,19 @@ func pvForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerCon
 }
 
 // Generate the desired PVC Spec
-func pvcForProfile(profile *kubeflowv1.Profile, instance AzureContainerConfig) *corev1.PersistentVolumeClaim {
+func pvcForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerConfig) *corev1.PersistentVolumeClaim {
 
 	namespace := profile.Name
-
-	volumeName := pvVolumeName(namespace, instance)
+	var volumeName string
+	if containerConfig.Owner == AawContainerOwner {
+		volumeName = buildPvName(namespace, containerConfig.Name)
+	} else if containerConfig.Owner == FdiContainerOwner {
+		volumeName = buildPvName(namespace, containerConfig.Owner, containerConfig.Classification, containerConfig.Name)
+	}
 	storageClass := ""
 
 	var accessMode corev1.PersistentVolumeAccessMode
-	if instance.ReadOnly {
+	if containerConfig.ReadOnly {
 		accessMode = corev1.ReadOnlyMany
 	} else {
 		accessMode = corev1.ReadWriteMany
@@ -383,10 +391,10 @@ func pvcForProfile(profile *kubeflowv1.Profile, instance AzureContainerConfig) *
 
 	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      instance.Name,
+			Name:      containerConfig.Name,
 			Namespace: namespace,
 			Labels: map[string]string{
-				classificationLabel: instance.Classification,
+				classificationLabel: containerConfig.Classification,
 				automountLabel:      "true",
 			},
 			OwnerReferences: []metav1.OwnerReference{
@@ -409,32 +417,27 @@ func pvcForProfile(profile *kubeflowv1.Profile, instance AzureContainerConfig) *
 }
 
 func deletePV(client *kubernetes.Clientset, pv *corev1.PersistentVolume) error {
-	klog.Infof("Test: deleting pv %s", pv.Name)
-	// TODO: UNCOMMENT ONCE DONE TESTING AND DELETE THIS TODO
-	//// We **Should** delete the PVCs after, but this is handled in the control loop.
-	//return client.CoreV1().PersistentVolumes().Delete(
-	//	context.Background(),
-	//	pv.Name,
-	//	metav1.DeleteOptions{},
-	//)
-	return nil
+	klog.Infof("deleting pv %s", pv.Name)
+	// We **Should** delete the PVCs after, but this is handled in the control loop.
+	return client.CoreV1().PersistentVolumes().Delete(
+		context.Background(),
+		pv.Name,
+		metav1.DeleteOptions{},
+	)
 }
 
 func deletePVC(client *kubernetes.Clientset, pvc *corev1.PersistentVolumeClaim) error {
-	klog.Infof("Test: deleting pvc %s/%s", pvc.Namespace, pvc.Name)
+	klog.Infof("deleting pvc %s/%s", pvc.Namespace, pvc.Name)
 
-	// TODO: UNCOMMENT ONCE DONE TESTING AND DELETE THIS TODO
-	// response := client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Delete(
-	// context.Background(),
-	// pvc.Name,
-	// metav1.DeleteOptions{},
-	// )
+	response := client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Delete(
+		context.Background(),
+		pvc.Name,
+		metav1.DeleteOptions{},
+	)
 
-	// The PVC won't get released if it's attached to pods.
-	// killBoundPods(client, pvc)
+	killBoundPods(client, pvc)
 
-	// return response
-	return nil
+	return response
 }
 
 // The PVC won't get released if it's attached to pods.
@@ -604,7 +607,7 @@ var blobcsiCmd = &cobra.Command{
 
 		// Setup informers
 		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*(time.Duration(requeue_time)))
-		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*5)
+		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*(time.Duration(requeue_time)))
 
 		// pv v.s. pvc is too tricky to read. Using Volumes v.s. Claims.
 		volumeInformer := kubeInformerFactory.Core().V1().PersistentVolumes()
@@ -615,7 +618,7 @@ var blobcsiCmd = &cobra.Command{
 
 		// First, branch off of the service client and create a container client for which
 		// AAW containers are stored
-		configAawContainers()
+		aawContainerConfigs := generateAawContainerConfigs()
 		blobClients := map[string]azblob.ServiceClient{}
 		for _, instance := range aawContainerConfigs {
 			if !instance.ReadOnly {
@@ -631,10 +634,6 @@ var blobcsiCmd = &cobra.Command{
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
 			func(profile *kubeflowv1.Profile) error {
-				// TODO: REMOVE THIS DEBUG CONDITION
-				if profile.Name != "christian-boin" {
-					return nil
-				}
 				// Get all Volumes associated to this profile
 				volumes := []corev1.PersistentVolume{}
 				allvolumes, err := volumeLister.List(labels.Everything())
@@ -671,31 +670,34 @@ var blobcsiCmd = &cobra.Command{
 				// Generate the desired-state Claims and Volumes for AAW containers
 				generatedAawVolumes, generatedAawClaims, err := generateK8sResourcesForContainer(profile, aawContainerConfigs, nil)
 				if err != nil {
-					klog.Fatalf("Error recv'd while creating %s PV/PVC's: %s", AawContainerOwner, err)
+					klog.Fatalf("Error recv'd while generating %s PV/PVC's structs: %s", AawContainerOwner, err)
+					return err
 				}	
 				generatedVolumes = append(generatedVolumes, generatedAawVolumes...)
 				generatedClaims  = append(generatedClaims, generatedAawClaims...)
-				// TODO:Append any instances discovered as a result of querying the Opa gateways for
-				// unclassified and protected-b
-				klog.Infof("Unclass data : %s", unclassFdiOpaConnector)
-				klog.Infof("Protb data : %s", protbFdiOpaConnector)
-				fdiUnclassContainerConfigs, err := unclassFdiOpaConnector.generateContainerConfigs(profile.Name)
-				// Generate the desired-state Claims and Volumes for FDI containers
-				generatedFdiUnclassVolumes, generatedFdiUnclassClaims, err := generateK8sResourcesForContainer(profile, fdiUnclassContainerConfigs, unclassFdiOpaConnector.FdiConfig)
-				if err != nil {
-					klog.Fatalf("Error recv'd while creating unclassified %s PV/PVC's: %s", FdiContainerOwner, err)
-				}
-				generatedVolumes = append(generatedVolumes, generatedFdiUnclassVolumes...)
-				generatedClaims  = append(generatedClaims, generatedFdiUnclassClaims...)
 
-				fdiProtbContainerConfigs, err := protbFdiOpaConnector.generateContainerConfigs(profile.Name)
-				generatedFdiProtbVolumes, generatedFdiProtbClaims, err := generateK8sResourcesForContainer(profile, fdiProtbContainerConfigs, protbFdiOpaConnector.FdiConfig)
-				if err != nil {
-					klog.Fatalf("Error recv'd while creating protected-b %s PV/PVC's: %s", FdiContainerOwner, err)
+				// Generate the desired-state Claims and Volumes for FDI unclassified containers
+				fdiUnclassContainerConfigs := unclassFdiOpaConnector.generateContainerConfigs(profile.Name)
+				if fdiUnclassContainerConfigs != nil { 
+					generatedFdiUnclassVolumes, generatedFdiUnclassClaims, err := generateK8sResourcesForContainer(profile, fdiUnclassContainerConfigs, unclassFdiOpaConnector.FdiConfig)
+					if err != nil {
+						klog.Fatalf("Error recv'd while generating %s unclassified PV/PVC's structs: %s", FdiContainerOwner, err)
+						return err
+					}
+					generatedVolumes = append(generatedVolumes, generatedFdiUnclassVolumes...)
+					generatedClaims  = append(generatedClaims, generatedFdiUnclassClaims...)
+				}	
+				// Generate the desired-state Claims and Volumes for FDI prot-b containers
+				fdiProtbContainerConfigs := protbFdiOpaConnector.generateContainerConfigs(profile.Name)
+				if fdiProtbContainerConfigs != nil {
+					generatedFdiProtbVolumes, generatedFdiProtbClaims, err := generateK8sResourcesForContainer(profile, fdiProtbContainerConfigs, protbFdiOpaConnector.FdiConfig)
+					if err != nil {
+						klog.Fatalf("Error recv'd while generating %s prot-b PV/PVC's structs: %s", FdiContainerOwner, err)
+						return err
+					}
+					generatedVolumes = append(generatedVolumes, generatedFdiProtbVolumes...)
+					generatedClaims  = append(generatedClaims, generatedFdiProtbClaims...)
 				}
-				generatedVolumes = append(generatedVolumes, generatedFdiProtbVolumes...)
-				generatedClaims  = append(generatedClaims, generatedFdiProtbClaims...)
-				
 				// First pass - schedule deletion of PVs no longer desired.
 				pvExistsMap := map[string]bool{}
 				for _, pv := range volumes {
@@ -734,29 +736,19 @@ var blobcsiCmd = &cobra.Command{
 					}
 				}
 
-
-
+				// aaw containers are created by this code for the given profile
 				for _, aawContainerConfig := range aawContainerConfigs {
-					if aawContainerConfig.Owner == FdiContainerOwner {
-						// containers are maintained by fdi, and asssumed to already exist.
-						continue
-					} else if aawContainerConfig.Owner == AawContainerOwner {
-						// aaw containers are created by this code for the given profile
-						if !aawContainerConfig.ReadOnly {
-							klog.Infof("Creating Container %s/%s... ", aawContainerConfig.Name, profile.Name)
-							err := createContainer(blobClients[aawContainerConfig.Name], profile.Name)
-							if err == nil {
-								klog.Infof("Created Container %s/%s.", aawContainerConfig.Name, profile.Name)
-							} else if strings.Contains(err.Error(), "ContainerAlreadyExists") {
-								klog.Warningf("Container %s/%s Already Exists.", aawContainerConfig.Name, profile.Name)
-							} else {
-								klog.Fatalf(err.Error())
-								return err
-							}
+					if !aawContainerConfig.ReadOnly {
+						klog.Infof("Creating Container %s/%s... ", aawContainerConfig.Name, profile.Name)
+						err := createContainer(blobClients[aawContainerConfig.Name], profile.Name)
+						if err == nil {
+							klog.Infof("Created Container %s/%s.", aawContainerConfig.Name, profile.Name)
+						} else if strings.Contains(err.Error(), "ContainerAlreadyExists") {
+							klog.Warningf("Container %s/%s Already Exists.", aawContainerConfig.Name, profile.Name)
+						} else {
+							klog.Fatalf(err.Error())
+							return err
 						}
-					} else {
-						klog.Fatalf("No blobClient logic for `%s` owner implemented yet. Must specify one of '%s'", 
-			            	aawContainerConfig.Owner, getValidContainerOwners())
 					}
 				}
 

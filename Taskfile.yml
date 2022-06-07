@@ -207,6 +207,7 @@ tasks:
       instructions for values that are sensitive.
     cmds:
       - touch .env
+      - echo "REQUEUE_TIME=500" >> .env
       - echo "GITEA_PSQL_ADMIN_PASSWD=" >> .env
       - echo "GITEA_PSQL_ADMIN_UNAME=" >> .env
       - echo "GITEA_PSQL_HOSTNAME=" >> .env
