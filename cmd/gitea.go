@@ -55,7 +55,7 @@ const GITEA_SERVICE_PORT = 80
 var sourceControlEnabledLabel = "sourcecontrol.statcan.gc.ca/enabled"
 var giteaBannerConfigMapName = "gitea-banner"
 var argocdnamespace string
-
+// Parameters specific to the authentication with managed postgres
 type Psqlparams struct {
 	hostname string
 	port     string
@@ -63,8 +63,61 @@ type Psqlparams struct {
 	passwd   string
 	dbname   string
 }
+// Parameters specific to the deployment of per-namespace gitea applications
+type Deploymentparams struct {
+	classificationEn string // classification (unclassified or prot-b)
+	classificationFr string // classification in french
+	giteaServiceUrl string	// gitea http service url
+	giteaUrlPrefix  string  // url prefix used in kubeflow 
+	giteaServicePort string // gitea service port
+	giteaBannerConfigMapName string // gitea banner configmap name (configmap which corresponds to the banner
+	                                // at the top of the gitea ui)
+	argocdNamespace  string // namespace the argocd instance is in
+	sourceControlEnabledLabel string // the label that indicates a user has opted in to using gitea.
+}
+type GiteaConfig struct {
+	Psqlparams Psqlparams
+	Deploymentparams Deploymentparams
+}
 
-var psqlparams Psqlparams
+// Constructs the controller's config based on classification.
+func NewGiteaConfig(classification string) (*GiteaConfig, error) {
+	cfg := new(GiteaConfig)
+	if classification == "unclassified" {
+		// configure psql specific parameters
+		cfg.Psqlparams.hostname = util.ParseEnvVar("GITEA_PSQL_HOSTNAME_UNCLASSIFIED")
+		cfg.Psqlparams.port     = util.ParseEnvVar("GITEA_PSQL_PORT_UNCLASSIFIED")
+		cfg.Psqlparams.username = util.ParseEnvVar("GITEA_PSQL_ADMIN_UNAME_UNCLASSIFIED")
+		cfg.Psqlparams.passwd   = util.ParseEnvVar("GITEA_PSQL_ADMIN_PASSWD_UNCLASSIFIED")
+		cfg.Psqlparams.dbname   = util.ParseEnvVar("GITEA_PSQL_MAINTENANCE_DB_UNCLASSIFIED")
+		// configure deployment specific parameters
+		cfg.Deploymentparams.classificationEn          = classification
+		cfg.Deploymentparams.classificationFr          = "non classé"
+		cfg.Deploymentparams.giteaServiceUrl    	   = util.ParseEnvVar("GITEA_SERVICE_URL_UNCLASSIFIED") 
+		cfg.Deploymentparams.giteaUrlPrefix     	   = util.ParseEnvVar("GITEA_URL_PREFIX_UNCLASSIFIED") 
+		cfg.Deploymentparams.giteaServicePort   	   = util.ParseEnvVar("GITEA_SERVICE_PORT_UNCLASSIFIED") 
+	} else if classification == "protected-b" {
+		// configure psql specific parameters
+		cfg.Psqlparams.hostname = util.ParseEnvVar("GITEA_PSQL_HOSTNAME_PROTECTED_B")
+		cfg.Psqlparams.port     = util.ParseEnvVar("GITEA_PSQL_PORT_PROTECTED_B")
+		cfg.Psqlparams.username = util.ParseEnvVar("GITEA_PSQL_ADMIN_UNAME_PROTECTED_B")
+		cfg.Psqlparams.passwd   = util.ParseEnvVar("GITEA_PSQL_ADMIN_PASSWD_PROTECTED_B")
+		cfg.Psqlparams.dbname   = util.ParseEnvVar("GITEA_PSQL_MAINTENANCE_DB_PROTECTED_B")
+		// configure deployment specific parameters
+		cfg.Deploymentparams.classificationEn          = classification
+		cfg.Deploymentparams.classificationFr          = "non classé"
+		cfg.Deploymentparams.giteaServiceUrl    	   = util.ParseEnvVar("GITEA_SERVICE_URL_PROTECTED_B") 
+		cfg.Deploymentparams.giteaUrlPrefix     	   = util.ParseEnvVar("GITEA_URL_PREFIX_PROTECTED_B") 
+		cfg.Deploymentparams.giteaServicePort   	   = util.ParseEnvVar("GITEA_SERVICE_PORT_PROTECTED_B")
+	} else {
+		klog.Fatalf("no implementation of classification %s exists. terminating.", classification)
+	}
+	// currently the below configuration is agnostic of the classification
+	cfg.Deploymentparams.giteaBannerConfigMapName  = util.ParseEnvVar("GITEA_BANNER_CONFIGMAP_NAME")   
+	cfg.Deploymentparams.argocdNamespace           = util.ParseEnvVar("GITEA_ARGOCD_NAMESPACE")  
+	cfg.Deploymentparams.sourceControlEnabledLabel = util.ParseEnvVar("GITEA_SOURCE_CONTROL_ENABLED_LABEL")
+	return cfg, nil
+}
 
 func init() {
 	rootCmd.AddCommand(giteaCmd)
@@ -77,7 +130,7 @@ var giteaCmd = &cobra.Command{
 	Short: "Configure gitea",
 	Long: `Configure gitea for Kubeflow resources.* Statefulset	`,
 	Run: func(cmd *cobra.Command, args []string) {
-		psqlparams = Psqlparams{
+		psqlparams := Psqlparams{
 			hostname: util.ParseEnvVar("GITEA_PSQL_HOSTNAME"),
 			port:     util.ParseEnvVar("GITEA_PSQL_PORT"),
 			username: util.ParseEnvVar("GITEA_PSQL_ADMIN_UNAME"),
@@ -146,7 +199,7 @@ var giteaCmd = &cobra.Command{
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
 			func(profile *kubeflowv1.Profile) error {
-				// Only create nginx if a profile has opted in, as determined by sourcecontrol.statcan.gc.ca/enabled=true
+				// Only create gitea instance if a profile has opted in, as determined by sourcecontrol.statcan.gc.ca/enabled=true
 				var replicas int32
 
 				if val, ok := profile.Labels[sourceControlEnabledLabel]; ok && val == "true" {
