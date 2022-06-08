@@ -7,13 +7,13 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/url"
-	"os"
 	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/StatCan/profiles-controller/internal/util"
 	kubeflowv1 "github.com/StatCan/profiles-controller/pkg/apis/kubeflow/v1"
 	"github.com/StatCan/profiles-controller/pkg/controllers/profiles"
 	kubeflowclientset "github.com/StatCan/profiles-controller/pkg/generated/clientset/versioned"
@@ -40,6 +40,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
+	// project packages
 )
 
 // The internal Gitea URL is specified in https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/manifest.yaml#L350
@@ -77,11 +78,11 @@ var giteaCmd = &cobra.Command{
 	Long: `Configure gitea for Kubeflow resources.* Statefulset	`,
 	Run: func(cmd *cobra.Command, args []string) {
 		psqlparams = Psqlparams{
-			hostname: parseEnvVar("GITEA_PSQL_HOSTNAME"),
-			port:     parseEnvVar("GITEA_PSQL_PORT"),
-			username: parseEnvVar("GITEA_PSQL_ADMIN_UNAME"),
-			passwd:   parseEnvVar("GITEA_PSQL_ADMIN_PASSWD"),
-			dbname:   parseEnvVar("GITEA_PSQL_MAINTENANCE_DB")}
+			hostname: util.ParseEnvVar("GITEA_PSQL_HOSTNAME"),
+			port:     util.ParseEnvVar("GITEA_PSQL_PORT"),
+			username: util.ParseEnvVar("GITEA_PSQL_ADMIN_UNAME"),
+			passwd:   util.ParseEnvVar("GITEA_PSQL_ADMIN_PASSWD"),
+			dbname:   util.ParseEnvVar("GITEA_PSQL_MAINTENANCE_DB")}
 		// Setup signals so we can shutdown cleanly
 		stopCh := signals.SetupSignalHandler()
 		// Create Kubernetes config
@@ -433,15 +434,6 @@ func generateRandomBytes(n int) ([]byte, error) {
 func generateRandomStringURLSafe(n int) (string, error) {
 	b, err := generateRandomBytes(n)
 	return base64.URLEncoding.EncodeToString(b), err
-}
-
-func parseEnvVar(envname string) string {
-	value, exists := os.LookupEnv(envname)
-	if exists != true {
-		klog.Fatalf("Environment var %s does not exist, and must be set prior to controller startup!",
-			envname)
-	}
-	return value
 }
 
 // Provision postgres db for use with gitea for the given profile

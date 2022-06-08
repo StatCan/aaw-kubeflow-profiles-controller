@@ -1,6 +1,11 @@
 # Dependency directories (remove the comment below to include it)
 vendor
 
+# Files for testing/debugging
+# instances.json is used in /cmd/blob-csi.go. Setup the file to contain
+# any fields matching the development environment.
+instances.json 
+
 # Test binary, built with `go test -c`
 *.test
 
