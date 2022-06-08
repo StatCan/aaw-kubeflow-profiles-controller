@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StatCan/profiles-controller/internal/util"
 	kubeflowv1 "github.com/StatCan/profiles-controller/pkg/apis/kubeflow/v1"
 	"github.com/StatCan/profiles-controller/pkg/controllers/profiles"
 	kubeflowclientset "github.com/StatCan/profiles-controller/pkg/generated/clientset/versioned"
 	kubeflowinformers "github.com/StatCan/profiles-controller/pkg/generated/informers/externalversions"
 	"github.com/StatCan/profiles-controller/pkg/signals"
-	"github.com/StatCan/profiles-controller/util"
 	pq "github.com/lib/pq"
 	istionetworkingv1beta1 "istio.io/api/networking/v1beta1"
 	istionetworkingclient "istio.io/client-go/pkg/apis/networking/v1beta1"

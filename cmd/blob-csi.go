@@ -15,12 +15,12 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/StatCan/profiles-controller/internal/util"
 	kubeflowv1 "github.com/StatCan/profiles-controller/pkg/apis/kubeflow/v1"
 	"github.com/StatCan/profiles-controller/pkg/controllers/profiles"
 	kubeflowclientset "github.com/StatCan/profiles-controller/pkg/generated/clientset/versioned"
 	kubeflowinformers "github.com/StatCan/profiles-controller/pkg/generated/informers/externalversions"
 	"github.com/StatCan/profiles-controller/pkg/signals"
-	"github.com/StatCan/profiles-controller/util"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
