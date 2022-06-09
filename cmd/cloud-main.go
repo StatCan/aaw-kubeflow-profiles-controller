@@ -1,25 +1,34 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"reflect"
 	"time"
 
 	kubeflowv1 "github.com/StatCan/profiles-controller/pkg/apis/kubeflow/v1"
 	"github.com/StatCan/profiles-controller/pkg/controllers/profiles"
 	kubeflowclientset "github.com/StatCan/profiles-controller/pkg/generated/clientset/versioned"
 	kubeflowinformers "github.com/StatCan/profiles-controller/pkg/generated/informers/externalversions"
+	"github.com/StatCan/profiles-controller/pkg/signals"
 	"github.com/spf13/cobra"
 	istionetworkingv1beta1 "istio.io/api/networking/v1beta1"
 	istionetworkingclient "istio.io/client-go/pkg/apis/networking/v1beta1"
 	istioclientset "istio.io/client-go/pkg/clientset/versioned"
 	istioinformers "istio.io/client-go/pkg/informers/externalversions"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
 )
 
 const CLOUD_MAIN_GITLAB_HOST = "gitlab.k8s.cloud.statcan.ca"
+const ISTIO_EGRESS_GATEWAY_SVC = "egress-gateway"
+const CLOUD_MAIN_SYSTEM_NAMESPACE = "cloud-main-system"
+
+const HTTPS_PORT = 443
+const SSH_PORT = 22
 
 var cloudMainCmd = &cobra.Command{
 	Use:   "cloud-main",
@@ -27,14 +36,11 @@ var cloudMainCmd = &cobra.Command{
 	Long: `Configure resources that enable connectivity to certain cloud-main services for StatCan employees.
 	`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Setup signals so we can shutdown cleanly
+		stopCh := signals.SetupSignalHandler()
 		// Create Kubernetes configuration
 		cfg, err := clientcmd.BuildConfigFromFlags(apiserver, kubeconfig)
 
-		// Get Kubernetes Client
-		kubeClient, err := kubernetes.NewForConfig(cfg)
-		if err != nil {
-			klog.Fatalf("Error building kubernetes clientset: %s", err.Error())
-		}
 		// Get clients
 		kubeflowClient, err := kubeflowclientset.NewForConfig(cfg)
 		if err != nil {
@@ -50,7 +56,7 @@ var cloudMainCmd = &cobra.Command{
 		istioInformerFactory := istioinformers.NewSharedInformerFactory(istioClient, time.Minute*(time.Duration(requeue_time)))
 		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*(time.Duration(requeue_time)))
 
-		// Setup virtual service informers
+		// Setup informers
 		virtualServiceInformer := istioInformerFactory.Networking().V1beta1().VirtualServices()
 		virtualServiceLister := virtualServiceInformer.Lister()
 
@@ -60,8 +66,63 @@ var cloudMainCmd = &cobra.Command{
 			func(profile *kubeflowv1.Profile) error {
 				// Generate the per-namespace virtual service
 				virtualService, err := generateCloudMainVirtualService(profile)
+				if err != nil {
+					return err
+				}
+				// Get the current virtual service (if it exists)
+				currentVirtualService, err := virtualServiceLister.VirtualServices(profile.Name).Get(virtualService.Name)
+				if err != nil {
+					return err
+				}
+				// If the virtual service is not found and the user has opted into having source control, create the virtual service.
+				if errors.IsNotFound(err) {
+					// Always create the virtual service
+					klog.Infof("Creating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
+					currentVirtualService, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Create(
+						context.Background(), virtualService, metav1.CreateOptions{},
+					)
+				} else if !reflect.DeepEqual(virtualService.Spec, currentVirtualService.Spec) {
+					klog.Infof("Updating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
+					currentVirtualService = virtualService
+					_, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Update(
+						context.Background(), currentVirtualService, metav1.UpdateOptions{},
+					)
+				}
+				return nil
 			},
 		)
+
+		// Register controller callback with resource informers
+		virtualServiceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+			AddFunc: func(new interface{}) {
+				controller.HandleObject(new)
+			},
+			UpdateFunc: func(old, new interface{}) {
+				newDep := new.(*istionetworkingclient.VirtualService)
+				oldDep := old.(*istionetworkingclient.VirtualService)
+
+				if newDep.ResourceVersion == oldDep.ResourceVersion {
+					return
+				}
+
+				controller.HandleObject(new)
+			},
+			DeleteFunc: controller.HandleObject,
+		})
+
+		// Start informers
+		istioInformerFactory.Start(stopCh)
+
+		// Sync informer caches
+		klog.Info("Waiting for istio VirtualService informer caches to sync")
+		if ok := cache.WaitForCacheSync(stopCh, virtualServiceInformer.Informer().HasSynced); !ok {
+			klog.Fatalf("failed to wait for caches to sync")
+		}
+
+		// Run the controller
+		if err = controller.Run(2, stopCh); err != nil {
+			klog.Fatalf("error running controller: %v", err)
+		}
 	},
 }
 
@@ -71,7 +132,7 @@ func generateCloudMainVirtualService(profile *kubeflowv1.Profile) (*istionetwork
 	// Create virtual service
 	virtualService := istionetworkingclient.VirtualService{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "gitea-virtualservice",
+			Name:      "cloud-main-virtualservice",
 			Namespace: namespace,
 			// Indicate that the profile owns the virtualservice resource
 			OwnerReferences: []metav1.OwnerReference{
@@ -79,34 +140,41 @@ func generateCloudMainVirtualService(profile *kubeflowv1.Profile) (*istionetwork
 			},
 		},
 		Spec: istionetworkingv1beta1.VirtualService{
-			// Routing rules are applied to all traffic that goes through the kubeflow gateway
-			Gateways: []string{
-				"kubeflow/kubeflow-gateway",
-			},
 			Hosts: []string{
 				CLOUD_MAIN_GITLAB_HOST,
 			},
 			Http: []*istionetworkingv1beta1.HTTPRoute{
 				{
-					Name: "gitea-route",
+					Name: "cloud-main-https-route",
 					Match: []*istionetworkingv1beta1.HTTPMatchRequest{
 						{
-							Uri: &istionetworkingv1beta1.StringMatch{
-								MatchType: &istionetworkingv1beta1.StringMatch_Prefix{
-									Prefix: fmt.Sprintf("/%s/%s/", GITEA_URL_PREFIX, namespace),
-								},
-							},
+							Port: HTTPS_PORT,
 						},
-					},
-					Rewrite: &istionetworkingv1beta1.HTTPRewrite{
-						Uri: "/",
 					},
 					Route: []*istionetworkingv1beta1.HTTPRouteDestination{
 						{
 							Destination: &istionetworkingv1beta1.Destination{
-								Host: fmt.Sprintf("%s.%s.svc.cluster.local", GITEA_SERVICE_URL, namespace),
+								Host: fmt.Sprintf("%s.%s.svc.cluster.local", ISTIO_EGRESS_GATEWAY_SVC, CLOUD_MAIN_SYSTEM_NAMESPACE),
 								Port: &istionetworkingv1beta1.PortSelector{
-									Number: GITEA_SERVICE_PORT,
+									Number: HTTPS_PORT,
+								},
+							},
+						},
+					},
+				},
+				{
+					Name: "cloud-main-ssh-route",
+					Match: []*istionetworkingv1beta1.HTTPMatchRequest{
+						{
+							Port: SSH_PORT,
+						},
+					},
+					Route: []*istionetworkingv1beta1.HTTPRouteDestination{
+						{
+							Destination: &istionetworkingv1beta1.Destination{
+								Host: fmt.Sprintf("%s.%s.svc.cluster.local", ISTIO_EGRESS_GATEWAY_SVC, CLOUD_MAIN_SYSTEM_NAMESPACE),
+								Port: &istionetworkingv1beta1.PortSelector{
+									Number: SSH_PORT,
 								},
 							},
 						},
