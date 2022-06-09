@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strconv"
 	"time"
 
 	kubeflowv1 "github.com/StatCan/profiles-controller/pkg/apis/kubeflow/v1"
@@ -11,16 +12,20 @@ import (
 	kubeflowclientset "github.com/StatCan/profiles-controller/pkg/generated/clientset/versioned"
 	kubeflowinformers "github.com/StatCan/profiles-controller/pkg/generated/informers/externalversions"
 	"github.com/StatCan/profiles-controller/pkg/signals"
-	"github.com/spf13/cobra"
 	istionetworkingv1beta1 "istio.io/api/networking/v1beta1"
 	istionetworkingclient "istio.io/client-go/pkg/apis/networking/v1beta1"
+
 	istioclientset "istio.io/client-go/pkg/clientset/versioned"
 	istioinformers "istio.io/client-go/pkg/informers/externalversions"
+	_ "k8s.io/client-go/plugin/pkg/client/auth/azure"
+
+	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
+	// project packages
 )
 
 const CLOUD_MAIN_GITLAB_HOST = "gitlab.k8s.cloud.statcan.ca"
@@ -33,14 +38,15 @@ const SSH_PORT = 22
 var cloudMainCmd = &cobra.Command{
 	Use:   "cloud-main",
 	Short: "Configure cloud-main resources",
-	Long: `Configure resources that enable connectivity to certain cloud-main services for StatCan employees.
-	`,
+	Long:  `Configure resources that enable connectivity to certain cloud-main services for StatCan employees.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Setup signals so we can shutdown cleanly
 		stopCh := signals.SetupSignalHandler()
 		// Create Kubernetes configuration
 		cfg, err := clientcmd.BuildConfigFromFlags(apiserver, kubeconfig)
-
+		if err != nil {
+			klog.Fatalf("Error building kubeconfig: %v", err)
+		}
 		// Get clients
 		kubeflowClient, err := kubeflowclientset.NewForConfig(cfg)
 		if err != nil {
@@ -53,8 +59,8 @@ var cloudMainCmd = &cobra.Command{
 		}
 
 		// Setup Informer Factories
-		istioInformerFactory := istioinformers.NewSharedInformerFactory(istioClient, time.Minute*(time.Duration(requeue_time)))
 		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*(time.Duration(requeue_time)))
+		istioInformerFactory := istioinformers.NewSharedInformerFactory(istioClient, time.Minute*(time.Duration(requeue_time)))
 
 		// Setup informers
 		virtualServiceInformer := istioInformerFactory.Networking().V1beta1().VirtualServices()
@@ -64,39 +70,40 @@ var cloudMainCmd = &cobra.Command{
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
 			func(profile *kubeflowv1.Profile) error {
-				// Generate the per-namespace virtual service
-				virtualService, err := generateCloudMainVirtualService(profile)
-				if err != nil {
-					return err
+				// The virtual service should only be created for namespaces consisting only of
+				// StatCan employees
+				val, labelExists := profile.ObjectMeta.Labels["state.aaw.statcan.gc.ca/non-employee-users"]
+				existsNonEmployeeUser, _ := strconv.ParseBool(val)
+				if labelExists && !existsNonEmployeeUser {
+					// Create the Istio virtual service
+					virtualService, err := generateCloudMainVirtualService(profile)
+					if err != nil {
+						return err
+					}
+					currentVirtualService, err := virtualServiceLister.VirtualServices(profile.Name).Get(virtualService.Name)
+					// If the virtual service is not found and the user has opted into having source control, create the virtual service.
+					if errors.IsNotFound(err) {
+						// Always create the virtual service
+						klog.Infof("Creating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
+						currentVirtualService, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Create(
+							context.Background(), virtualService, metav1.CreateOptions{},
+						)
+					} else if !reflect.DeepEqual(virtualService.Spec, currentVirtualService.Spec) {
+						klog.Infof("Updating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
+						currentVirtualService = virtualService
+						_, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Update(
+							context.Background(), currentVirtualService, metav1.UpdateOptions{},
+						)
+					}
+				} else {
+					fmt.Println("Non Employee User")
 				}
-				// Get the current virtual service (if it exists)
-				currentVirtualService, err := virtualServiceLister.VirtualServices(profile.Name).Get(virtualService.Name)
-				if err != nil {
-					return err
-				}
-				// If the virtual service is not found and the user has opted into having source control, create the virtual service.
-				if errors.IsNotFound(err) {
-					// Always create the virtual service
-					klog.Infof("Creating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
-					currentVirtualService, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Create(
-						context.Background(), virtualService, metav1.CreateOptions{},
-					)
-				} else if !reflect.DeepEqual(virtualService.Spec, currentVirtualService.Spec) {
-					klog.Infof("Updating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
-					currentVirtualService = virtualService
-					_, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Update(
-						context.Background(), currentVirtualService, metav1.UpdateOptions{},
-					)
-				}
+
 				return nil
 			},
 		)
-
-		// Register controller callback with resource informers
+		// Declare Event Handlers for Informers
 		virtualServiceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-			AddFunc: func(new interface{}) {
-				controller.HandleObject(new)
-			},
 			UpdateFunc: func(old, new interface{}) {
 				newDep := new.(*istionetworkingclient.VirtualService)
 				oldDep := old.(*istionetworkingclient.VirtualService)
@@ -109,16 +116,15 @@ var cloudMainCmd = &cobra.Command{
 			},
 			DeleteFunc: controller.HandleObject,
 		})
-
 		// Start informers
+		kubeflowInformerFactory.Start(stopCh)
 		istioInformerFactory.Start(stopCh)
 
-		// Sync informer caches
+		// Wait for caches to sync
 		klog.Info("Waiting for istio VirtualService informer caches to sync")
 		if ok := cache.WaitForCacheSync(stopCh, virtualServiceInformer.Informer().HasSynced); !ok {
 			klog.Fatalf("failed to wait for caches to sync")
 		}
-
 		// Run the controller
 		if err = controller.Run(2, stopCh); err != nil {
 			klog.Fatalf("error running controller: %v", err)
