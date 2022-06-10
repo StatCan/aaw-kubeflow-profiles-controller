@@ -63,6 +63,10 @@ type Deploymentparams struct {
 	giteaBannerConfigMapName string // gitea banner configmap name (configmap which corresponds to the banner
 	                                // at the top of the gitea ui)
 	argocdNamespace  string // namespace the argocd instance is in
+	argocdSourceRepoUrl         string // the repository url containing the gitea deployment manifest
+	argocdSourceTargetRevision 	string // the git branch to deploy from
+	argocdSourcePath           	string // the path from the root of the git source repo
+	argocdProject               string // argocd instances's project to deploy applications within
 	sourceControlEnabledLabel string // the label that indicates a user has opted in to using gitea.
 									 // one such example is sourcecontrol.statcan.gc.ca/enabled
 }
@@ -93,12 +97,16 @@ func NewGiteaConfig() (*GiteaConfig, error) {
 	cfg.Psqlparams.passwd   = util.ParseEnvVar("GITEA_PSQL_ADMIN_PASSWD")
 	cfg.Psqlparams.dbname   = util.ParseEnvVar("GITEA_PSQL_MAINTENANCE_DB")
 	// configure deployment specific parameters
-	cfg.Deploymentparams.giteaServiceUrl    	   = util.ParseEnvVar("GITEA_SERVICE_URL")
-	cfg.Deploymentparams.giteaUrlPrefix     	   = util.ParseEnvVar("GITEA_URL_PREFIX")
-	cfg.Deploymentparams.giteaServicePort   	   = util.ParseIntegerEnvVar("GITEA_SERVICE_PORT")
-	cfg.Deploymentparams.giteaBannerConfigMapName  = util.ParseEnvVar("GITEA_BANNER_CONFIGMAP_NAME")
-	cfg.Deploymentparams.argocdNamespace           = util.ParseEnvVar("GITEA_ARGOCD_NAMESPACE")
-	cfg.Deploymentparams.sourceControlEnabledLabel = util.ParseEnvVar("GITEA_SOURCE_CONTROL_ENABLED_LABEL")
+	cfg.Deploymentparams.giteaServiceUrl    	    = util.ParseEnvVar("GITEA_SERVICE_URL")
+	cfg.Deploymentparams.giteaUrlPrefix     	    = util.ParseEnvVar("GITEA_URL_PREFIX")
+	cfg.Deploymentparams.giteaServicePort   	    = util.ParseIntegerEnvVar("GITEA_SERVICE_PORT")
+	cfg.Deploymentparams.giteaBannerConfigMapName   = util.ParseEnvVar("GITEA_BANNER_CONFIGMAP_NAME")
+	cfg.Deploymentparams.argocdNamespace            = util.ParseEnvVar("GITEA_ARGOCD_NAMESPACE")
+	cfg.Deploymentparams.argocdSourceRepoUrl        = util.ParseEnvVar("GITEA_ARGOCD_SOURCE_REPO_URL")
+	cfg.Deploymentparams.argocdSourceTargetRevision = util.ParseEnvVar("GITEA_ARGOCD_SOURCE_TARGET_REVISION")
+	cfg.Deploymentparams.argocdSourcePath           = util.ParseEnvVar("GITEA_ARGOCD_SOURCE_PATH")
+	cfg.Deploymentparams.argocdProject			    = util.ParseEnvVar("GITEA_ARGOCD_PROJECT")
+	cfg.Deploymentparams.sourceControlEnabledLabel  = util.ParseEnvVar("GITEA_SOURCE_CONTROL_ENABLED_LABEL")
 	return cfg, nil
 }
 
@@ -411,19 +419,19 @@ var giteaCmd = &cobra.Command{
 func generateGiteaArgoApp(profile *kubeflowv1.Profile, replicas int32, giteaconfig *GiteaConfig) (*argocdv1alph1.Application, error) {
 	app := &argocdv1alph1.Application{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "gitea-" + profile.Name,
+			Name:      fmt.Sprintf("gitea-%s-%s", profile.Name, giteaconfig.Deploymentparams.classificationEn),
 			Namespace: giteaconfig.Deploymentparams.argocdNamespace,
 		},
 		Spec: argocdv1alph1.ApplicationSpec{
-			Project: "default",
+			Project: giteaconfig.Deploymentparams.argocdProject,
 			Destination: argocdv1alph1.ApplicationDestination{
 				Namespace: profile.Name,
 				Name:      "in-cluster",
 			},
 			Source: argocdv1alph1.ApplicationSource{
-				RepoURL:        "https://github.com/StatCan/aaw-argocd-manifests.git",
-				TargetRevision: "aaw-dev-cc-00",
-				Path:           "profiles-argocd-system/template/gitea",
+				RepoURL:        giteaconfig.Deploymentparams.argocdSourceRepoUrl,
+				TargetRevision: giteaconfig.Deploymentparams.argocdSourceTargetRevision,
+				Path:           giteaconfig.Deploymentparams.argocdSourcePath,
 			},
 			SyncPolicy: &argocdv1alph1.SyncPolicy{},
 		},

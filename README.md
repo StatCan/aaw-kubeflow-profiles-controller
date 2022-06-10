@@ -117,7 +117,13 @@ as values.
   [here](https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/manifest.yaml#L365)
 - `GITEA_BANNER_CONFIGMAP_NAME`: gitea banner configmap name (configmap which corresponds to the banner at the top of the gitea ui)
 - `GITEA_ARGOCD_NAMESPACE`:  namespace for arcocd instance that the controller will install applications into
+- `GITEA_ARGOCD_SOURCE_REPO_URL`: repository url containing the gitea deployment manifest
+- `GITEA_ARGOCD_SOURCE_TARGET_REVISION`: git branch to deploy from
+- `GITEA_ARGOCD_SOURCE_PATH`: path to the manifest from the root of the git source repo
+- `GITEA_ARGOCD_PROJECT`: argocd instances's project to deploy applications within
 - `GITEA_SOURCE_CONTROL_ENABLED_LABEL`: this label will be searched for within profiles to indicate if a user has opted in.
+
+Within AAW, these variables are defined in the [statcan charts repo](https://github.com/StatCan/charts/blob/master/stable/profiles-controller/values.yaml), and they are configured within the dev [argocd-manifests-repo](https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/daaas-system/profile-controllers/profiles-controller/application.jsonnet) or prod [argocd-manifests-repo](https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-prod-cc-00/daaas-system/profile-controllers/profiles-controller/application.jsonnet).
 
 ### [limitrange.go](./cmd/limitrange.go)
 
