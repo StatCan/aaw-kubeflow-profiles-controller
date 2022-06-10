@@ -54,10 +54,10 @@ type Psqlparams struct {
 type Deploymentparams struct {
 	classificationEn string // classification (unclassified or prot-b)
 	classificationFr string // classification in french
-	giteaServiceUrl string  // The internal Gitea URL is specified in 
+	giteaServiceUrl string  // The internal Gitea URL is specified in
 	                        // https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/manifest.yaml#L350
-	giteaUrlPrefix  string  // url prefix used to redirect gitea 
-	giteaServicePort int // The port exposed by the Gitea service is specified in 
+	giteaUrlPrefix  string  // url prefix used to redirect gitea
+	giteaServicePort int // The port exposed by the Gitea service is specified in
 	                        // https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/manifest.yaml#L365
 	giteaBannerConfigMapName string // gitea banner configmap name (configmap which corresponds to the banner
 	                                // at the top of the gitea ui)
@@ -75,36 +75,28 @@ type GiteaConfig struct {
 func NewGiteaConfig() (*GiteaConfig, error) {
 	classification := util.ParseEnvVar("GITEA_CLASSIFICATION")
 	cfg := new(GiteaConfig)
+	// configure classification specific parameters
 	if classification == "unclassified" {
-		// configure psql specific parameters
-		cfg.Psqlparams.hostname = util.ParseEnvVar("GITEA_PSQL_HOSTNAME_UNCLASSIFIED")
-		cfg.Psqlparams.port     = util.ParseEnvVar("GITEA_PSQL_PORT_UNCLASSIFIED")
-		cfg.Psqlparams.username = util.ParseEnvVar("GITEA_PSQL_ADMIN_UNAME_UNCLASSIFIED")
-		cfg.Psqlparams.passwd   = util.ParseEnvVar("GITEA_PSQL_ADMIN_PASSWD_UNCLASSIFIED")
-		cfg.Psqlparams.dbname   = util.ParseEnvVar("GITEA_PSQL_MAINTENANCE_DB_UNCLASSIFIED")
-		// configure deployment specific parameters
-		cfg.Deploymentparams.giteaServiceUrl    	   = util.ParseEnvVar("GITEA_SERVICE_URL_UNCLASSIFIED") 
-		cfg.Deploymentparams.giteaUrlPrefix     	   = util.ParseEnvVar("GITEA_URL_PREFIX_UNCLASSIFIED") 
-		cfg.Deploymentparams.giteaServicePort   	   = util.ParseIntegerEnvVar("GITEA_SERVICE_PORT_UNCLASSIFIED") 
+		cfg.Deploymentparams.classificationFr = "non classé"
 	} else if classification == "protected-b" {
-		// configure psql specific parameters
-		cfg.Psqlparams.hostname = util.ParseEnvVar("GITEA_PSQL_HOSTNAME_PROTECTED_B")
-		cfg.Psqlparams.port     = util.ParseEnvVar("GITEA_PSQL_PORT_PROTECTED_B")
-		cfg.Psqlparams.username = util.ParseEnvVar("GITEA_PSQL_ADMIN_UNAME_PROTECTED_B")
-		cfg.Psqlparams.passwd   = util.ParseEnvVar("GITEA_PSQL_ADMIN_PASSWD_PROTECTED_B")
-		cfg.Psqlparams.dbname   = util.ParseEnvVar("GITEA_PSQL_MAINTENANCE_DB_PROTECTED_B")
-		// configure deployment specific parameters
-		cfg.Deploymentparams.giteaServiceUrl    	   = util.ParseEnvVar("GITEA_SERVICE_URL_PROTECTED_B") 
-		cfg.Deploymentparams.giteaUrlPrefix     	   = util.ParseEnvVar("GITEA_URL_PREFIX_PROTECTED_B") 
-		cfg.Deploymentparams.giteaServicePort   	   = util.ParseIntegerEnvVar("GITEA_SERVICE_PORT_PROTECTED_B")
+		cfg.Deploymentparams.classificationFr = "Protégé-b"
 	} else {
 		klog.Fatalf("no implementation of classification %s exists. terminating.", classification)
 	}
 	// currently the below configuration is agnostic of the classification
-	cfg.Deploymentparams.classificationEn          = classification
-	cfg.Deploymentparams.classificationFr          = "non classé"
-	cfg.Deploymentparams.giteaBannerConfigMapName  = util.ParseEnvVar("GITEA_BANNER_CONFIGMAP_NAME")   
-	cfg.Deploymentparams.argocdNamespace           = util.ParseEnvVar("GITEA_ARGOCD_NAMESPACE")  
+	cfg.Deploymentparams.classificationEn = classification
+	// configure psql specific parameters
+	cfg.Psqlparams.hostname = util.ParseEnvVar("GITEA_PSQL_HOSTNAME")
+	cfg.Psqlparams.port     = util.ParseEnvVar("GITEA_PSQL_PORT")
+	cfg.Psqlparams.username = util.ParseEnvVar("GITEA_PSQL_ADMIN_UNAME")
+	cfg.Psqlparams.passwd   = util.ParseEnvVar("GITEA_PSQL_ADMIN_PASSWD")
+	cfg.Psqlparams.dbname   = util.ParseEnvVar("GITEA_PSQL_MAINTENANCE_DB")
+	// configure deployment specific parameters
+	cfg.Deploymentparams.giteaServiceUrl    	   = util.ParseEnvVar("GITEA_SERVICE_URL")
+	cfg.Deploymentparams.giteaUrlPrefix     	   = util.ParseEnvVar("GITEA_URL_PREFIX")
+	cfg.Deploymentparams.giteaServicePort   	   = util.ParseIntegerEnvVar("GITEA_SERVICE_PORT")
+	cfg.Deploymentparams.giteaBannerConfigMapName  = util.ParseEnvVar("GITEA_BANNER_CONFIGMAP_NAME")
+	cfg.Deploymentparams.argocdNamespace           = util.ParseEnvVar("GITEA_ARGOCD_NAMESPACE")
 	cfg.Deploymentparams.sourceControlEnabledLabel = util.ParseEnvVar("GITEA_SOURCE_CONTROL_ENABLED_LABEL")
 	return cfg, nil
 }
@@ -122,7 +114,7 @@ var giteaCmd = &cobra.Command{
 		if err != nil {
 			klog.Fatalf("Error building giteaconfig: %v", err)
 		}
-		psqlparams := giteaconfig.Psqlparams 
+		psqlparams := giteaconfig.Psqlparams
 		// Setup signals so we can shutdown cleanly
 		stopCh := signals.SetupSignalHandler()
 		// Create Kubernetes config
