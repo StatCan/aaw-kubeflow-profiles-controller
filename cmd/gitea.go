@@ -123,7 +123,6 @@ var giteaCmd = &cobra.Command{
 		if err != nil {
 			klog.Fatalf("Error building giteaconfig: %v", err)
 		}
-		psqlparams := giteaconfig.Psqlparams
 		// Setup signals so we can shutdown cleanly
 		stopCh := signals.SetupSignalHandler()
 		// Create Kubernetes config
@@ -148,8 +147,8 @@ var giteaCmd = &cobra.Command{
 		}
 
 		// Establisth a connection to the db.
-		db, err := connect(psqlparams.hostname,
-			psqlparams.port, psqlparams.username, psqlparams.passwd, psqlparams.dbname)
+		db, err := connect(giteaconfig.Psqlparams.hostname,
+			giteaconfig.Psqlparams.port, giteaconfig.Psqlparams.username, giteaconfig.Psqlparams.passwd, giteaconfig.Psqlparams.dbname)
 		if err != nil {
 			klog.Fatalf("Could not establish connection to PSQL!")
 		}
@@ -206,7 +205,7 @@ var giteaCmd = &cobra.Command{
 				if errors.IsNotFound(err) {
 					if replicas != 0 {
 						klog.Infof("provisioning postgres for profile '%s'!", profile.Name)
-						err := provisionDb(db, profile, &psqlparams, kubeClient, secretLister, replicas)
+						err := provisionDb(db, profile, giteaconfig, kubeClient, secretLister, replicas)
 						if err != nil {
 							return err
 						}
@@ -282,7 +281,7 @@ var giteaCmd = &cobra.Command{
 				}
 
 				// Create the Istio Service Entry
-				serviceEntry, err := generateServiceEntry(profile, psqlparams)
+				serviceEntry, err := generateServiceEntry(profile, giteaconfig.Psqlparams)
 				if err != nil {
 					return err
 				}
@@ -491,7 +490,7 @@ func generateRandomStringURLSafe(n int) (string, error) {
 
 // Provision postgres db for use with gitea for the given profile
 // Responsible for provisioning the db and creating the k8s secret for the db
-func provisionDb(db *sql.DB, profile *kubeflowv1.Profile, psqlparams *Psqlparams,
+func provisionDb(db *sql.DB, profile *kubeflowv1.Profile, giteaconfig *GiteaConfig,
 	kubeclient kubernetes.Interface, secretLister v1.SecretLister, replicas int32) error {
 	psqlDuplicateErrorCode := pq.ErrorCode("42710")
 	pqParseErrorMsg := "Could not cast error '%s' to type pq.Error!"
@@ -505,7 +504,7 @@ func provisionDb(db *sql.DB, profile *kubeflowv1.Profile, psqlparams *Psqlparams
 		return err
 	}
 	// 1. CREATE SECRET FOR PROFILE, CONTAINING HOSTNAME, DBNAME, USERNAME, PASSWORD!
-	secret := generatePsqlSecret(profile, dbname, psqlparams, profilename, profiledbpassword)
+	secret := generatePsqlSecret(profile, dbname, profilename, profiledbpassword, giteaconfig)
 	// 2. CREATE ROLE
 	query := fmt.Sprintf("CREATE ROLE %s WITH LOGIN PASSWORD %s",
 		pq.QuoteIdentifier(profilename), pq.QuoteLiteral(profiledbpassword))
@@ -531,7 +530,7 @@ func provisionDb(db *sql.DB, profile *kubeflowv1.Profile, psqlparams *Psqlparams
 		managePsqlSecret(secret, kubeclient, secretLister, replicas)
 	}
 	// 3. GRANT ADMIN PERMISSIONS FOR CONFIGURING ROLE
-	query = fmt.Sprintf("GRANT %s to %s", pq.QuoteIdentifier(profilename), pq.QuoteIdentifier(psqlparams.username))
+	query = fmt.Sprintf("GRANT %s to %s", pq.QuoteIdentifier(profilename), pq.QuoteIdentifier(giteaconfig.Psqlparams.username))
 	err = performQuery(db, query)
 	if err != nil {
 		return err
@@ -618,7 +617,8 @@ func managePsqlSecret(secret *corev1.Secret, kubeClient kubernetes.Interface, se
 }
 
 // Generates a secret for the gitea db
-func generatePsqlSecret(profile *kubeflowv1.Profile, dbname string, psqlparams *Psqlparams, username string, password string) *corev1.Secret {
+func generatePsqlSecret(profile *kubeflowv1.Profile, dbname string, username string, password string, giteaconfig *GiteaConfig) *corev1.Secret {
+	psqlparams := giteaconfig.Psqlparams
 	secret := &corev1.Secret{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Secret",
@@ -626,7 +626,7 @@ func generatePsqlSecret(profile *kubeflowv1.Profile, dbname string, psqlparams *
 		},
 
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "gitea-postgresql-secret",
+			Name:      fmt.Sprintf("gitea-postgresql-secret-%s", giteaconfig.Deploymentparams.classificationEn),
 			Namespace: profile.Name,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
