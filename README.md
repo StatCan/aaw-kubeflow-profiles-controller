@@ -71,7 +71,7 @@ Creates an Azure Blob Storage container for a user in a few storage accounts (e.
 - PVCs are ReadWriteMany or ReadOnlyMany, respectively
 - Supports both protected-b and unclassified mounts.
 
-In addition, the controller is responsible for managing links from `PersistentVolume`'s to any buckets from Fair Data Infrasure (FDI) Section of DAaas.  This is accomplished by querying unclassified and protected-b `OPA` gateways which return `json` responses containing buckets along with permissions. 
+In addition, the controller is responsible for managing links from `PersistentVolume`'s to any buckets from Fair Data Infrasure (FDI) Section of DAaas.  This is accomplished by querying unclassified and protected-b `OPA` gateways which return `json` responses containing buckets along with permissions.
 
 *This will deprecate the minio controller.*
 
@@ -99,13 +99,6 @@ The Gitea application [values.yaml file](https://github.com/StatCan/aaw-argocd-m
 To allow requests to reach the user's Gitea instance, a Network Policy is set in the user's namespace that allows ingress traffic from the kubeflow-gateway to be sent to any pods in the user's namespace that match the `app: gitea` label selector.
 
 [^5]: Istio icons provided by [Istio Media Resources](https://istio.io/latest/about/media-resources/)
-
-### Gitlab (Cloud Main Connectivity)
-
-See the diagram.[^1][^2]
-
-[^1]: Jupyterlab icon from [wikimedia-commons](https://commons.wikimedia.org/wiki/File:Jupyter_logo.svg)
-[^2]: Fortigate icon from [iconduck](https://iconduck.com/icons/780/fortinet)
 
 ### [limitrange.go](./cmd/limitrange.go)
 
