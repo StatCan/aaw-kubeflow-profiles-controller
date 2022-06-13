@@ -32,6 +32,15 @@
             ]
         },
         {
+            "name": "Python: Current File",
+            "type": "python",
+            "justMyCode": false,
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/docs/diagrams/"
+        },
+        {
             "name": "Debug Cloud Main Profile Controller",
             "type": "go",
             "request": "launch",

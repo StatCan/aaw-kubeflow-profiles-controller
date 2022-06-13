@@ -71,7 +71,7 @@ Creates an Azure Blob Storage container for a user in a few storage accounts (e.
 - PVCs are ReadWriteMany or ReadOnlyMany, respectively
 - Supports both protected-b and unclassified mounts.
 
-In addition, the controller is responsible for managing links from `PersistentVolume`'s to any buckets from Fair Data Infrasure (FDI) Section of DAaas.  This is accomplished by querying unclassified and protected-b `OPA` gateways which return `json` responses containing buckets along with permissions. 
+In addition, the controller is responsible for managing links from `PersistentVolume`'s to any buckets from Fair Data Infrasure (FDI) Section of DAaas.  This is accomplished by querying unclassified and protected-b `OPA` gateways which return `json` responses containing buckets along with permissions.
 
 *This will deprecate the minio controller.*
 
