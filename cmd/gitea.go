@@ -82,7 +82,7 @@ func NewGiteaConfig() (*GiteaConfig, error) {
 	cfg := new(GiteaConfig)
 	// configure classification specific parameters
 	if classification == "unclassified" {
-		cfg.Deploymentparams.classificationFr = "non classé"
+		cfg.Deploymentparams.classificationFr = "Non classifié"
 	} else if classification == "protected-b" {
 		cfg.Deploymentparams.classificationFr = "Protégé-b"
 	} else {
