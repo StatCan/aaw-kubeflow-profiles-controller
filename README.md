@@ -100,6 +100,31 @@ To allow requests to reach the user's Gitea instance, a Network Policy is set in
 
 [^5]: Istio icons provided by [Istio Media Resources](https://istio.io/latest/about/media-resources/)
 
+#### Configuration
+The Gitea controller is configurable to run in unclassified or protected-b mode. The configuration of the following
+parameters thus need set to run the controller:
+
+- `GITEA_CLASSIFICATION`: the classification the controller should be running against. Currently, `unclassified` and `protected-b` are supported
+as values.
+- `GITEA_PSQL_PORT`: port of the postgres instance the gitea application will connect to
+- `GITEA_PSQL_ADMIN_UNAME`: username of a priviledged user within the postgres instance
+- `GITEA_PSQL_ADMIN_PASSWD`: password for the above user
+- `GITEA_PSQL_MAINTENANCE_DB`: maintenance DB name in the postgres instance
+- `GITEA_SERVICE_URL`: internal Gitea URL is specified in
+  [here](https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/manifest.yaml#L350)
+- `GITEA_URL_PREFIX`: url prefix for redirecting gitea
+- `GITEA_SERVICE_PORT`: the port exposed by gitea service, as specified
+  [here](https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/manifest.yaml#L365)
+- `GITEA_BANNER_CONFIGMAP_NAME`: gitea banner configmap name (configmap which corresponds to the banner at the top of the gitea ui)
+- `GITEA_ARGOCD_NAMESPACE`:  namespace for arcocd instance that the controller will install applications into
+- `GITEA_ARGOCD_SOURCE_REPO_URL`: repository url containing the gitea deployment manifest
+- `GITEA_ARGOCD_SOURCE_TARGET_REVISION`: git branch to deploy from
+- `GITEA_ARGOCD_SOURCE_PATH`: path to the manifest from the root of the git source repo
+- `GITEA_ARGOCD_PROJECT`: argocd instances's project to deploy applications within
+- `GITEA_SOURCE_CONTROL_ENABLED_LABEL`: this label will be searched for within profiles to indicate if a user has opted in.
+
+Within AAW, these variables are defined in the [statcan charts repo](https://github.com/StatCan/charts/blob/master/stable/profiles-controller/values.yaml), and they are configured within the dev [argocd-manifests-repo](https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/daaas-system/profile-controllers/profiles-controller/application.jsonnet) or prod [argocd-manifests-repo](https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-prod-cc-00/daaas-system/profile-controllers/profiles-controller/application.jsonnet).
+
 ### [limitrange.go](./cmd/limitrange.go)
 
 Responsible for creating, removing and updating `LimitRange` resources for a given profile. `LimitRange` resources are generated to limit the cpu and memory resources for the kubeflow profile's default container. `LimitRange` resources require the implementation of a controller managing `ResourceQuotas`, which is provided in this package (see [quotas.go](./cmd/quotas.go)). Implementing `LimitRange` resources allows any Pod to run associated with the `Profile`, restricted by a `ResourceQuota`.

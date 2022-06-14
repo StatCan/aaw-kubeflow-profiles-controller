@@ -43,19 +43,7 @@ import (
 	// project packages
 )
 
-// The internal Gitea URL is specified in https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/manifest.yaml#L350
-const GITEA_SERVICE_URL = "gitea-http"
-
-// The url prefix that is used to redirect to Gitea
-const GITEA_URL_PREFIX = "gitea"
-
-// The port exposed by the Gitea service is specified in https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/manifest.yaml#L365
-const GITEA_SERVICE_PORT = 80
-
-var sourceControlEnabledLabel = "sourcecontrol.statcan.gc.ca/enabled"
-var giteaBannerConfigMapName = "gitea-banner"
-var argocdnamespace string
-
+// Parameters specific to the authentication with managed postgres
 type Psqlparams struct {
 	hostname string
 	port     string
@@ -63,13 +51,67 @@ type Psqlparams struct {
 	passwd   string
 	dbname   string
 }
+// Parameters specific to the deployment of per-namespace gitea applications
+type Deploymentparams struct {
+	classificationEn string // classification (unclassified or prot-b)
+	classificationFr string // classification in french
+	giteaServiceUrl string  // The internal Gitea URL is specified in
+	                        // https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/manifest.yaml#L350
+	giteaUrlPrefix  string  // url prefix used to redirect gitea
+	giteaServicePort int // The port exposed by the Gitea service is specified in
+	                        // https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/manifest.yaml#L365
+	giteaBannerConfigMapName string // gitea banner configmap name (configmap which corresponds to the banner
+	                                // at the top of the gitea ui)
+	argocdNamespace  string // namespace the argocd instance is in
+	argocdSourceRepoUrl         string // the repository url containing the gitea deployment manifest
+	argocdSourceTargetRevision 	string // the git branch to deploy from
+	argocdSourcePath           	string // the path from the root of the git source repo
+	argocdProject               string // argocd instances's project to deploy applications within
+	sourceControlEnabledLabel string // the label that indicates a user has opted in to using gitea.
+									 // one such example is sourcecontrol.statcan.gc.ca/enabled
+}
+// Configuration struct for gitea controller
+type GiteaConfig struct {
+	Psqlparams Psqlparams
+	Deploymentparams Deploymentparams
+}
 
-var psqlparams Psqlparams
+// Constructs the controller's config based on classification.
+func NewGiteaConfig() (*GiteaConfig, error) {
+	classification := util.ParseEnvVar("GITEA_CLASSIFICATION")
+	cfg := new(GiteaConfig)
+	// configure classification specific parameters
+	if classification == "unclassified" {
+		cfg.Deploymentparams.classificationFr = "Non classifié"
+	} else if classification == "protected-b" {
+		cfg.Deploymentparams.classificationFr = "Protégé-b"
+	} else {
+		klog.Fatalf("no implementation of classification %s exists. terminating.", classification)
+	}
+	// currently the below configuration is agnostic of the classification
+	cfg.Deploymentparams.classificationEn = classification
+	// configure psql specific parameters
+	cfg.Psqlparams.hostname = util.ParseEnvVar("GITEA_PSQL_HOSTNAME")
+	cfg.Psqlparams.port     = util.ParseEnvVar("GITEA_PSQL_PORT")
+	cfg.Psqlparams.username = util.ParseEnvVar("GITEA_PSQL_ADMIN_UNAME")
+	cfg.Psqlparams.passwd   = util.ParseEnvVar("GITEA_PSQL_ADMIN_PASSWD")
+	cfg.Psqlparams.dbname   = util.ParseEnvVar("GITEA_PSQL_MAINTENANCE_DB")
+	// configure deployment specific parameters
+	cfg.Deploymentparams.giteaServiceUrl    	    = util.ParseEnvVar("GITEA_SERVICE_URL")
+	cfg.Deploymentparams.giteaUrlPrefix     	    = util.ParseEnvVar("GITEA_URL_PREFIX")
+	cfg.Deploymentparams.giteaServicePort   	    = util.ParseIntegerEnvVar("GITEA_SERVICE_PORT")
+	cfg.Deploymentparams.giteaBannerConfigMapName   = util.ParseEnvVar("GITEA_BANNER_CONFIGMAP_NAME")
+	cfg.Deploymentparams.argocdNamespace            = util.ParseEnvVar("GITEA_ARGOCD_NAMESPACE")
+	cfg.Deploymentparams.argocdSourceRepoUrl        = util.ParseEnvVar("GITEA_ARGOCD_SOURCE_REPO_URL")
+	cfg.Deploymentparams.argocdSourceTargetRevision = util.ParseEnvVar("GITEA_ARGOCD_SOURCE_TARGET_REVISION")
+	cfg.Deploymentparams.argocdSourcePath           = util.ParseEnvVar("GITEA_ARGOCD_SOURCE_PATH")
+	cfg.Deploymentparams.argocdProject			    = util.ParseEnvVar("GITEA_ARGOCD_PROJECT")
+	cfg.Deploymentparams.sourceControlEnabledLabel  = util.ParseEnvVar("GITEA_SOURCE_CONTROL_ENABLED_LABEL")
+	return cfg, nil
+}
 
 func init() {
 	rootCmd.AddCommand(giteaCmd)
-	giteaCmd.PersistentFlags().StringVar(&argocdnamespace, "argocdnamespace", "argocd",
-		"The namespace of argocd")
 }
 
 var giteaCmd = &cobra.Command{
@@ -77,12 +119,10 @@ var giteaCmd = &cobra.Command{
 	Short: "Configure gitea",
 	Long: `Configure gitea for Kubeflow resources.* Statefulset	`,
 	Run: func(cmd *cobra.Command, args []string) {
-		psqlparams = Psqlparams{
-			hostname: util.ParseEnvVar("GITEA_PSQL_HOSTNAME"),
-			port:     util.ParseEnvVar("GITEA_PSQL_PORT"),
-			username: util.ParseEnvVar("GITEA_PSQL_ADMIN_UNAME"),
-			passwd:   util.ParseEnvVar("GITEA_PSQL_ADMIN_PASSWD"),
-			dbname:   util.ParseEnvVar("GITEA_PSQL_MAINTENANCE_DB")}
+		giteaconfig, err := NewGiteaConfig()
+		if err != nil {
+			klog.Fatalf("Error building giteaconfig: %v", err)
+		}
 		// Setup signals so we can shutdown cleanly
 		stopCh := signals.SetupSignalHandler()
 		// Create Kubernetes config
@@ -107,8 +147,8 @@ var giteaCmd = &cobra.Command{
 		}
 
 		// Establisth a connection to the db.
-		db, err := connect(psqlparams.hostname,
-			psqlparams.port, psqlparams.username, psqlparams.passwd, psqlparams.dbname)
+		db, err := connect(giteaconfig.Psqlparams.hostname,
+			giteaconfig.Psqlparams.port, giteaconfig.Psqlparams.username, giteaconfig.Psqlparams.passwd, giteaconfig.Psqlparams.dbname)
 		if err != nil {
 			klog.Fatalf("Could not establish connection to PSQL!")
 		}
@@ -146,16 +186,16 @@ var giteaCmd = &cobra.Command{
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
 			func(profile *kubeflowv1.Profile) error {
-				// Only create nginx if a profile has opted in, as determined by sourcecontrol.statcan.gc.ca/enabled=true
+				// Only create gitea instance if a profile has opted in, as determined by sourcecontrol.statcan.gc.ca/enabled=true
 				var replicas int32
 
-				if val, ok := profile.Labels[sourceControlEnabledLabel]; ok && val == "true" {
+				if val, ok := profile.Labels[giteaconfig.Deploymentparams.sourceControlEnabledLabel]; ok && val == "true" {
 					replicas = 1
 				} else {
 					replicas = 0
 				}
 				// Generate argocd application
-				giteaArgoCdApp, err := generateGiteaArgoApp(profile, replicas)
+				giteaArgoCdApp, err := generateGiteaArgoApp(profile, replicas, giteaconfig)
 
 				if err != nil {
 					return err
@@ -165,13 +205,13 @@ var giteaCmd = &cobra.Command{
 				if errors.IsNotFound(err) {
 					if replicas != 0 {
 						klog.Infof("provisioning postgres for profile '%s'!", profile.Name)
-						err := provisionDb(db, profile, &psqlparams, kubeClient, secretLister, replicas)
+						err := provisionDb(db, profile, giteaconfig, kubeClient, secretLister, replicas)
 						if err != nil {
 							return err
 						}
 
 						klog.Infof("creating argo app %s/%s", giteaArgoCdApp.Namespace, giteaArgoCdApp.Name)
-						currentGiteaArgoCdApp, err = argocdClient.ArgoprojV1alpha1().Applications(giteaArgoCdApp.Namespace).Create(
+						_, err = argocdClient.ArgoprojV1alpha1().Applications(giteaArgoCdApp.Namespace).Create(
 							context.Background(), giteaArgoCdApp, metav1.CreateOptions{})
 						if err != nil {
 							return err
@@ -189,7 +229,7 @@ var giteaCmd = &cobra.Command{
 				}
 
 				// Generate configMap
-				giteaConfigMap, err := generateBannerConfigMap(profile)
+				giteaConfigMap, err := generateBannerConfigMap(profile, giteaconfig)
 				if err != nil {
 					return err
 				}
@@ -197,7 +237,7 @@ var giteaCmd = &cobra.Command{
 				if errors.IsNotFound(err) {
 					if replicas != 0 {
 						klog.Infof("creating configMap %s/%s", giteaConfigMap.Namespace, giteaConfigMap.Name)
-						currentGiteaConfigMap, err = kubeClient.CoreV1().ConfigMaps(giteaConfigMap.Namespace).Create(
+						_, err = kubeClient.CoreV1().ConfigMaps(giteaConfigMap.Namespace).Create(
 							context.Background(), giteaConfigMap, metav1.CreateOptions{})
 						if err != nil {
 							return err
@@ -214,7 +254,7 @@ var giteaCmd = &cobra.Command{
 					}
 				}
 				// Create the Istio virtual service
-				virtualService, err := generateIstioVirtualService(profile)
+				virtualService, err := generateIstioVirtualService(profile, giteaconfig)
 				if err != nil {
 					return err
 				}
@@ -223,19 +263,25 @@ var giteaCmd = &cobra.Command{
 				if errors.IsNotFound(err) {
 					// Always create the virtual service
 					klog.Infof("Creating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
-					currentVirtualService, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Create(
+					_, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Create(
 						context.Background(), virtualService, metav1.CreateOptions{},
 					)
+					if err != nil {
+						return err
+					}
 				} else if !reflect.DeepEqual(virtualService.Spec, currentVirtualService.Spec) {
 					klog.Infof("Updating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
 					currentVirtualService = virtualService
 					_, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Update(
 						context.Background(), currentVirtualService, metav1.UpdateOptions{},
 					)
+					if err != nil {
+						return err
+					}
 				}
 
 				// Create the Istio Service Entry
-				serviceEntry, err := generateServiceEntry(profile, psqlparams)
+				serviceEntry, err := generateServiceEntry(profile, giteaconfig.Psqlparams)
 				if err != nil {
 					return err
 				}
@@ -244,9 +290,12 @@ var giteaCmd = &cobra.Command{
 				if errors.IsNotFound(err) {
 					if replicas != 0 {
 						klog.Infof("Creating Istio ServiceEntry %s/%s", serviceEntry.Namespace, serviceEntry.Name)
-						currentServiceEntry, err = istioClient.NetworkingV1beta1().ServiceEntries(serviceEntry.Namespace).Create(
+						_, err = istioClient.NetworkingV1beta1().ServiceEntries(serviceEntry.Namespace).Create(
 							context.Background(), serviceEntry, metav1.CreateOptions{},
 						)
+						if err != nil {
+							return err
+						}
 					}
 				} else if !reflect.DeepEqual(serviceEntry.Spec, currentServiceEntry.Spec) {
 					klog.Infof("Updating Istio ServiceEntry %s/%s", serviceEntry.Namespace, serviceEntry.Name)
@@ -254,6 +303,9 @@ var giteaCmd = &cobra.Command{
 					_, err = istioClient.NetworkingV1beta1().ServiceEntries(serviceEntry.Namespace).Update(
 						context.Background(), currentServiceEntry, metav1.UpdateOptions{},
 					)
+					if err != nil {
+						return err
+					}
 				}
 				return nil
 			},
@@ -363,22 +415,22 @@ var giteaCmd = &cobra.Command{
 
 // generates the struct for the argocd application that deploys gitea via the customized manifest
 // within https://github.com/StatCan/aaw-argocd-manifests/profiles-argocd-system/template/gitea
-func generateGiteaArgoApp(profile *kubeflowv1.Profile, replicas int32) (*argocdv1alph1.Application, error) {
+func generateGiteaArgoApp(profile *kubeflowv1.Profile, replicas int32, giteaconfig *GiteaConfig) (*argocdv1alph1.Application, error) {
 	app := &argocdv1alph1.Application{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "gitea-" + profile.Name,
-			Namespace: argocdnamespace,
+			Name:      fmt.Sprintf("gitea-%s-%s", profile.Name, giteaconfig.Deploymentparams.classificationEn),
+			Namespace: giteaconfig.Deploymentparams.argocdNamespace,
 		},
 		Spec: argocdv1alph1.ApplicationSpec{
-			Project: "default",
+			Project: giteaconfig.Deploymentparams.argocdProject,
 			Destination: argocdv1alph1.ApplicationDestination{
 				Namespace: profile.Name,
 				Name:      "in-cluster",
 			},
 			Source: argocdv1alph1.ApplicationSource{
-				RepoURL:        "https://github.com/StatCan/aaw-argocd-manifests.git",
-				TargetRevision: "aaw-dev-cc-00",
-				Path:           "profiles-argocd-system/template/gitea",
+				RepoURL:        giteaconfig.Deploymentparams.argocdSourceRepoUrl,
+				TargetRevision: giteaconfig.Deploymentparams.argocdSourceTargetRevision,
+				Path:           giteaconfig.Deploymentparams.argocdSourcePath,
 			},
 			SyncPolicy: &argocdv1alph1.SyncPolicy{},
 		},
@@ -388,23 +440,23 @@ func generateGiteaArgoApp(profile *kubeflowv1.Profile, replicas int32) (*argocdv
 }
 
 // Generates a configmap for the banner on the gitea web page
-func generateBannerConfigMap(profile *kubeflowv1.Profile) (*corev1.ConfigMap, error) {
+func generateBannerConfigMap(profile *kubeflowv1.Profile, giteaconfig *GiteaConfig) (*corev1.ConfigMap, error) {
 	cm := &corev1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "ConfigMap",
 			APIVersion: "v1",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      giteaBannerConfigMapName,
+			Name:      giteaconfig.Deploymentparams.giteaBannerConfigMapName,
 			Namespace: profile.Name,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
 			},
 		},
 		Data: map[string]string{
-			"body_inner_pre.tmpl": "Welcome to AAW Gitea. " +
+			"body_inner_pre.tmpl": fmt.Sprintf("Welcome to AAW Gitea (%s). ", giteaconfig.Deploymentparams.classificationEn) +
 				"To login use username: superuser, password: password | " +
-				"Bienvenue à AAW Gitea. Pour vous connecter, utilisez le " +
+				fmt.Sprintf("Bienvenue à AAW Gitea (%s). Pour vous connecter, utilisez le ", giteaconfig.Deploymentparams.classificationFr) +
 				"nom d'utilisateur: superuser, le mot de passe: password",
 		},
 	}
@@ -438,7 +490,7 @@ func generateRandomStringURLSafe(n int) (string, error) {
 
 // Provision postgres db for use with gitea for the given profile
 // Responsible for provisioning the db and creating the k8s secret for the db
-func provisionDb(db *sql.DB, profile *kubeflowv1.Profile, psqlparams *Psqlparams,
+func provisionDb(db *sql.DB, profile *kubeflowv1.Profile, giteaconfig *GiteaConfig,
 	kubeclient kubernetes.Interface, secretLister v1.SecretLister, replicas int32) error {
 	psqlDuplicateErrorCode := pq.ErrorCode("42710")
 	pqParseErrorMsg := "Could not cast error '%s' to type pq.Error!"
@@ -452,7 +504,7 @@ func provisionDb(db *sql.DB, profile *kubeflowv1.Profile, psqlparams *Psqlparams
 		return err
 	}
 	// 1. CREATE SECRET FOR PROFILE, CONTAINING HOSTNAME, DBNAME, USERNAME, PASSWORD!
-	secret := generatePsqlSecret(profile, dbname, psqlparams, profilename, profiledbpassword)
+	secret := generatePsqlSecret(profile, dbname, profilename, profiledbpassword, giteaconfig)
 	// 2. CREATE ROLE
 	query := fmt.Sprintf("CREATE ROLE %s WITH LOGIN PASSWORD %s",
 		pq.QuoteIdentifier(profilename), pq.QuoteLiteral(profiledbpassword))
@@ -478,7 +530,7 @@ func provisionDb(db *sql.DB, profile *kubeflowv1.Profile, psqlparams *Psqlparams
 		managePsqlSecret(secret, kubeclient, secretLister, replicas)
 	}
 	// 3. GRANT ADMIN PERMISSIONS FOR CONFIGURING ROLE
-	query = fmt.Sprintf("GRANT %s to %s", pq.QuoteIdentifier(profilename), pq.QuoteIdentifier(psqlparams.username))
+	query = fmt.Sprintf("GRANT %s to %s", pq.QuoteIdentifier(profilename), pq.QuoteIdentifier(giteaconfig.Psqlparams.username))
 	err = performQuery(db, query)
 	if err != nil {
 		return err
@@ -545,7 +597,7 @@ func managePsqlSecret(secret *corev1.Secret, kubeClient kubernetes.Interface, se
 	if errors.IsNotFound(err) {
 		if replicas != 0 {
 			klog.Infof("creating secret %s/%s", secret.Namespace, secret.Name)
-			currentSecret, err = kubeClient.CoreV1().Secrets(secret.Namespace).Create(
+			_, err = kubeClient.CoreV1().Secrets(secret.Namespace).Create(
 				context.Background(), secret, metav1.CreateOptions{})
 			if err != nil {
 				return err
@@ -565,7 +617,8 @@ func managePsqlSecret(secret *corev1.Secret, kubeClient kubernetes.Interface, se
 }
 
 // Generates a secret for the gitea db
-func generatePsqlSecret(profile *kubeflowv1.Profile, dbname string, psqlparams *Psqlparams, username string, password string) *corev1.Secret {
+func generatePsqlSecret(profile *kubeflowv1.Profile, dbname string, username string, password string, giteaconfig *GiteaConfig) *corev1.Secret {
+	psqlparams := giteaconfig.Psqlparams
 	secret := &corev1.Secret{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Secret",
@@ -573,7 +626,7 @@ func generatePsqlSecret(profile *kubeflowv1.Profile, dbname string, psqlparams *
 		},
 
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "gitea-postgresql-secret",
+			Name:      fmt.Sprintf("gitea-postgresql-secret-%s", giteaconfig.Deploymentparams.classificationEn),
 			Namespace: profile.Name,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
@@ -587,7 +640,7 @@ func generatePsqlSecret(profile *kubeflowv1.Profile, dbname string, psqlparams *
 	return secret
 }
 
-func generateIstioVirtualService(profile *kubeflowv1.Profile) (*istionetworkingclient.VirtualService, error) {
+func generateIstioVirtualService(profile *kubeflowv1.Profile, giteaconfig *GiteaConfig) (*istionetworkingclient.VirtualService, error) {
 	// Get namespace from profile
 	namespace := profile.Name
 	// Create virtual service
@@ -615,7 +668,7 @@ func generateIstioVirtualService(profile *kubeflowv1.Profile) (*istionetworkingc
 						{
 							Uri: &istionetworkingv1beta1.StringMatch{
 								MatchType: &istionetworkingv1beta1.StringMatch_Prefix{
-									Prefix: fmt.Sprintf("/%s/%s/", GITEA_URL_PREFIX, namespace),
+									Prefix: fmt.Sprintf("/%s/%s/", giteaconfig.Deploymentparams.giteaUrlPrefix, namespace),
 								},
 							},
 						},
@@ -626,9 +679,9 @@ func generateIstioVirtualService(profile *kubeflowv1.Profile) (*istionetworkingc
 					Route: []*istionetworkingv1beta1.HTTPRouteDestination{
 						{
 							Destination: &istionetworkingv1beta1.Destination{
-								Host: fmt.Sprintf("%s.%s.svc.cluster.local", GITEA_SERVICE_URL, namespace),
+								Host: fmt.Sprintf("%s.%s.svc.cluster.local", giteaconfig.Deploymentparams.giteaServiceUrl, namespace),
 								Port: &istionetworkingv1beta1.PortSelector{
-									Number: GITEA_SERVICE_PORT,
+									Number: uint32(giteaconfig.Deploymentparams.giteaServicePort),
 								},
 							},
 						},
@@ -660,7 +713,7 @@ func generateIstioVirtualService(profile *kubeflowv1.Profile) (*istionetworkingc
 						},
 					},
 					Redirect: &istionetworkingv1beta1.HTTPRedirect{
-						Uri: fmt.Sprintf("/%s/%s/", GITEA_URL_PREFIX, namespace),
+						Uri: fmt.Sprintf("/%s/%s/", giteaconfig.Deploymentparams.giteaUrlPrefix, namespace),
 					},
 				},
 			},
