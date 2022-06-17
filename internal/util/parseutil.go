@@ -20,7 +20,7 @@ func ParseEnvVar(envname string) string {
 // Parse an integer environment variable
 func ParseIntegerEnvVar(envname string) int {
 	value := ParseEnvVar(envname)
-	intVal, err := strconv.Atoi(envname)
+	intVal, err := strconv.Atoi(value)
 	if err != nil {
 		klog.Fatalf("Could not parse environment variable %s with values %s as an integer!", envname, value)
 	}
