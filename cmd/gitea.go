@@ -253,30 +253,34 @@ var giteaCmd = &cobra.Command{
 						return err
 					}
 				}
-				// Create the Istio virtual service
-				virtualService, err := generateIstioVirtualService(profile, giteaconfig)
-				if err != nil {
-					return err
-				}
-				currentVirtualService, err := virtualServiceLister.VirtualServices(profile.Name).Get(virtualService.Name)
-				// If the virtual service is not found and the user has opted into having source control, create the virtual service.
-				if errors.IsNotFound(err) {
-					// Always create the virtual service
-					klog.Infof("Creating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
-					_, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Create(
-						context.Background(), virtualService, metav1.CreateOptions{},
-					)
+				// only require virtual service for unclassified, as prot-b should only be accessible
+				// within a prot-b notebook, NOT the kubeflow UI.
+				if giteaconfig.Deploymentparams.classificationEn == "unclassified" {
+					// Create the Istio virtual service
+					virtualService, err := generateIstioVirtualService(profile, giteaconfig)
 					if err != nil {
 						return err
 					}
-				} else if !reflect.DeepEqual(virtualService.Spec, currentVirtualService.Spec) {
-					klog.Infof("Updating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
-					currentVirtualService = virtualService
-					_, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Update(
-						context.Background(), currentVirtualService, metav1.UpdateOptions{},
-					)
-					if err != nil {
-						return err
+					currentVirtualService, err := virtualServiceLister.VirtualServices(profile.Name).Get(virtualService.Name)
+					// If the virtual service is not found and the user has opted into having source control, create the virtual service.
+					if errors.IsNotFound(err) {
+						// Always create the virtual service
+						klog.Infof("Creating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
+						_, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Create(
+							context.Background(), virtualService, metav1.CreateOptions{},
+						)
+						if err != nil {
+							return err
+						}
+					} else if !reflect.DeepEqual(virtualService.Spec, currentVirtualService.Spec) {
+						klog.Infof("Updating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
+						currentVirtualService = virtualService
+						_, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Update(
+							context.Background(), currentVirtualService, metav1.UpdateOptions{},
+						)
+						if err != nil {
+							return err
+						}
 					}
 				}
 

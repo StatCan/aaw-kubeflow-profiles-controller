@@ -760,6 +760,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 			PodSelector: metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"app": "gitea",
+					"app.kubernetes.io/instance": "gitea-unclassified",
 				},
 			},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
