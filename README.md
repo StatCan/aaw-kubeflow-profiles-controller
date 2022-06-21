@@ -71,7 +71,25 @@ Creates an Azure Blob Storage container for a user in a few storage accounts (e.
 - PVCs are ReadWriteMany or ReadOnlyMany, respectively
 - Supports both protected-b and unclassified mounts.
 
-In addition, the controller is responsible for managing links from `PersistentVolume`'s to any buckets from Fair Data Infrasure (FDI) Section of DAaas.  This is accomplished by querying unclassified and protected-b `OPA` gateways which return `json` responses containing buckets along with permissions.
+In addition, the controller is responsible for managing links from `PersistentVolume`'s to any buckets from Fair Data Infrastructure (FDI) Section of DAaas.  This is accomplished by querying unclassified and protected-b `OPA` gateways which return `json` responses containing buckets along with permissions. The controller parses the returned `json`, creating a `PersistentVolume` and `PersistentVolumeClaim` for each bucket in accordance with the permission constraints.
+
+#### Configuration
+- `BLOB_CSI_FDI_OPA_DAEMON_TICKER_MILLIS`: the time interval at which the opa gateways are queried, in milliseconds. 
+- `BLOB_CSI_FDI_UNCLASS_OPA_ENDPOINT`: the http address pointing to the unclassified OPA gateway.
+- `BLOB_CSI_FDI_UNCLASS_SPN_SECRET_NAME`: the name of a secret containing data `azurestoragespnclientsecret: value`,
+where value is a secret registered under the unclassified FDI service principal.
+- `BLOB_CSI_FDI_UNCLASS_SPN_SECRET_NAMESPACE`: the namespace the above secret is contained in.
+- `BLOB_CSI_FDI_UNCLASS_PV_STORAGE_CAP`: the storage capacity for FDI PV's.
+- `BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_AUTH_TYPE`: for the current implementation, only `spn` auth type is supported
+- `BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_AAD_ENDPOINT`: the azure active directory endpoint
+- `BLOB_CSI_FDI_PROTECTED_B_OPA_ENDPOINT`: the http address pointing to the protected-b OPA gateway.
+- `BLOB_CSI_FDI_PROTECTED_B_SPN_SECRET_NAME`: the name of a secret containing data `azurestoragespnclientsecret: value`,
+where value is a secret registered under the unclassified FDI service principal.
+- `BLOB_CSI_FDI_PROTECTED_B_SPN_SECRET_NAMESPACE`: the namespace the above secret is contained in.
+- `BLOB_CSI_FDI_PROTECTED_B_PV_STORAGE_CAP`: the storage capacity for FDI PV's.
+- `BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AUTH_TYPE`: for the current implementation, only `spn` auth type is supported
+- `BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AAD_ENDPOINT`: the azure active directory endpoint
+
 
 *This will deprecate the minio controller.*
 
@@ -88,15 +106,15 @@ The diagram below highlights the key components involved with the Gitea controll
 
 #### Gitea User Interface
 
-The Gitea user interface is embedded within the [Kubeflow dashboard](https://github.com/StatCan/aaw-kubeflow-manifests/blob/aaw-dev-cc-00/kustomize/apps/centraldashboard/base/centraldashboard-config.yaml)'s user interface, rendered by an iframe.
+The unclassified Gitea user interface is embedded within the [Kubeflow dashboard](https://github.com/StatCan/aaw-kubeflow-manifests/blob/aaw-dev-cc-00/kustomize/apps/centraldashboard/base/centraldashboard-config.yaml)'s user interface, rendered by an iframe. Protected-b gitea is setup to be accessible only through a protected-b node, and thus the user is expected to access their protected-b gitea instance within an AAW ubuntu VM, or through the CLI in a protected-b notebook.
 
-Requests to a namespace's Gitea server are made to the Kubeflow base url with the suffix `/gitea/?ns=<user-namespace>`, where the user's namespace is passed as an http parameter. An Istio Virtual Service created by the `gitea.go` controller contains an http route that redirects traffic from `/gitea/?ns=<user-namespace>` to `/gitea/<user-namespace>/`. A second http route routes traffic from `/gitea/<user-namespace>/` to the Gitea instance in the user's namespace.
+Requests to a namespace's Gitea server are made to the Kubeflow base url with the suffix `/gitea-unclassified/?ns=<user-namespace>`, where the user's namespace is passed as an http parameter. An Istio Virtual Service created by the `gitea.go` controller contains an http route that redirects traffic from `/gitea-unclassified/?ns=<user-namespace>` to `/gitea-unclassified/<user-namespace>/`. A second http route routes traffic from `/gitea-unclassified/<user-namespace>/` to the Gitea instance in the user's namespace.
 
-The [Gitea application server](https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/) sets the `ROOT_URL` environment variable to contain the Kubeflow base URL with the `/gitea/<user-namespace>/`. This is required as it is the application's responsibility to establish the URLS that will be used in the browser to retrieve static assets and send requests to application endpoints.
+The [Gitea application server](https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/) sets the `ROOT_URL` environment variable to contain the Kubeflow base URL with the `/gitea-unclassified/<user-namespace>/`. This is required as it is the application's responsibility to establish the URLS that will be used in the browser to retrieve static assets and send requests to application endpoints.
 
 The Gitea application [values.yaml file](https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/values.yaml#L37-L45) makes use of [pod fields as environment variables](https://kubernetes.io/docs/tasks/inject-data-application/environment-variable-expose-pod-information/) and [dependent environment variables](https://kubernetes.io/docs/tasks/inject-data-application/define-interdependent-environment-variables/#define-an-environment-dependent-variable-for-a-container) to create a `ROOT_URL` that depends on the user's namespace. Additionally, an [upstream gitea issue](https://github.com/go-gitea/gitea/issues/6397) indicates that it is possible to set multiple domains in the `ROOT_URL` environment variable by using the syntax `ROOT_URL=https://(domain1,domain2)/gitea/`, which is how the dev/prod domains are set without needing to check the deployment environment.
 
-To allow requests to reach the user's Gitea instance, a Network Policy is set in the user's namespace that allows ingress traffic from the kubeflow-gateway to be sent to any pods in the user's namespace that match the `app: gitea` label selector.
+To allow requests to reach the user's Gitea instance, a Network Policy is set in the user's namespace that allows ingress traffic from the kubeflow-gateway to be sent to any pods in the user's namespace that match the `app: gitea && app.kubernetes.io/instance: gitea-unclassified` label selector.
 
 [^5]: Istio icons provided by [Istio Media Resources](https://istio.io/latest/about/media-resources/)
 

@@ -375,10 +375,13 @@ func pvcForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerCo
 
 	namespace := profile.Name
 	var volumeName string
+	var pvcName string
 	if containerConfig.Owner == AawContainerOwner {
 		volumeName = buildPvName(namespace, containerConfig.Name)
+		pvcName    = containerConfig.Name
 	} else if containerConfig.Owner == FdiContainerOwner {
 		volumeName = buildPvName(namespace, containerConfig.Owner, containerConfig.Classification, containerConfig.Name)
+		pvcName    = fmt.Sprintf("%s-%s", containerConfig.Name, containerConfig.Classification)
 	}
 	storageClass := ""
 
@@ -391,7 +394,7 @@ func pvcForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerCo
 
 	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      containerConfig.Name,
+			Name:      pvcName,
 			Namespace: namespace,
 			Labels: map[string]string{
 				classificationLabel: containerConfig.Classification,
