@@ -281,7 +281,7 @@ var giteaCmd = &cobra.Command{
 				}
 
 				// Create the Istio Service Entry
-				serviceEntry, err := generateServiceEntry(profile, giteaconfig.Psqlparams)
+				serviceEntry, err := generateServiceEntry(profile, giteaconfig)
 				if err != nil {
 					return err
 				}
@@ -646,7 +646,7 @@ func generateIstioVirtualService(profile *kubeflowv1.Profile, giteaconfig *Gitea
 	// Create virtual service
 	virtualService := istionetworkingclient.VirtualService{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "gitea-virtualservice",
+			Name:      fmt.Sprintf("gitea-virtualservice-%s", giteaconfig.Deploymentparams.classificationEn),
 			Namespace: namespace,
 			// Indicate that the profile owns the virtualservice resource
 			OwnerReferences: []metav1.OwnerReference{
@@ -663,7 +663,7 @@ func generateIstioVirtualService(profile *kubeflowv1.Profile, giteaconfig *Gitea
 			},
 			Http: []*istionetworkingv1beta1.HTTPRoute{
 				{
-					Name: "gitea-route",
+					Name: fmt.Sprintf("gitea-route-%s", giteaconfig.Deploymentparams.classificationEn),
 					Match: []*istionetworkingv1beta1.HTTPMatchRequest{
 						{
 							Uri: &istionetworkingv1beta1.StringMatch{
@@ -688,7 +688,7 @@ func generateIstioVirtualService(profile *kubeflowv1.Profile, giteaconfig *Gitea
 					},
 				},
 				{
-					Name: "gitea-redirect",
+					Name: fmt.Sprintf("gitea-redirect-%s", giteaconfig.Deploymentparams.classificationEn),
 					// TODO: this should be refactored once we upgrade to Kubeflow > 1.4,
 					// we will no longer need to check the http referer header once namespaced
 					// menu items are supported.
@@ -697,7 +697,7 @@ func generateIstioVirtualService(profile *kubeflowv1.Profile, giteaconfig *Gitea
 							Headers: map[string]*istionetworkingv1beta1.StringMatch{
 								"referer": {
 									MatchType: &istionetworkingv1beta1.StringMatch_Exact{
-										Exact: fmt.Sprintf("https://kubeflow.aaw-dev.cloud.statcan.ca/_/gitea/?ns=%s", namespace),
+										Exact: fmt.Sprintf("https://kubeflow.aaw-dev.cloud.statcan.ca/_/%s/?ns=%s", giteaconfig.Deploymentparams.giteaUrlPrefix, namespace),
 									},
 								},
 							},
@@ -706,7 +706,7 @@ func generateIstioVirtualService(profile *kubeflowv1.Profile, giteaconfig *Gitea
 							Headers: map[string]*istionetworkingv1beta1.StringMatch{
 								"referer": {
 									MatchType: &istionetworkingv1beta1.StringMatch_Exact{
-										Exact: fmt.Sprintf("https://kubeflow.aaw.cloud.statcan.ca/_/gitea/?ns=%s", namespace),
+										Exact: fmt.Sprintf("https://kubeflow.aaw.cloud.statcan.ca/_/%s/?ns=%s", giteaconfig.Deploymentparams.giteaUrlPrefix, namespace),
 									},
 								},
 							},
@@ -722,12 +722,12 @@ func generateIstioVirtualService(profile *kubeflowv1.Profile, giteaconfig *Gitea
 	return &virtualService, nil
 }
 
-func generateServiceEntry(profile *kubeflowv1.Profile, psqlparams Psqlparams) (*istionetworkingclient.ServiceEntry, error) {
+func generateServiceEntry(profile *kubeflowv1.Profile, giteaconfig *GiteaConfig) (*istionetworkingclient.ServiceEntry, error) {
 	// Get the namespace from the profile
 	namespace := profile.Name
 
 	// Cast port to uint, required by istio
-	port, err := strconv.ParseUint(psqlparams.port, 10, 32)
+	port, err := strconv.ParseUint(giteaconfig.Psqlparams.port, 10, 32)
 	if err != nil {
 		klog.Errorf("Error while generating ServiceEntry: Could not parse port to int: %s", err)
 		return nil, err
@@ -736,7 +736,7 @@ func generateServiceEntry(profile *kubeflowv1.Profile, psqlparams Psqlparams) (*
 	// Create the ServiceEntry struct
 	serviceEntry := istionetworkingclient.ServiceEntry{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "gitea-postgresql-service-entry",
+			Name:      fmt.Sprintf("gitea-postgresql-service-entry-%s", giteaconfig.Deploymentparams.classificationEn),
 			Namespace: namespace,
 			// Indicate that the profile owns the ServiceEntry resource
 			OwnerReferences: []metav1.OwnerReference{
@@ -748,7 +748,7 @@ func generateServiceEntry(profile *kubeflowv1.Profile, psqlparams Psqlparams) (*
 				".",
 			},
 			Hosts: []string{
-				psqlparams.hostname,
+				giteaconfig.Psqlparams.hostname,
 			},
 			Ports: []*istionetworkingv1beta1.Port{
 				{
