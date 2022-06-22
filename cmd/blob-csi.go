@@ -288,6 +288,7 @@ func pvForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerCon
 	namespace := profile.Name
 	secretName, secretNamespace := parseSecret(containerConfig.SecretRef)
 	var volumeName string	
+	var pvcName    string
 	var accessMode corev1.PersistentVolumeAccessMode
 	if containerConfig.ReadOnly {
 		accessMode = corev1.ReadOnlyMany
@@ -300,6 +301,7 @@ func pvForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerCon
 	if containerConfig.Owner == AawContainerOwner {
 		// for now, aaw is default, and no additional over the base scenario
 		volumeName = buildPvName(namespace, containerConfig.Name)
+		pvcName    = containerConfig.Name
 		volumeAttributes = map[string]string{
 			"containerName": namespace,
 		}
@@ -311,6 +313,7 @@ func pvForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerCon
 			return nil, fmt.Errorf("invalid configuration passed for %s owned container", FdiContainerOwner)
 		}
 		volumeName = buildPvName(namespace, containerConfig.Owner, containerConfig.Classification, containerConfig.Name)
+		pvcName    = fmt.Sprintf("%s-%s", containerConfig.Name, containerConfig.Classification)
 		volumeAttributes = map[string]string{
 			"containerName": containerConfig.Name,
 			"storageAccount": fdiConfig.StorageAccount,
@@ -361,7 +364,7 @@ func pvForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerCon
 			MountOptions:                  mountOptions,
 			// https://kubernetes.io/docs/concepts/storage/persistent-volumes/#reserving-a-persistentvolume
 			ClaimRef: &corev1.ObjectReference{
-				Name:      containerConfig.Name,
+				Name:      pvcName,
 				Namespace: namespace,
 			},
 		},
@@ -754,21 +757,19 @@ var blobcsiCmd = &cobra.Command{
 						}
 					}
 				}
-
-				// Create PV if it doesn't exist
-				for _, pv := range generatedVolumes {
-					if _, exists := pvExistsMap[pv.Name]; !exists {
-						_, err := createPV(kubeClient, &pv)
+				// Create PVC if it doesn't exist
+				for _, pvc := range generatedClaims {
+					if _, exists := pvcExistsMap[pvc.Name]; !exists {
+						_, err := createPVC(kubeClient, &pvc)
 						if err != nil {
 							return err
 						}
 					}
 				}
-
-				// Create PVC if it doesn't exist
-				for _, pvc := range generatedClaims {
-					if _, exists := pvcExistsMap[pvc.Name]; !exists {
-						_, err := createPVC(kubeClient, &pvc)
+				// Create PV if it doesn't exist
+				for _, pv := range generatedVolumes {
+					if _, exists := pvExistsMap[pv.Name]; !exists {
+						_, err := createPV(kubeClient, &pv)
 						if err != nil {
 							return err
 						}
