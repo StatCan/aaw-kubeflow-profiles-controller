@@ -140,6 +140,7 @@ as values.
 - `GITEA_ARGOCD_SOURCE_PATH`: path to the manifest from the root of the git source repo
 - `GITEA_ARGOCD_PROJECT`: argocd instances's project to deploy applications within
 - `GITEA_SOURCE_CONTROL_ENABLED_LABEL`: this label will be searched for within profiles to indicate if a user has opted in.
+- `GITEA_KUBEFLOW_ROOT_URL`: the url for kubeflow's central dashboard (for dev: https://kubeflow.aaw-dev.cloud.statcan.ca, for production: https://kubeflow.aaw.cloud.statcan.ca)
 
 Within AAW, these variables are defined in the [statcan charts repo](https://github.com/StatCan/charts/blob/master/stable/profiles-controller/values.yaml), and they are configured within the dev [argocd-manifests-repo](https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/daaas-system/profile-controllers/profiles-controller/application.jsonnet) or prod [argocd-manifests-repo](https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-prod-cc-00/daaas-system/profile-controllers/profiles-controller/application.jsonnet).
 
