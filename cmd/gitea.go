@@ -69,6 +69,9 @@ type Deploymentparams struct {
 	argocdProject               string // argocd instances's project to deploy applications within
 	sourceControlEnabledLabel string // the label that indicates a user has opted in to using gitea.
 									 // one such example is sourcecontrol.statcan.gc.ca/enabled
+	kubeflowUrl	string // the url for kubeflow's central dashboard
+	                   // (for dev: https://kubeflow.aaw-dev.cloud.statcan.ca, for production:
+					   // https://kubeflow.aaw.cloud.statcan.ca
 }
 // Configuration struct for gitea controller
 type GiteaConfig struct {
@@ -107,6 +110,7 @@ func NewGiteaConfig() (*GiteaConfig, error) {
 	cfg.Deploymentparams.argocdSourcePath           = util.ParseEnvVar("GITEA_ARGOCD_SOURCE_PATH")
 	cfg.Deploymentparams.argocdProject			    = util.ParseEnvVar("GITEA_ARGOCD_PROJECT")
 	cfg.Deploymentparams.sourceControlEnabledLabel  = util.ParseEnvVar("GITEA_SOURCE_CONTROL_ENABLED_LABEL")
+	cfg.Deploymentparams.kubeflowUrl                = util.ParseEnvVar("GITEA_KUBEFLOW_ROOT_URL")
 	return cfg, nil
 }
 
@@ -701,16 +705,10 @@ func generateIstioVirtualService(profile *kubeflowv1.Profile, giteaconfig *Gitea
 							Headers: map[string]*istionetworkingv1beta1.StringMatch{
 								"referer": {
 									MatchType: &istionetworkingv1beta1.StringMatch_Exact{
-										Exact: fmt.Sprintf("https://kubeflow.aaw-dev.cloud.statcan.ca/_/%s/?ns=%s", giteaconfig.Deploymentparams.giteaUrlPrefix, namespace),
-									},
-								},
-							},
-						},
-						{
-							Headers: map[string]*istionetworkingv1beta1.StringMatch{
-								"referer": {
-									MatchType: &istionetworkingv1beta1.StringMatch_Exact{
-										Exact: fmt.Sprintf("https://kubeflow.aaw.cloud.statcan.ca/_/%s/?ns=%s", giteaconfig.Deploymentparams.giteaUrlPrefix, namespace),
+										Exact: fmt.Sprintf("%s/_/%s/?ns=%s",
+											giteaconfig.Deploymentparams.kubeflowUrl,
+											giteaconfig.Deploymentparams.giteaUrlPrefix,
+											namespace),
 									},
 								},
 							},
