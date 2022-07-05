@@ -12,6 +12,7 @@ The diagram below illustrates how profiles controller components are rolled out 
 [^2]: Github icons provided by [Github logos](https://github.com/logos).
 [^3]: Argo icon provided by [CNCF branding](https://cncf-branding.netlify.app/projects/argo/).
 [^4]: Moby (Docker) icon provided by [icons8](https://icons8.com/icons/set/docker)
+[^5]: Terraform icon provided by [hashicorp](https://www.hashicorp.com/brand)
 
 ### How to Create a Controller
 
@@ -100,7 +101,7 @@ The [Taskfile](./Taskfile.yml) includes task `blobcsi:dev` for preparing your lo
 
 Responsible for deploying [gitea](https://github.com/go-gitea/gitea) as [argocd](https://github.com/argoproj/argo-cd) applications per `Profile`. Currently, [argocd](https://github.com/argoproj/argo-cd) applications are deployed by the gitea controller based on the customized gitea manifest found [here](https://github.com/StatCan/aaw-argocd-manifests/tree/aaw-dev-cc-00/profiles-argocd-system/template/gitea).
 
-The diagram below highlights the key components involved with the Gitea controller[^5]
+The diagram below highlights the key components involved with the Gitea controller[^6]
 
 ![Gitea Controller Diagram](docs/diagrams/gitea_controller.png)
 
@@ -116,7 +117,7 @@ The Gitea application [values.yaml file](https://github.com/StatCan/aaw-argocd-m
 
 To allow requests to reach the user's Gitea instance, a Network Policy is set in the user's namespace that allows ingress traffic from the kubeflow-gateway to be sent to any pods in the user's namespace that match the `app: gitea && app.kubernetes.io/instance: gitea-unclassified` label selector.
 
-[^5]: Istio icons provided by [Istio Media Resources](https://istio.io/latest/about/media-resources/)
+[^6]: Istio icons provided by [Istio Media Resources](https://istio.io/latest/about/media-resources/)
 
 #### Configuration
 The Gitea controller is configurable to run in unclassified or protected-b mode. The configuration of the following
