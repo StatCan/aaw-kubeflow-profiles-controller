@@ -5,11 +5,10 @@ from diagrams.azure.database import DatabaseForPostgresqlServers
 from diagrams.custom import Custom
 from diagrams.k8s.compute import Deployment, Pod, StatefulSet
 from diagrams.k8s.network import NetworkPolicy, Service
-from diagrams.azure.network import DNSPrivateZones
-from diagrams.azure.network import VirtualNetworks
 from diagrams.k8s.podconfig import Secret
 from diagrams.k8s.storage import PersistentVolume, PersistentVolumeClaim
 from diagrams.azure.storage import BlobStorage
+from diagrams.azure.network import Firewall, RouteTables, DNSPrivateZones, VirtualNetworks
 from diagrams.onprem.workflow import Kubeflow
 from diagrams.onprem.gitops import Argocd
 
@@ -19,10 +18,14 @@ def myself() -> str:
     return no_ext
 
 with Diagram(myself(), show=False):
+    """Diagram class for the blob-csi system. The diagram includes most of the system from terraform, github,
+    argocd, kubernetes and azure. Some intricacies related to azure subscription, node pools and netowrking have 
+    been ommitted in the interest of simplicity. """
+    
     tf_colour = "purple"
-    azure_colour = "blue"
-    kubernetes_colour = "darkblue"
-    github_colour = "black"
+    azure_colour = "#0080FF"
+    kubernetes_colour = "navyblue"
+    kubeflow_connect_colour = "green"
     argocd_colour = "orange"
     
     mounts_label = "mounts"
@@ -35,11 +38,14 @@ with Diagram(myself(), show=False):
     allows_ingress_label = "allows ingress"
     connects_with_style = "dashed"
     auth_label = "authenticates with"
-    
+
+    # Node scaling 
     important_icon_width = "3"
     important_icon_height = "3"
-    long_edge_width="6"
-    tf_deployment_edge_width="10"
+    # Edge Scaling
+    
+    global_edge_width = "8"
+    # To check for edge widths using ctrl-f: use this regex pattern: , minlen=(?:(?!\)).)*
 
     # Terraform declarations
     with Cluster("gitlab.k8s"):
@@ -47,14 +53,14 @@ with Diagram(myself(), show=False):
         with Cluster("Advanced Analytics Workspace Infrastructure"):
             with Cluster("dns.tf"):
                 # private dns zone, link and record     
-                tf_private_dns = Custom("azurerm_private_dns_zone", icon_path="icons/terraform.png") 
-                tf_vnet_link = Custom("azurerm_private_dns_zone_virtual_network_link", icon_path="icons/terraform.png") 
-                tf_dns_record = Custom("azurerm_private_dns_a_record", icon_path="icons/terraform.png") 
+                tf_fdi_private_dns = Custom("azurerm_private_dns_zone", icon_path="icons/terraform.png") 
+                tf_fdi_vnet_link = Custom("azurerm_private_dns_zone_virtual_network_link", icon_path="icons/terraform.png") 
+                tf_fdi_dns_record = Custom("azurerm_private_dns_a_record", icon_path="icons/terraform.png") 
             with Cluster("dev_cc_00.tf"):
                 # firewall route and rule
-                tf_aaw_to_fdi_protb = Custom("azurerm_route", icon_path="icons/terraform.png")
+                tf_aaw_to_fdi_protb_route = Custom("azurerm_route", icon_path="icons/terraform.png")
                 with Cluster("azurerm_firewall_policy_rule_collection_group"):
-                    tf_aaw_fdi_protb_firewall_rule = Custom("rule", icon_path="icons/terraform.png")
+                    tf_aaw_fdi_protb_firewall_rule = Custom("aaw_dev_cc_00_fdi_protb", icon_path="icons/terraform.png")
 
         # https://gitlab.k8s.cloud.statcan.ca/cloudnative/aaw/daaas-infrastructure/aaw-dev-cc-00
         with Cluster("aaw-dev-cc-00 repo"):
@@ -97,23 +103,34 @@ with Diagram(myself(), show=False):
 
     with Cluster("Azure"):
         with Cluster("FDI-DEV-RESEARCH"):
-            with Cluster("fdiunclassdev"):
-                # unclass fdi containers
-                fdi_unclass_blob = BlobStorage("fdi-user-unclassified-container")
-            with Cluster("fdiprotbdev"):
-                # prot-b fdi containers
-                fdi_protb_blob = BlobStorage("fdi-user-protb-container")
-            with Cluster("fdiminioextmeta"):
-                #user-protb-containeo internal and external-opa containers store opa bundles
-                fdi_protb_bundle = BlobStorage("fdi-protb-bundle")
-                fdi_unclass_bundle = BlobStorage("fdi-unclass-bundle")
-        # User containers are created in each storage account for AAW.
-        with Cluster("aawdevcc00samgpremium"):
-            azure_premium_container = BlobStorage("user-premium")
-        with Cluster("aawdevcc00samgprotb"):
-            azure_protected_b_container = BlobStorage("user-protected-b")
-        with Cluster("aawdevcc00samgstandard"):
-            azure_standard_container = BlobStorage("user-standard")
+            with Cluster("Storage Accounts"):
+                with Cluster("fdiunclassdev"):
+                    # unclass fdi containers
+                    azure_fdi_unclass_dfs = BlobStorage("fdi-user-unclassified-container-adls")
+                with Cluster("fdiprotbdev"):
+                    # prot-b fdi containers
+                    azure_fdi_protb_dfs = BlobStorage("fdi-user-protb-container-adls")
+                with Cluster("fdiminioextmeta"):
+                    #user-protb-containeo internal and external-opa containers store opa bundles
+                    fdi_protb_bundle = BlobStorage("fdi-protb-bundle")
+                    fdi_unclass_bundle = BlobStorage("fdi-unclass-bundle")
+        with Cluster("Storage Accounts"):
+            # User containers are created in each storage account for AAW.
+            with Cluster("aawdevcc00samgpremium"):
+                azure_premium_container = BlobStorage("user-premium")
+            with Cluster("aawdevcc00samgprotb"):
+                azure_protected_b_container = BlobStorage("user-protected-b")
+            with Cluster("aawdevcc00samgstandard"):
+                azure_standard_container = BlobStorage("user-standard")
+        
+        with Cluster("Networking"):
+            # FDI firewall configuration that allows protected-b connectivity from AAW prot-b nodepool
+            fdi_private_dns = DNSPrivateZones("dfs")
+            fdi_vnet_link = VirtualNetworks("aaw_dev_cc_00_dfs")
+            fdi_dns_record = DNSPrivateZones("fdipvprotb_dev_dfs") # no icon exists for a record yet, so use zones icon
+
+            fdi_aaw_to_fdi_protb_route = RouteTables("aaw_dev_cc_00_to_fdi_protb")
+            fdi_aaw_to_fdi_firewall_rule = Firewall("aks-dev-to-fdi-dev-storage")
 
     with Cluster("Kubernetes Cluster"):
         # PV
@@ -133,6 +150,8 @@ with Diagram(myself(), show=False):
             blobcsi_profiles_controller = Pod("blob-csi.go", height=important_icon_height,
                 width=important_icon_width, imagescale="false")
             allow_profiles_controller_to_internet = NetworkPolicy("allow-profile-controller-to-internet")
+            allow_egress_pcont_opa_protb = NetworkPolicy("allow-egress-profiles-controller-to-fdi-opa-gateway-protected-b")
+            allow_egress_pcont_opa_unclass = NetworkPolicy("allow-egress-profiles-controller-to-fdi-opa-gateway-unclassified")
             # blob_csi_injector = Pod("blob-csi-injector")
 
         with Cluster("user namespace"):
@@ -151,12 +170,12 @@ with Diagram(myself(), show=False):
             # minio-gateway-opa pod (opa gateway that controller queries)
             minio_gateway_opa_unclassified = Pod("minio-gateway-opa")
             bundle_secret_unclassified     = Secret("bundle-secret")
-
+            allow_ingress_pcont_opa_unclass = NetworkPolicy("allow-ingress-fdi-opa-gateway-unclassified-from-profiles-controller")
         with Cluster("fdi-gateway-protected-b-system"):
             # minio-gateway-opa pod (opa gateway that controller queries)
             minio_gateway_opa_protected_b = Pod("minio-gateway-opa")
             bundle_secret_protected_b     = Secret("bundle-secret")
-
+            allow_ingress_pcont_opa_protb = NetworkPolicy("allow-ingress-fdi-opa-gateway-protected-b-from-profiles-controller")
         with Cluster("azure-blob-csi-system"):
             # pods
             # blob-csi-driver
@@ -172,17 +191,13 @@ with Diagram(myself(), show=False):
             azure_blob_unclass_spn_secret = Secret("azure-blob-csi-fdi-unclassified-spn")
 
             allow_blob_csi_to_internet = NetworkPolicy("allow-azure-blob-csi-to-internet")
-            allow_egress_pcont_opa_protb = NetworkPolicy("allow-egress-profiles-controller-to-fdi-opa-gateway-protected-b")
-            allow_egress_pcont_opa_unclass = NetworkPolicy("allow-egress-profiles-controller-to-fdi-opa-gateway-unclassified")
-            allow_ingress_pcont_opa_protb = NetworkPolicy("allow-ingress-profiles-controller-to-fdi-opa-gateway-protected-b")
-            allow_ingress_pcont_opa_unclass = NetworkPolicy("allow-ingress-profiles-controller-to-fdi-opa-gateway-unclassified")
 
         # ----- Deployments ----- #
         # Terraform deploys the argocd operator
-        tf_argocd_operator >> Edge(color=tf_colour, xlabel=deploy_label) >> argocd_operator
+        tf_argocd_operator >> Edge(color=tf_colour, xlabel=deploy_label, minlen=global_edge_width) >> argocd_operator
         # Argocd manages the continuous deployment of the blobcsi controller, blobcsi driver,
         # netpols (and much much more (not in picture due to scope)
-        argocd_operator << Edge(color=argocd_colour, xlabel=watches_label) << [github_blobcsi_profiles_controller,
+        argocd_operator << Edge(color=argocd_colour, xlabel=watches_label, minlen=global_edge_width) << [github_blobcsi_profiles_controller,
             github_blob_csi_driver,
             github_allow_blob_csi_to_internet,
             github_allow_egress_pcont_opa_protb,
@@ -191,7 +206,7 @@ with Diagram(myself(), show=False):
             github_allow_ingress_pcont_opa_unclass,
             github_allow_profiles_controller_to_internet]
 
-        argocd_operator - Edge(color=argocd_colour, xlabel=deploy_label) >> [allow_blob_csi_to_internet,
+        argocd_operator - Edge(color=argocd_colour, xlabel=deploy_label, minlen=global_edge_width) >> [allow_blob_csi_to_internet,
             allow_egress_pcont_opa_protb,
             allow_egress_pcont_opa_unclass, 
             allow_ingress_pcont_opa_protb,
@@ -201,21 +216,31 @@ with Diagram(myself(), show=False):
             blobcsi_profiles_controller]
 
         # Terraform deploys the below secrets
-        tf_aaw_premium_secret >> Edge(color=tf_colour, xlabel=deploy_label, minlen=tf_deployment_edge_width) >> aaw_premium_secret
-        tf_aaw_protb_secret >> Edge(color=tf_colour, xlabel=deploy_label, minlen=tf_deployment_edge_width) >> aaw_protb_secret
-        tf_aaw_standard_secret >> Edge(color=tf_colour, xlabel=deploy_label, minlen=tf_deployment_edge_width) >> aaw_standard_secret
-        tf_azure_blob_prot_b_secret >> Edge(color=tf_colour, xlabel=deploy_label, minlen=tf_deployment_edge_width) >> azure_blob_prot_b_secret
-        tf_azure_blob_prot_b_spn_secret >> Edge(color=tf_colour, xlabel=deploy_label, minlen=tf_deployment_edge_width) >> azure_blob_prot_b_spn_secret
-        tf_azure_blob_unclass_secret >> Edge(color=tf_colour, xlabel=deploy_label, minlen=tf_deployment_edge_width) >> azure_blob_unclass_secret
-        tf_azure_blob_unclass_spn_secret >> Edge(color=tf_colour, xlabel=deploy_label, minlen=tf_deployment_edge_width) >> azure_blob_unclass_spn_secret
+        tf_aaw_premium_secret >> Edge(color=tf_colour, xlabel=deploy_label, minlen=global_edge_width) >> aaw_premium_secret
+        tf_aaw_protb_secret >> Edge(color=tf_colour, xlabel=deploy_label, minlen=global_edge_width) >> aaw_protb_secret
+        tf_aaw_standard_secret >> Edge(color=tf_colour, xlabel=deploy_label, minlen=global_edge_width) >> aaw_standard_secret
+        tf_azure_blob_prot_b_secret >> Edge(color=tf_colour, xlabel=deploy_label, minlen=global_edge_width) >> azure_blob_prot_b_secret
+        tf_azure_blob_prot_b_spn_secret >> Edge(color=tf_colour, xlabel=deploy_label, minlen=global_edge_width) >> azure_blob_prot_b_spn_secret
+        tf_azure_blob_unclass_secret >> Edge(color=tf_colour, xlabel=deploy_label, minlen=global_edge_width) >> azure_blob_unclass_secret
+        tf_azure_blob_unclass_spn_secret >> Edge(color=tf_colour, xlabel=deploy_label, minlen=global_edge_width) >> azure_blob_unclass_spn_secret
 
         # Terraform deploys the unclassified and prot-b opa gateways
-        tf_opa_gateway_unclassified >> Edge(color=tf_colour, xlabel=deploy_label, minlen=tf_deployment_edge_width) >> [minio_gateway_opa_unclassified, bundle_secret_unclassified]
-        tf_opa_gateway_protected_b >> Edge(color=tf_colour, xlabel=deploy_label, minlen=tf_deployment_edge_width) >> [minio_gateway_opa_protected_b, bundle_secret_protected_b]
+        tf_opa_gateway_unclassified >> Edge(color=tf_colour, xlabel=deploy_label, minlen=global_edge_width) >> [minio_gateway_opa_unclassified, bundle_secret_unclassified]
+        tf_opa_gateway_protected_b >> Edge(color=tf_colour, xlabel=deploy_label, minlen=global_edge_width) >> [minio_gateway_opa_protected_b, bundle_secret_protected_b]
 
+        # Terraform deploys firewall rules for FDI integration
+        tf_fdi_private_dns >> Edge(color=tf_colour, xlabel=deploy_label, minlen=global_edge_width) \
+            >> fdi_private_dns
+        tf_fdi_vnet_link >> Edge(color=tf_colour, xlabel=deploy_label, minlen=global_edge_width) \
+            >> fdi_vnet_link
+        tf_fdi_dns_record >> Edge(color=tf_colour, xlabel=deploy_label, minlen=global_edge_width) \
+            >> fdi_dns_record
+        tf_aaw_to_fdi_protb_route >> Edge(color=tf_colour, xlabel=deploy_label, minlen=global_edge_width) \
+            >> fdi_aaw_to_fdi_protb_route
+        tf_aaw_fdi_protb_firewall_rule >> Edge(color=tf_colour, xlabel=deploy_label, minlen=global_edge_width) \
+            >> fdi_aaw_to_fdi_firewall_rule
         # Blobcsi controller provisions the following
-        blobcsi_profiles_controller >> Edge(color=kubernetes_colour, xlabel=provision_label,
-            minlen=long_edge_width) >> [
+        blobcsi_profiles_controller >> Edge(color=kubernetes_colour, xlabel=provision_label, minlen=global_edge_width) >> [
             # PVs
             aaw_pv_user_standard,
             aaw_pv_user_standard_ro,
@@ -232,123 +257,169 @@ with Diagram(myself(), show=False):
 
         # blobcsi controller creates azure containers per user for AAW
         blobcsi_profiles_controller \
-            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=auth_label) \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=auth_label, minlen=global_edge_width) \
             >> aaw_premium_secret \
-            >> Edge(color=kubernetes_colour) \
+            >> Edge(color=kubernetes_colour, minlen=global_edge_width) \
             >> allow_profiles_controller_to_internet \
-            >> Edge(color=kubernetes_colour, xlabel=provision_label) \
+            >> Edge(color=azure_colour, xlabel=provision_label, minlen=global_edge_width) \
             >> azure_premium_container
         blobcsi_profiles_controller \
-            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=auth_label) \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=auth_label, minlen=global_edge_width) \
             >> aaw_standard_secret \
-            >> Edge(color=kubernetes_colour) \
+            >> Edge(color=kubernetes_colour, minlen=global_edge_width) \
             >> allow_profiles_controller_to_internet \
-            >> Edge(color=kubernetes_colour, xlabel=provision_label) \
+            >> Edge(color=azure_colour, xlabel=provision_label, minlen=global_edge_width) \
             >> azure_standard_container
         blobcsi_profiles_controller \
-            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=auth_label) \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=auth_label, minlen=global_edge_width) \
             >> aaw_protb_secret \
-            >> Edge(color=kubernetes_colour) \
+            >> Edge(color=kubernetes_colour, minlen=global_edge_width) \
             >> allow_profiles_controller_to_internet \
-            >> Edge(color=kubernetes_colour, xlabel=provision_label) \
+            >> Edge(color=azure_colour, xlabel=provision_label, minlen=global_edge_width) \
             >> azure_protected_b_container
 
         # Blobcsi controller provisions FDI PVs after querying OPA gateways for permissions
         blobcsi_profiles_controller  \
-            >> Edge(color=kubernetes_colour, style=connects_with_style, minlen=long_edge_width) \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, minlen=global_edge_width) \
             >> allow_egress_pcont_opa_unclass \
-            >> Edge(color=kubernetes_colour, style=connects_with_style, minlen=long_edge_width) \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, minlen=global_edge_width) \
             >> allow_ingress_pcont_opa_unclass \
-            << Edge(color=kubernetes_colour, style=connects_with_style, minlen=long_edge_width, xlabel=queries_label) \
-            << minio_gateway_opa_unclassified \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, minlen=global_edge_width) \
+            >> minio_gateway_opa_unclassified \
 
         blobcsi_profiles_controller \
-            >> Edge(color=kubernetes_colour, style=connects_with_style, minlen=long_edge_width) \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, minlen=global_edge_width) \
             >> allow_egress_pcont_opa_protb \
-            >> Edge(color=kubernetes_colour, style=connects_with_style, minlen=long_edge_width) \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, minlen=global_edge_width) \
             >> allow_ingress_pcont_opa_protb \
-            << Edge(color=kubernetes_colour, style=connects_with_style, minlen=long_edge_width, xlabel=queries_label) \
-            << minio_gateway_opa_protected_b \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, minlen=global_edge_width) \
+            >> minio_gateway_opa_protected_b \
     
         # OPA Gateways supply the profiles controller by providing 
         # http endpoints serving bundles as json responses to get requests
         minio_gateway_opa_unclassified \
-            << Edge(color=azure_colour, style=connects_with_style, xlabel=auth_label) \
-            << bundle_secret_unclassified \
-            << Edge(color=azure_colour) \
-            << fdi_unclass_bundle \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=auth_label, minlen=global_edge_width) \
+            >> bundle_secret_unclassified \
+            >> Edge(color=azure_colour, style=connects_with_style, minlen=global_edge_width) \
+            >> fdi_unclass_bundle \
 
 
         minio_gateway_opa_protected_b \
-            << Edge(color=azure_colour, style=connects_with_style, xlabel=auth_label) \
-            << bundle_secret_protected_b \
-            << Edge(color=azure_colour) \
-            << fdi_protb_bundle \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=auth_label, minlen=global_edge_width) \
+            >> bundle_secret_protected_b \
+            >> Edge(color=azure_colour, style=connects_with_style, minlen=global_edge_width) \
+            >> fdi_protb_bundle \
 
         # blob-csi driver mounts AAW specific PVs to azure containers auth with storage account and storage account key
         blob_csi_driver \
-            >> Edge(color=azure_colour, style=connects_with_style, xlabel=auth_label) \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
             >> aaw_pv_user_standard \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=auth_label, minlen=global_edge_width) \
             >> aaw_standard_secret \
-            >> Edge(color=azure_colour, style=connects_with_style, xlabel=mounts_label) \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> allow_blob_csi_to_internet \
+            >> Edge(color=azure_colour, style=connects_with_style, xlabel=mounts_label, minlen=global_edge_width) \
             >> azure_standard_container
 
         blob_csi_driver \
-            >> Edge(color=azure_colour, style=connects_with_style, xlabel=auth_label) \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
             >> aaw_pv_user_standard_ro \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=auth_label, minlen=global_edge_width) \
             >> aaw_standard_secret \
-            >> Edge(color=azure_colour, style=connects_with_style, xlabel=mounts_label) \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> allow_blob_csi_to_internet \
+            >> Edge(color=azure_colour, style=connects_with_style, xlabel=mounts_label, minlen=global_edge_width) \
             >> azure_standard_container
 
         blob_csi_driver \
-            >> Edge(color=azure_colour, style=connects_with_style, xlabel=auth_label) \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
             >> aaw_pv_user_premium \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=auth_label, minlen=global_edge_width) \
             >> aaw_premium_secret \
-            >> Edge(color=azure_colour, style=connects_with_style, xlabel=mounts_label) \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> allow_blob_csi_to_internet \
+            >> Edge(color=azure_colour, style=connects_with_style, xlabel=mounts_label, minlen=global_edge_width) \
             >> azure_premium_container
 
         blob_csi_driver \
-            >> Edge(color=azure_colour, style=connects_with_style, xlabel=auth_label) \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
             >> aaw_pv_user_premium_ro \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=auth_label, minlen=global_edge_width) \
             >> aaw_premium_secret \
-            >> Edge(color=azure_colour, style=connects_with_style, xlabel=mounts_label) \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> allow_blob_csi_to_internet \
+            >> Edge(color=azure_colour, style=connects_with_style, xlabel=mounts_label, minlen=global_edge_width) \
             >> azure_premium_container
 
         blob_csi_driver \
-            >> Edge(color=azure_colour, style=connects_with_style, xlabel=auth_label) \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
             >> aaw_pv_user_protected_b \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=auth_label, minlen=global_edge_width) \
             >> aaw_protb_secret \
-            >> Edge(color=azure_colour, style=connects_with_style, xlabel=mounts_label) \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> allow_blob_csi_to_internet \
+            >> Edge(color=azure_colour, style=connects_with_style, xlabel=mounts_label, minlen=global_edge_width) \
             >> azure_protected_b_container
+
+        # blob-csi driver mounts fdi PVs using service principal auth
+        blob_csi_driver \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> fdi_pv_user_unclassified \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=auth_label, minlen=global_edge_width) \
+            >> [azure_blob_unclass_spn_secret, azure_blob_unclass_secret] \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> allow_blob_csi_to_internet \
+            >> Edge(color=azure_colour, style=connects_with_style, xlabel=mounts_label, minlen=global_edge_width) \
+            >> azure_fdi_unclass_dfs
+
+        blob_csi_driver \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> fdi_pv_user_protected_b \
+            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=auth_label, minlen=global_edge_width) \
+            >> [azure_blob_prot_b_spn_secret, azure_blob_prot_b_secret] \
+            >> Edge(color=azure_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> fdi_aaw_to_fdi_firewall_rule \
+            >> Edge(color=azure_colour, style=connects_with_style, xlabel=mounts_label, minlen=global_edge_width) \
+            >> azure_fdi_protb_dfs
 
         # Kubeflow users can now use their provisioned (and mounted) PV's through a PVC in their namespace :)
         kubeflow_user_notebook \
-            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
             >> aaw_pvc_user_standard \
-            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
             >> aaw_pv_user_standard
 
         kubeflow_user_notebook \
-            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
             >> aaw_pvc_user_standard_ro \
-            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
             >> aaw_pv_user_standard_ro
         kubeflow_user_notebook \
-            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
             >> aaw_pvc_user_premium \
-            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
             >> aaw_pv_user_premium
         kubeflow_user_notebook \
-            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
             >> aaw_pvc_user_premium_ro \
-            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
             >> aaw_pv_user_premium_ro
         kubeflow_user_notebook \
-            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
             >> aaw_pvc_user_protected_b \
-            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=connects_label) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
             >> aaw_pv_user_protected_b
 
+        kubeflow_user_notebook \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> fdi_pvc_user_unclassified \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> fdi_pv_user_unclassified
+        kubeflow_user_notebook \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> fdi_pvc_user_protected_b \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> fdi_pv_user_protected_b
         # Implement logic for how blob-csi-driver mounts PV's from:
         # 3. Ensure that connections are setup from kubeflow to fdi pvcs
         # 4. Double check everything looks good, and try to optimize diagram layout and directionality
