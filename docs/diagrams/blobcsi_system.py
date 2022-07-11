@@ -36,6 +36,7 @@ with Diagram(myself(), show=False):
     connects_label = "connects"
     allows_egress_label = "allows egress"
     allows_ingress_label = "allows ingress"
+    claims_label = "claims"
     connects_with_style = "dashed"
     auth_label = "authenticates with"
 
@@ -257,21 +258,21 @@ with Diagram(myself(), show=False):
 
         # blobcsi controller creates azure containers per user for AAW
         blobcsi_profiles_controller \
-            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=auth_label, minlen=global_edge_width) \
+            >> Edge(color=kubernetes_colour, xlabel=auth_label, minlen=global_edge_width) \
             >> aaw_premium_secret \
             >> Edge(color=kubernetes_colour, minlen=global_edge_width) \
             >> allow_profiles_controller_to_internet \
             >> Edge(color=azure_colour, xlabel=provision_label, minlen=global_edge_width) \
             >> azure_premium_container
         blobcsi_profiles_controller \
-            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=auth_label, minlen=global_edge_width) \
+            >> Edge(color=kubernetes_colour, xlabel=auth_label, minlen=global_edge_width) \
             >> aaw_standard_secret \
             >> Edge(color=kubernetes_colour, minlen=global_edge_width) \
             >> allow_profiles_controller_to_internet \
             >> Edge(color=azure_colour, xlabel=provision_label, minlen=global_edge_width) \
             >> azure_standard_container
         blobcsi_profiles_controller \
-            >> Edge(color=kubernetes_colour, style=connects_with_style, xlabel=auth_label, minlen=global_edge_width) \
+            >> Edge(color=kubernetes_colour, xlabel=auth_label, minlen=global_edge_width) \
             >> aaw_protb_secret \
             >> Edge(color=kubernetes_colour, minlen=global_edge_width) \
             >> allow_profiles_controller_to_internet \
@@ -384,41 +385,41 @@ with Diagram(myself(), show=False):
 
         # Kubeflow users can now use their provisioned (and mounted) PV's through a PVC in their namespace :)
         kubeflow_user_notebook \
-            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=claims_label, minlen=global_edge_width) \
             >> aaw_pvc_user_standard \
-            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=claims_label, minlen=global_edge_width) \
             >> aaw_pv_user_standard
 
         kubeflow_user_notebook \
-            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=claims_label, minlen=global_edge_width) \
             >> aaw_pvc_user_standard_ro \
-            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=claims_label, minlen=global_edge_width) \
             >> aaw_pv_user_standard_ro
         kubeflow_user_notebook \
-            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=claims_label, minlen=global_edge_width) \
             >> aaw_pvc_user_premium \
-            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=claims_label, minlen=global_edge_width) \
             >> aaw_pv_user_premium
         kubeflow_user_notebook \
-            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=claims_label, minlen=global_edge_width) \
             >> aaw_pvc_user_premium_ro \
-            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=claims_label, minlen=global_edge_width) \
             >> aaw_pv_user_premium_ro
         kubeflow_user_notebook \
-            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=claims_label, minlen=global_edge_width) \
             >> aaw_pvc_user_protected_b \
-            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=claims_label, minlen=global_edge_width) \
             >> aaw_pv_user_protected_b
 
         kubeflow_user_notebook \
-            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=claims_label, minlen=global_edge_width) \
             >> fdi_pvc_user_unclassified \
-            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=claims_label, minlen=global_edge_width) \
             >> fdi_pv_user_unclassified
         kubeflow_user_notebook \
-            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=claims_label, minlen=global_edge_width) \
             >> fdi_pvc_user_protected_b \
-            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=connects_label, minlen=global_edge_width) \
+            >> Edge(color=kubeflow_connect_colour, style=connects_with_style, xlabel=claims_label, minlen=global_edge_width) \
             >> fdi_pv_user_protected_b
         # Implement logic for how blob-csi-driver mounts PV's from:
         # 3. Ensure that connections are setup from kubeflow to fdi pvcs
