@@ -92,6 +92,17 @@ where value is a secret registered under the protected-b FDI service principal.
 - `BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AUTH_TYPE`: for the current implementation, only `spn` auth type is supported
 - `BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AAD_ENDPOINT`: the azure active directory endpoint
 
+For more context on the blob-csi system as a whole (from deployment of infrastructure to azure containers), see this [diagram](./docs/diagrams/blobcsi_system.png).
+  - Legend:
+    - Line types:
+      - Solid lines follow the paths of the deployment or provisioning of resources.
+      - Dashed lines outline the paths for connectivity.
+    - Line Colours:
+      - Navy blue lines are used for edges connecting nodes within the kubernetes cluster.
+      - Light green lines are assiciated with kubeflow from a users perspective.
+      - Yellow lines are associated with argocd.
+      - Purple lines are associated with terraform.
+      - Light blue lines are associated with edges that connect from nodes anywhere in the diagram to an azure resource.
 
 *This will deprecate the minio controller.*
 
