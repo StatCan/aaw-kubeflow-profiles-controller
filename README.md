@@ -12,7 +12,9 @@ The diagram below illustrates how profiles controller components are rolled out 
 [^2]: Github icons provided by [Github logos](https://github.com/logos).
 [^3]: Argo icon provided by [CNCF branding](https://cncf-branding.netlify.app/projects/argo/).
 [^4]: Moby (Docker) icon provided by [icons8](https://icons8.com/icons/set/docker)
-
+[^5]: Terraform icon provided by [hashicorp](https://www.hashicorp.com/brand)
+[^6]: Kubeflow icon provided by [kubeflow](https://www.kubeflow.org/images/logo.svg)
+[^7]: Istio icons provided by [Istio Media Resources](https://istio.io/latest/about/media-resources/)
 ### How to Create a Controller
 
 **Note**: Modifying a controller is a subset of these steps; if you are only updating an existing controller, ignore the steps that don't apply.
@@ -90,6 +92,17 @@ where value is a secret registered under the protected-b FDI service principal.
 - `BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AUTH_TYPE`: for the current implementation, only `spn` auth type is supported
 - `BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AAD_ENDPOINT`: the azure active directory endpoint
 
+For more context on the blob-csi system as a whole (from deployment of infrastructure to azure containers), see this [diagram](./docs/diagrams/blobcsi_system.png).
+  - Legend:
+    - Line types:
+      - Solid lines follow the paths of the deployment or provisioning of resources.
+      - Dashed lines outline the paths for connectivity.
+    - Line Colours:
+      - Navy blue lines are used for edges connecting nodes within the kubernetes cluster.
+      - Light green lines are assiciated with kubeflow from a users perspective.
+      - Yellow lines are associated with argocd.
+      - Purple lines are associated with terraform.
+      - Light blue lines are associated with edges that connect from nodes anywhere in the diagram to an azure resource.
 
 *This will deprecate the minio controller.*
 
@@ -100,7 +113,7 @@ The [Taskfile](./Taskfile.yml) includes task `blobcsi:dev` for preparing your lo
 
 Responsible for deploying [gitea](https://github.com/go-gitea/gitea) as [argocd](https://github.com/argoproj/argo-cd) applications per `Profile`. Currently, [argocd](https://github.com/argoproj/argo-cd) applications are deployed by the gitea controller based on the customized gitea manifest found [here](https://github.com/StatCan/aaw-argocd-manifests/tree/aaw-dev-cc-00/profiles-argocd-system/template/gitea).
 
-The diagram below highlights the key components involved with the Gitea controller[^5]
+The diagram below highlights the key components involved with the Gitea controller
 
 ![Gitea Controller Diagram](docs/diagrams/gitea_controller.png)
 
@@ -116,7 +129,6 @@ The Gitea application [values.yaml file](https://github.com/StatCan/aaw-argocd-m
 
 To allow requests to reach the user's Gitea instance, a Network Policy is set in the user's namespace that allows ingress traffic from the kubeflow-gateway to be sent to any pods in the user's namespace that match the `app: gitea && app.kubernetes.io/instance: gitea-unclassified` label selector.
 
-[^5]: Istio icons provided by [Istio Media Resources](https://istio.io/latest/about/media-resources/)
 
 #### Configuration
 The Gitea controller is configurable to run in unclassified or protected-b mode. The configuration of the following
