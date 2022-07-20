@@ -19,7 +19,6 @@ import (
 	kubeflowclientset "github.com/StatCan/profiles-controller/pkg/generated/clientset/versioned"
 	kubeflowinformers "github.com/StatCan/profiles-controller/pkg/generated/informers/externalversions"
 	"github.com/StatCan/profiles-controller/pkg/signals"
-	"github.com/StatCan/profiles-controller/util"
 	pq "github.com/lib/pq"
 	istionetworkingv1beta1 "istio.io/api/networking/v1beta1"
 	istionetworkingclient "istio.io/client-go/pkg/apis/networking/v1beta1"
@@ -52,31 +51,33 @@ type Psqlparams struct {
 	passwd   string
 	dbname   string
 }
+
 // Parameters specific to the deployment of per-namespace gitea applications
 type Deploymentparams struct {
 	classificationEn string // classification (unclassified or prot-b)
 	classificationFr string // classification in french
-	giteaServiceUrl string  // The internal Gitea URL is specified in
-	                        // https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/manifest.yaml#L350
-	giteaUrlPrefix  string  // url prefix used to redirect gitea
-	giteaServicePort int // The port exposed by the Gitea service is specified in
-	                        // https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/manifest.yaml#L365
+	giteaServiceUrl  string // The internal Gitea URL is specified in
+	// https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/manifest.yaml#L350
+	giteaUrlPrefix   string // url prefix used to redirect gitea
+	giteaServicePort int    // The port exposed by the Gitea service is specified in
+	// https://github.com/StatCan/aaw-argocd-manifests/blob/aaw-dev-cc-00/profiles-argocd-system/template/gitea/manifest.yaml#L365
 	giteaBannerConfigMapName string // gitea banner configmap name (configmap which corresponds to the banner
-	                                // at the top of the gitea ui)
-	argocdNamespace  string // namespace the argocd instance is in
-	argocdSourceRepoUrl         string // the repository url containing the gitea deployment manifest
-	argocdSourceTargetRevision 	string // the git branch to deploy from
-	argocdSourcePath           	string // the path from the root of the git source repo
-	argocdProject               string // argocd instances's project to deploy applications within
-	sourceControlEnabledLabel string // the label that indicates a user has opted in to using gitea.
-									 // one such example is sourcecontrol.statcan.gc.ca/enabled
-	kubeflowUrl	string // the url for kubeflow's central dashboard
-	                   // (for dev: https://kubeflow.aaw-dev.cloud.statcan.ca, for production:
-					   // https://kubeflow.aaw.cloud.statcan.ca
+	// at the top of the gitea ui)
+	argocdNamespace            string // namespace the argocd instance is in
+	argocdSourceRepoUrl        string // the repository url containing the gitea deployment manifest
+	argocdSourceTargetRevision string // the git branch to deploy from
+	argocdSourcePath           string // the path from the root of the git source repo
+	argocdProject              string // argocd instances's project to deploy applications within
+	sourceControlEnabledLabel  string // the label that indicates a user has opted in to using gitea.
+	// one such example is sourcecontrol.statcan.gc.ca/enabled
+	kubeflowUrl string // the url for kubeflow's central dashboard
+	// (for dev: https://kubeflow.aaw-dev.cloud.statcan.ca, for production:
+	// https://kubeflow.aaw.cloud.statcan.ca
 }
+
 // Configuration struct for gitea controller
 type GiteaConfig struct {
-	Psqlparams Psqlparams
+	Psqlparams       Psqlparams
 	Deploymentparams Deploymentparams
 }
 
@@ -96,22 +97,22 @@ func NewGiteaConfig() (*GiteaConfig, error) {
 	cfg.Deploymentparams.classificationEn = classification
 	// configure psql specific parameters
 	cfg.Psqlparams.hostname = util.ParseEnvVar("GITEA_PSQL_HOSTNAME")
-	cfg.Psqlparams.port     = util.ParseEnvVar("GITEA_PSQL_PORT")
+	cfg.Psqlparams.port = util.ParseEnvVar("GITEA_PSQL_PORT")
 	cfg.Psqlparams.username = util.ParseEnvVar("GITEA_PSQL_ADMIN_UNAME")
-	cfg.Psqlparams.passwd   = util.ParseEnvVar("GITEA_PSQL_ADMIN_PASSWD")
-	cfg.Psqlparams.dbname   = util.ParseEnvVar("GITEA_PSQL_MAINTENANCE_DB")
+	cfg.Psqlparams.passwd = util.ParseEnvVar("GITEA_PSQL_ADMIN_PASSWD")
+	cfg.Psqlparams.dbname = util.ParseEnvVar("GITEA_PSQL_MAINTENANCE_DB")
 	// configure deployment specific parameters
-	cfg.Deploymentparams.giteaServiceUrl    	    = util.ParseEnvVar("GITEA_SERVICE_URL")
-	cfg.Deploymentparams.giteaUrlPrefix     	    = util.ParseEnvVar("GITEA_URL_PREFIX")
-	cfg.Deploymentparams.giteaServicePort   	    = util.ParseIntegerEnvVar("GITEA_SERVICE_PORT")
-	cfg.Deploymentparams.giteaBannerConfigMapName   = util.ParseEnvVar("GITEA_BANNER_CONFIGMAP_NAME")
-	cfg.Deploymentparams.argocdNamespace            = util.ParseEnvVar("GITEA_ARGOCD_NAMESPACE")
-	cfg.Deploymentparams.argocdSourceRepoUrl        = util.ParseEnvVar("GITEA_ARGOCD_SOURCE_REPO_URL")
+	cfg.Deploymentparams.giteaServiceUrl = util.ParseEnvVar("GITEA_SERVICE_URL")
+	cfg.Deploymentparams.giteaUrlPrefix = util.ParseEnvVar("GITEA_URL_PREFIX")
+	cfg.Deploymentparams.giteaServicePort = util.ParseIntegerEnvVar("GITEA_SERVICE_PORT")
+	cfg.Deploymentparams.giteaBannerConfigMapName = util.ParseEnvVar("GITEA_BANNER_CONFIGMAP_NAME")
+	cfg.Deploymentparams.argocdNamespace = util.ParseEnvVar("GITEA_ARGOCD_NAMESPACE")
+	cfg.Deploymentparams.argocdSourceRepoUrl = util.ParseEnvVar("GITEA_ARGOCD_SOURCE_REPO_URL")
 	cfg.Deploymentparams.argocdSourceTargetRevision = util.ParseEnvVar("GITEA_ARGOCD_SOURCE_TARGET_REVISION")
-	cfg.Deploymentparams.argocdSourcePath           = util.ParseEnvVar("GITEA_ARGOCD_SOURCE_PATH")
-	cfg.Deploymentparams.argocdProject			    = util.ParseEnvVar("GITEA_ARGOCD_PROJECT")
-	cfg.Deploymentparams.sourceControlEnabledLabel  = util.ParseEnvVar("GITEA_SOURCE_CONTROL_ENABLED_LABEL")
-	cfg.Deploymentparams.kubeflowUrl                = util.ParseEnvVar("GITEA_KUBEFLOW_ROOT_URL")
+	cfg.Deploymentparams.argocdSourcePath = util.ParseEnvVar("GITEA_ARGOCD_SOURCE_PATH")
+	cfg.Deploymentparams.argocdProject = util.ParseEnvVar("GITEA_ARGOCD_PROJECT")
+	cfg.Deploymentparams.sourceControlEnabledLabel = util.ParseEnvVar("GITEA_SOURCE_CONTROL_ENABLED_LABEL")
+	cfg.Deploymentparams.kubeflowUrl = util.ParseEnvVar("GITEA_KUBEFLOW_ROOT_URL")
 	return cfg, nil
 }
 
