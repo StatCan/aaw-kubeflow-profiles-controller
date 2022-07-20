@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"reflect"
+	"strconv"
 	"time"
 
 	kubeflowv1 "github.com/StatCan/profiles-controller/pkg/apis/kubeflow/v1"
@@ -759,6 +760,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 			PodSelector: metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"app": "gitea",
+					"app.kubernetes.io/instance": "gitea-unclassified",
 				},
 			},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
@@ -790,6 +792,60 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 			},
 		},
 	})
+
+	// Employee-only namespaces are allowed egress to pods in the cloud-main-system namespace.
+	// This network policy should only be created for namespaces whose state.aaw.statcan.gc.ca/non-employee-users
+	// label indicates that the namespace does not contain any non-employee users.
+	val, labelExists := profile.ObjectMeta.Labels["state.aaw.statcan.gc.ca/non-employee-users"]
+	existsNonEmployeeUser, _ := strconv.ParseBool(val)
+
+	portHttps := intstr.FromInt(443)
+	portSsh := intstr.FromInt(22)
+	if labelExists && !existsNonEmployeeUser {
+		policies = append(policies, &networkingv1.NetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "allow-employee-egress-to-cloud-main-system",
+				Namespace: profile.Name,
+				OwnerReferences: []metav1.OwnerReference{
+					*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+				},
+			},
+			Spec: networkingv1.NetworkPolicySpec{
+				PodSelector: metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{ // TODO: is this a good way to verify that the pod is a notebook?
+						{
+							Key:      "notebook-name",
+							Operator: metav1.LabelSelectorOpExists,
+						},
+					},
+				},
+				PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+				Egress: []networkingv1.NetworkPolicyEgressRule{
+					{
+						Ports: []networkingv1.NetworkPolicyPort{
+							{
+								Protocol: &protocolTCP,
+								Port:     &portHttps,
+							},
+							{
+								Protocol: &protocolTCP,
+								Port:     &portSsh,
+							},
+						},
+						To: []networkingv1.NetworkPolicyPeer{
+							{
+								NamespaceSelector: &metav1.LabelSelector{ // TODO: double check that these label selectors work as expected.
+									MatchLabels: map[string]string{
+										"kubernetes.io/metadata.name": "cloud-main-system",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		})
+	}
 
 	return policies
 }
