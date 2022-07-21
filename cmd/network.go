@@ -759,7 +759,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		Spec: networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{
 				MatchLabels: map[string]string{
-					"app": "gitea",
+					"app":                        "gitea",
 					"app.kubernetes.io/instance": "gitea-unclassified",
 				},
 			},
@@ -793,10 +793,54 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		},
 	})
 
+	// Allow egress to postgres database for kubeflow profiles that opt into using Gitea.
+	val, labelExists := profile.ObjectMeta.Labels["sourcecontrol.statcan.gc.ca/enabled"]
+	profileOptsIntoSourceControl, _ := strconv.ParseBool(val)
+
+	portPostgres := intstr.FromInt(5432)
+
+	if labelExists && profileOptsIntoSourceControl {
+		policies = append(policies, &networkingv1.NetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "allow-gitea-to-postgres",
+				Namespace: profile.Name,
+				OwnerReferences: []metav1.OwnerReference{
+					*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+				},
+			},
+			Spec: networkingv1.NetworkPolicySpec{
+				PodSelector: metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						"app":                        "gitea",
+						"app.kubernetes.io/instance": "gitea-protected-b",
+					},
+				},
+				PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+				Egress: []networkingv1.NetworkPolicyEgressRule{
+					{
+						Ports: []networkingv1.NetworkPolicyPort{
+							{
+								Protocol: &protocolTCP,
+								Port:     &portPostgres,
+							},
+						},
+						To: []networkingv1.NetworkPolicyPeer{
+							{
+								IPBlock: &networkingv1.IPBlock{
+									CIDR: "0.0.0.0/0",
+								},
+							},
+						},
+					},
+				},
+			},
+		})
+	}
+
 	// Employee-only namespaces are allowed egress to pods in the cloud-main-system namespace.
 	// This network policy should only be created for namespaces whose state.aaw.statcan.gc.ca/non-employee-users
 	// label indicates that the namespace does not contain any non-employee users.
-	val, labelExists := profile.ObjectMeta.Labels["state.aaw.statcan.gc.ca/non-employee-users"]
+	val, labelExists = profile.ObjectMeta.Labels["state.aaw.statcan.gc.ca/non-employee-users"]
 	existsNonEmployeeUser, _ := strconv.ParseBool(val)
 
 	portHttps := intstr.FromInt(443)

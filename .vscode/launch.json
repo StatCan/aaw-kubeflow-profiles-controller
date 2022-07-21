@@ -38,7 +38,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}/docs/diagrams/"
+            "cwd": "${workspaceFolder}/docs/diagrams/",
         },
         {
             "name": "Debug Cloud Main Profile Controller",
