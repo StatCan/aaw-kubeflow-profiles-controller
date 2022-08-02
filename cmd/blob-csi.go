@@ -40,6 +40,7 @@ const classificationLabel = "data.statcan.gc.ca/classification"
 const azureNamespace = "azure-blob-csi-system"
 
 var capacity resource.Quantity = *resource.NewScaledQuantity(100, resource.Giga)
+var capacityScalar = resource.Tera
 
 // Configuration for FDI containers
 // If an AzureContainer is of classification FDI,
@@ -49,7 +50,7 @@ type FDIConfig struct {
 	OPAGatewayUrl           string // url for the opa gateway which serves json for fdi buckets
 	SPNSecretName           string // service principal secret name
 	SPNSecretNamespace      string // service principal secret namespace
-	PVCapacity              string
+	PVCapacity              int
 	StorageAccount          string // fdi storage account in azure portal
 	ResourceGroup           string // fdi resource group in azure portal
 	AzureStorageAuthType    string // value of spn dictates service principal auth
@@ -67,7 +68,7 @@ type AzureContainerConfig struct {
 	Name           string // name of the container
 	Classification string // unclassified or protected-b
 	SecretRef      string // secret for the container
-	Capacity       string
+	Capacity       int
 	ReadOnly       bool
 	Owner          string // the owner could be AAW or FDI for example
 }
@@ -97,10 +98,10 @@ func getValidContainerOwners() []string {
 }
 
 var defaultAawContainerConfigs = `
-	{"name": "standard", "classification": "unclassified", "secretRef": "azure-secret/azure-blob-csi-system", "capacity": "100Gi", "readOnly": false, "owner": "AAW"}
-	{"name": "premium", "classification": "unclassified", "secretRef": "azure-secret-premium/azure-blob-csi-system", "capacity": "100Gi", "readOnly": false, "owner": "AAW"}
-	{"name": "standard-ro", "classification": "protected-b", "secretRef": "azure-secret/azure-blob-csi-system", "capacity": "100Gi", "readOnly": true, "owner": "AAW"}
-	{"name": "premium-ro", "classification": "protected-b", "secretRef": "azure-secret-premium/azure-blob-csi-system", "capacity": "100Gi", "readOnly": true, "owner": "AAW"}
+	{"name": "standard", "classification": "unclassified", "secretRef": "azure-secret/azure-blob-csi-system", "capacity": 10, "readOnly": false, "owner": "AAW"}
+	{"name": "premium", "classification": "unclassified", "secretRef": "azure-secret-premium/azure-blob-csi-system", "capacity": 10, "readOnly": false, "owner": "AAW"}
+	{"name": "standard-ro", "classification": "protected-b", "secretRef": "azure-secret/azure-blob-csi-system", "capacity": 10, "readOnly": true, "owner": "AAW"}
+	{"name": "premium-ro", "classification": "protected-b", "secretRef": "azure-secret-premium/azure-blob-csi-system", "capacity": 10, "readOnly": true, "owner": "AAW"}
 `
 
 // Performs an Http get request against given url, unmarshal the response as json
@@ -292,6 +293,7 @@ func pvForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerCon
 	var volumeName string
 	var pvcName string
 	var accessMode corev1.PersistentVolumeAccessMode
+
 	if containerConfig.ReadOnly {
 		accessMode = corev1.ReadOnlyMany
 		// Doesn't work.
@@ -347,7 +349,7 @@ func pvForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerCon
 		Spec: corev1.PersistentVolumeSpec{
 			AccessModes: []corev1.PersistentVolumeAccessMode{accessMode},
 			Capacity: corev1.ResourceList{
-				corev1.ResourceStorage: capacity,
+				corev1.ResourceStorage: *resource.NewScaledQuantity(int64(containerConfig.Capacity), capacityScalar),
 			},
 			PersistentVolumeSource: corev1.PersistentVolumeSource{
 				CSI: &corev1.CSIPersistentVolumeSource{
@@ -383,6 +385,7 @@ func pvcForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerCo
 	if containerConfig.Owner == AawContainerOwner {
 		volumeName = buildPvName(namespace, containerConfig.Name)
 		pvcName = containerConfig.Name
+
 	} else if containerConfig.Owner == FdiContainerOwner {
 		volumeName = buildPvName(namespace, containerConfig.Owner, containerConfig.Classification, containerConfig.Name)
 		pvcName = fmt.Sprintf("%s-%s", containerConfig.Name, containerConfig.Classification)
@@ -412,7 +415,7 @@ func pvcForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerCo
 			AccessModes: []corev1.PersistentVolumeAccessMode{accessMode},
 			Resources: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{
-					corev1.ResourceStorage: capacity,
+					corev1.ResourceStorage: *resource.NewScaledQuantity(int64(containerConfig.Capacity), capacityScalar),
 				},
 			},
 			StorageClassName: &storageClass,
@@ -578,7 +581,7 @@ var blobcsiCmd = &cobra.Command{
 				OPAGatewayUrl:           util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_OPA_ENDPOINT"),
 				SPNSecretName:           util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_SPN_SECRET_NAME"),
 				SPNSecretNamespace:      util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_SPN_SECRET_NAMESPACE"),
-				PVCapacity:              util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_PV_STORAGE_CAP"),
+				PVCapacity:              util.ParseIntegerEnvVar("BLOB_CSI_FDI_UNCLASS_PV_STORAGE_CAP"),
 				StorageAccount:          util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_STORAGE_ACCOUNT"),
 				ResourceGroup:           util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_RESOURCE_GROUP"),
 				AzureStorageAuthType:    util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_AUTH_TYPE"),
@@ -600,7 +603,7 @@ var blobcsiCmd = &cobra.Command{
 				OPAGatewayUrl:           util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_OPA_ENDPOINT"),
 				SPNSecretName:           util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_SPN_SECRET_NAME"),
 				SPNSecretNamespace:      util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_SPN_SECRET_NAMESPACE"),
-				PVCapacity:              util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_PV_STORAGE_CAP"),
+				PVCapacity:              util.ParseIntegerEnvVar("BLOB_CSI_FDI_PROTECTED_B_PV_STORAGE_CAP"),
 				StorageAccount:          util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_STORAGE_ACCOUNT"),
 				ResourceGroup:           util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_RESOURCE_GROUP"),
 				AzureStorageAuthType:    util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AUTH_TYPE"),
