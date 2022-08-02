@@ -81,14 +81,14 @@ In addition, the controller is responsible for managing links from `PersistentVo
 - `BLOB_CSI_FDI_UNCLASS_SPN_SECRET_NAME`: the name of a secret containing data `azurestoragespnclientsecret: value`,
 where value is a secret registered under the unclassified FDI service principal.
 - `BLOB_CSI_FDI_UNCLASS_SPN_SECRET_NAMESPACE`: the namespace the above secret is contained in.
-- `BLOB_CSI_FDI_UNCLASS_PV_STORAGE_CAP`: the storage capacity for FDI PV's.
+- `BLOB_CSI_FDI_UNCLASS_PV_STORAGE_CAP`: the storage capacity for FDI PV's in Terabytes.
 - `BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_AUTH_TYPE`: for the current implementation, only `spn` auth type is supported
 - `BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_AAD_ENDPOINT`: the azure active directory endpoint
 - `BLOB_CSI_FDI_PROTECTED_B_OPA_ENDPOINT`: the http address pointing to the protected-b OPA gateway.
 - `BLOB_CSI_FDI_PROTECTED_B_SPN_SECRET_NAME`: the name of a secret containing data `azurestoragespnclientsecret: value`,
 where value is a secret registered under the protected-b FDI service principal.
 - `BLOB_CSI_FDI_PROTECTED_B_SPN_SECRET_NAMESPACE`: the namespace the above secret is contained in.
-- `BLOB_CSI_FDI_PROTECTED_B_PV_STORAGE_CAP`: the storage capacity for FDI PV's.
+- `BLOB_CSI_FDI_PROTECTED_B_PV_STORAGE_CAP`: the storage capacity for FDI PV's in Terabytes.
 - `BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AUTH_TYPE`: for the current implementation, only `spn` auth type is supported
 - `BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AAD_ENDPOINT`: the azure active directory endpoint
 
