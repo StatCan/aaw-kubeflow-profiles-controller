@@ -39,7 +39,6 @@ const classificationLabel = "data.statcan.gc.ca/classification"
 
 const azureNamespace = "azure-blob-csi-system"
 
-var capacity resource.Quantity = *resource.NewScaledQuantity(100, resource.Giga)
 var capacityScalar = resource.Tera
 
 // Configuration for FDI containers
