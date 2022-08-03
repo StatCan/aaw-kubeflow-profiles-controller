@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -522,8 +523,37 @@ func getBlobClient(client *kubernetes.Clientset, containerConfig AzureContainerC
 	return service, nil
 }
 
+// Formats container names to be in accordance with the azure requirement
+// https://docs.microsoft.com/en-us/rest/api/storageservices/naming-and-referencing-containers--blobs--and-metadata#container-names
+func formattedContainerName(containerName string) string {
+	// remove any non-alphanumeric characters, except dashes
+	containerName = regexp.MustCompile("[^a-zA-Z0-9-]").ReplaceAllString(containerName, "")
+	// reduce multiple dashes to single dashes
+	containerName = regexp.MustCompile("[-]+").ReplaceAllString(containerName, "-")
+	// enforce lower case
+	containerName = strings.ToLower(containerName)
+	// confirm first character is not a dash, and pad with 'a' if it is.
+	if string(containerName[0]) == "-" {
+		containerName = "a" + containerName
+	}
+
+	// pad container names that do not meet minimum length
+	if len(containerName) < 3 {
+		padding := 3 - len(containerName)
+		containerName = containerName + strings.Repeat("a", padding)
+	// truncate container names that exceed max length
+	} else if len(containerName) > 63 {
+		containerName = containerName[:63]
+	}
+	// confirm last character is not a dash, and replace with 'a' if it is 
+	if string(containerName[len(containerName)-1]) == "-" {
+		containerName = containerName[:len(containerName)-1] + "a"
+	}
+	return containerName
+}
+
 func createContainer(service azblob.ServiceClient, containerName string) error {
-	container := service.NewContainerClient(containerName)
+	container := service.NewContainerClient(formattedContainerName(containerName))
 	_, err := container.Create(context.Background(), nil)
 	return err
 }
