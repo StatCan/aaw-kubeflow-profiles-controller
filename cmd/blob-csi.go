@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -306,7 +307,7 @@ func pvForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerCon
 		volumeName = buildPvName(namespace, containerConfig.Name)
 		pvcName = containerConfig.Name
 		volumeAttributes = map[string]string{
-			"containerName": namespace,
+			"containerName": formattedContainerName(namespace),
 		}
 	} else if containerConfig.Owner == FdiContainerOwner {
 		// Configure PV attributes specific to the Owner of the container the PV will be connected to.
@@ -519,6 +520,35 @@ func getBlobClient(client *kubernetes.Clientset, containerConfig AzureContainerC
 		return azblob.ServiceClient{}, err
 	}
 	return service, nil
+}
+
+// Formats container names to be in accordance with the azure requirement
+// https://docs.microsoft.com/en-us/rest/api/storageservices/naming-and-referencing-containers--blobs--and-metadata#container-names
+func formattedContainerName(containerName string) string {
+	// remove any non-alphanumeric characters, except dashes
+	containerName = regexp.MustCompile("[^a-zA-Z0-9-]").ReplaceAllString(containerName, "")
+	// reduce multiple dashes to single dashes
+	containerName = regexp.MustCompile("[-]+").ReplaceAllString(containerName, "-")
+	// enforce lower case
+	containerName = strings.ToLower(containerName)
+	// confirm first character is not a dash, and pad with 'a' if it is.
+	if string(containerName[0]) == "-" {
+		containerName = "a" + containerName
+	}
+
+	// pad container names that do not meet minimum length
+	if len(containerName) < 3 {
+		padding := 3 - len(containerName)
+		containerName = containerName + strings.Repeat("a", padding)
+	// truncate container names that exceed max length
+	} else if len(containerName) > 63 {
+		containerName = containerName[:63]
+	}
+	// confirm last character is not a dash, and replace with 'a' if it is 
+	if string(containerName[len(containerName)-1]) == "-" {
+		containerName = containerName[:len(containerName)-1] + "a"
+	}
+	return containerName
 }
 
 func createContainer(service azblob.ServiceClient, containerName string) error {
@@ -747,13 +777,14 @@ var blobcsiCmd = &cobra.Command{
 
 				// aaw containers are created by this code for the given profile
 				for _, aawContainerConfig := range aawContainerConfigs {
+					formattedContainerName := formattedContainerName(profile.Name)
 					if !aawContainerConfig.ReadOnly {
-						klog.Infof("Creating Container %s/%s... ", aawContainerConfig.Name, profile.Name)
-						err := createContainer(blobClients[aawContainerConfig.Name], profile.Name)
+						klog.Infof("Creating Container %s/%s... ", aawContainerConfig.Name, formattedContainerName)
+						err := createContainer(blobClients[aawContainerConfig.Name], formattedContainerName)
 						if err == nil {
-							klog.Infof("Created Container %s/%s.", aawContainerConfig.Name, profile.Name)
+							klog.Infof("Created Container %s/%s.", aawContainerConfig.Name, formattedContainerName)
 						} else if strings.Contains(err.Error(), "ContainerAlreadyExists") {
-							klog.Warningf("Container %s/%s Already Exists.", aawContainerConfig.Name, profile.Name)
+							klog.Warningf("Container %s/%s Already Exists.", aawContainerConfig.Name, formattedContainerName)
 						} else {
 							klog.Fatalf(err.Error())
 							return err
