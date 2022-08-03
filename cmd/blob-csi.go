@@ -308,7 +308,7 @@ func pvForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerCon
 		volumeName = buildPvName(namespace, containerConfig.Name)
 		pvcName = containerConfig.Name
 		volumeAttributes = map[string]string{
-			"containerName": namespace,
+			"containerName": formattedContainerName(namespace),
 		}
 	} else if containerConfig.Owner == FdiContainerOwner {
 		// Configure PV attributes specific to the Owner of the container the PV will be connected to.
@@ -553,7 +553,7 @@ func formattedContainerName(containerName string) string {
 }
 
 func createContainer(service azblob.ServiceClient, containerName string) error {
-	container := service.NewContainerClient(formattedContainerName(containerName))
+	container := service.NewContainerClient(containerName)
 	_, err := container.Create(context.Background(), nil)
 	return err
 }
@@ -778,13 +778,14 @@ var blobcsiCmd = &cobra.Command{
 
 				// aaw containers are created by this code for the given profile
 				for _, aawContainerConfig := range aawContainerConfigs {
+					formattedContainerName := formattedContainerName(profile.Name)
 					if !aawContainerConfig.ReadOnly {
-						klog.Infof("Creating Container %s/%s... ", aawContainerConfig.Name, profile.Name)
-						err := createContainer(blobClients[aawContainerConfig.Name], profile.Name)
+						klog.Infof("Creating Container %s/%s... ", aawContainerConfig.Name, formattedContainerName)
+						err := createContainer(blobClients[aawContainerConfig.Name], formattedContainerName)
 						if err == nil {
-							klog.Infof("Created Container %s/%s.", aawContainerConfig.Name, profile.Name)
+							klog.Infof("Created Container %s/%s.", aawContainerConfig.Name, formattedContainerName)
 						} else if strings.Contains(err.Error(), "ContainerAlreadyExists") {
-							klog.Warningf("Container %s/%s Already Exists.", aawContainerConfig.Name, profile.Name)
+							klog.Warningf("Container %s/%s Already Exists.", aawContainerConfig.Name, formattedContainerName)
 						} else {
 							klog.Fatalf(err.Error())
 							return err
