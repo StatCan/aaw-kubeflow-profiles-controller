@@ -835,6 +835,92 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 				},
 			},
 		})
+
+		giteaPort80 := intstr.FromInt(80)
+		giteaPort22 := intstr.FromInt(22)
+		giteaPort3000 := intstr.FromInt(3000)
+		policies = append(policies, &networkingv1.NetworkPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+				Name:      "allow-gitea-http-egress-prot-b",
+				Namespace: profile.Name,
+				OwnerReferences: []metav1.OwnerReference{
+					*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+				},
+			},
+				Spec: networkingv1.NetworkPolicySpec{
+				PodSelector: metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						"app":                        "gitea",
+						"app.kubernetes.io/instance": "gitea-protected-b",
+					},
+				},
+				PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+				Egress: []networkingv1.NetworkPolicyEgressRule{
+					{
+						Ports: []networkingv1.NetworkPolicyPort{
+							{
+								Protocol: &protocolTCP,
+								Port:     &giteaPort80,
+							},
+							{
+								Protocol: &protocolTCP,
+								Port:     &giteaPort3000,
+							},
+							{
+								Protocol: &protocolTCP,
+								Port:     &giteaPort22,
+							},
+						},
+						To: []networkingv1.NetworkPolicyPeer{
+							{
+								IPBlock: &networkingv1.IPBlock{
+									CIDR: "0.0.0.0/0",
+								},
+							},
+						},
+					},
+				},
+			},
+		})
+		policies = append(policies, &networkingv1.NetworkPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+				Name:      "allow-gitea-http-ingress-prot-b",
+				Namespace: profile.Name,
+				OwnerReferences: []metav1.OwnerReference{
+					*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+				},
+			},
+				Spec: networkingv1.NetworkPolicySpec{
+				PodSelector: metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						"app":                        "gitea",
+						"app.kubernetes.io/instance": "gitea-protected-b",
+					},
+				},
+				PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+				Ingress: []networkingv1.NetworkPolicyIngressRule{
+					{
+						Ports: []networkingv1.NetworkPolicyPort{
+							{
+								Protocol: &protocolTCP,
+								Port:     &giteaPort3000,
+							},
+							{
+								Protocol: &protocolTCP,
+								Port:     &giteaPort22,
+							},
+						},
+						From: []networkingv1.NetworkPolicyPeer{
+							{
+								IPBlock: &networkingv1.IPBlock{
+									CIDR: "0.0.0.0/0",
+								},
+							},
+						},
+					},
+				},
+			},
+		})
 	}
 
 	// Employee-only namespaces are allowed egress to pods in the cloud-main-system namespace.
