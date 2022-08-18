@@ -48,6 +48,15 @@ type Rules struct {
 	Schema []Schema `json:"schemas"`
 	Table  []Table  `json:"tables"`
 }
+type config struct {
+	namespace string
+	configmap []string
+}
+
+var t = &config{
+	namespace: "trino-system",
+	configmap: []string{"trino-standard-rules", "trino-premium-rules", "trino-prob-rules"},
+}
 
 var sch = []Schema{}
 var tbl = []Table{}
@@ -57,10 +66,8 @@ var trino = &cobra.Command{
 	Short: "Configure Trino RBAC",
 	Long:  `Configure Trino Rules in ConfigMap`,
 	Run: func(cmd *cobra.Command, args []string) {
-
 		// Setup signals so we can shutdown cleanly
 		stopCh := signals.SetupSignalHandler()
-
 		// Create Kubernetes config
 		cfg, err := clientcmd.BuildConfigFromFlags(apiserver, kubeconfig)
 		if err != nil {
@@ -112,17 +119,22 @@ var trino = &cobra.Command{
 				}
 				createRule(append(contributors, profile.Name), profile.Name)
 
-				trinoStandardConfigMap, err := generateTrinoConfigMap("trino-standard-rules")
-				trinoProbConfigMap, err := generateTrinoConfigMap("trino-prob-rules")
-				trinoPremiumConfigMap, err := generateTrinoConfigMap("trino-premium-rules")
-
-				if err != nil {
-					klog.Fatalf("Error building config map: %v", err)
-					return err
-				} else {
-					updateTrinoConfigMap(trinoStandardConfigMap, configMapLister, kubeClient, "trino-standard-rules")
-					updateTrinoConfigMap(trinoProbConfigMap, configMapLister, kubeClient, "trino-prob-rules")
-					updateTrinoConfigMap(trinoPremiumConfigMap, configMapLister, kubeClient, "trino-premium-rules")
+				// Create cm if it does not exist, update trino rule data to confimap if it exists
+				for _, cm := range t.configmap {
+					var trinoConfigMap *corev1.ConfigMap
+					c, _ := configMapLister.ConfigMaps(t.namespace).Get(cm)
+					if c == nil {
+						var trinoConfigMap, err = generateTrinoConfigMap(cm)
+						klog.Infof("creating configMap %s/%s", t.namespace, cm)
+						_, err = kubeClient.CoreV1().ConfigMaps(t.namespace).Create(
+							context.Background(), trinoConfigMap, metav1.CreateOptions{})
+						if err != nil {
+							return err
+						}
+					} else {
+						trinoConfigMap, err = generateTrinoConfigMap(cm)
+						updateTrinoConfigMap(trinoConfigMap, configMapLister, kubeClient, cm)
+					}
 				}
 				return nil
 			},
