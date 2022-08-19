@@ -55,7 +55,7 @@ type config struct {
 
 var t = &config{
 	namespace: "trino-system",
-	configmap: []string{"trino-standard-rules", "trino-premium-rules", "trino-prob-rules"},
+	configmap: []string{"trino-unclassified-rules", "trino-prob-rules"},
 }
 
 var sch = []Schema{}
