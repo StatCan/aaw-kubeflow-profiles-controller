@@ -357,27 +357,27 @@ func generateNginxConfigMap(profile *kubeflowv1.Profile, s3proxyconfig *S3ProxyC
 			  server {
 				  listen       8080;
 				  server_name  _;
-		
+
 				  location ~ ^/%s/fonts/.*$ {
 					  root html;
 				  }
-		
+
 				  location ~ ^/%s/webfonts/.*$ {
 					  root html;
 				  }
-		
+
 				  location ~ ^/%s/%s/.*$ {
 					  include  /etc/nginx/mime.types;
 					  root   html;
 					  index  index.html index.htm;
 				  }
-		
+
 				  location / {
 					 proxy_set_header X-Real-IP $remote_addr;
 					 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 					 proxy_set_header X-Forwarded-Proto $scheme;
 					 proxy_set_header Host $http_host;
-		
+
 					 proxy_connect_timeout 300;
 					 # Default is HTTP/1, keepalive is only enabled in HTTP/1.1
 					 proxy_http_version 1.1;
