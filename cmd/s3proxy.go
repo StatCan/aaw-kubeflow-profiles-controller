@@ -417,7 +417,7 @@ func generateS3ProxyVirtualService(profile *kubeflowv1.Profile, s3proxyconfig *S
 				"kubeflow/kubeflow-gateway",
 			},
 			Hosts: []string{
-				fmt.Sprint("kubeflow.aaw-dev.cloud.statcan.ca"),
+				"kubeflow.aaw-dev.cloud.statcan.ca",
 			},
 			Http: []*istionetworkingv1beta1.HTTPRoute{
 				// 		   _        _   _         __ _ _
