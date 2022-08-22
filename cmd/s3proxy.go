@@ -487,7 +487,7 @@ func generateS3ProxyVirtualService(profile *kubeflowv1.Profile, s3proxyconfig *S
 				// |____/____/|_|   |_|  \___/_/\_\\__, | |_|  \___|\__, |\__,_|\___||___/\__|___/
 				//                                 |___/               |_|
 				{
-					Name: "s3-premium-bucket",
+					Name: "s3-unclassified-bucket",
 					// TODO: this should be refactored once we upgrade to Kubeflow > 1.4,
 					// we will no longer need to check the http referer header once namespaced
 					// menu items are supported.
@@ -505,7 +505,7 @@ func generateS3ProxyVirtualService(profile *kubeflowv1.Profile, s3proxyconfig *S
 							},
 							Uri: &istionetworkingv1beta1.StringMatch{
 								MatchType: &istionetworkingv1beta1.StringMatch_Prefix{
-									Prefix: "/premium",
+									Prefix: "/unclassified",
 								},
 							},
 						},
@@ -522,7 +522,111 @@ func generateS3ProxyVirtualService(profile *kubeflowv1.Profile, s3proxyconfig *S
 							},
 							Uri: &istionetworkingv1beta1.StringMatch{
 								MatchType: &istionetworkingv1beta1.StringMatch_Prefix{
-									Prefix: "/premium",
+									Prefix: "/unclassified",
+								},
+							},
+						},
+					},
+					Route: []*istionetworkingv1beta1.HTTPRouteDestination{
+						{
+							Destination: &istionetworkingv1beta1.Destination{
+								Host: fmt.Sprintf("s3proxy-web.%s.svc.cluster.local", namespace),
+								Port: &istionetworkingv1beta1.PortSelector{
+									Number: uint32(80),
+								},
+							},
+						},
+					},
+				},
+				{
+					Name: "s3-unclassified-ro-bucket",
+					// TODO: this should be refactored once we upgrade to Kubeflow > 1.4,
+					// we will no longer need to check the http referer header once namespaced
+					// menu items are supported.
+					Match: []*istionetworkingv1beta1.HTTPMatchRequest{
+						{
+							Headers: map[string]*istionetworkingv1beta1.StringMatch{
+								"referer": {
+									MatchType: &istionetworkingv1beta1.StringMatch_Exact{
+										Exact: fmt.Sprintf("%s/%s/%s/index.html",
+											s3proxyconfig.kubeflowUrl,
+											s3proxyconfig.kubeflowPrefix,
+											namespace),
+									},
+								},
+							},
+							Uri: &istionetworkingv1beta1.StringMatch{
+								MatchType: &istionetworkingv1beta1.StringMatch_Prefix{
+									Prefix: "/unclassified-ro",
+								},
+							},
+						},
+						{
+							Headers: map[string]*istionetworkingv1beta1.StringMatch{
+								"referer": {
+									MatchType: &istionetworkingv1beta1.StringMatch_Exact{
+										Exact: fmt.Sprintf("%s/%s/%s/sw_modify_header.js",
+											s3proxyconfig.kubeflowUrl,
+											s3proxyconfig.kubeflowPrefix,
+											namespace),
+									},
+								},
+							},
+							Uri: &istionetworkingv1beta1.StringMatch{
+								MatchType: &istionetworkingv1beta1.StringMatch_Prefix{
+									Prefix: "/unclassified-ro",
+								},
+							},
+						},
+					},
+					Route: []*istionetworkingv1beta1.HTTPRouteDestination{
+						{
+							Destination: &istionetworkingv1beta1.Destination{
+								Host: fmt.Sprintf("s3proxy-web.%s.svc.cluster.local", namespace),
+								Port: &istionetworkingv1beta1.PortSelector{
+									Number: uint32(80),
+								},
+							},
+						},
+					},
+				},
+				{
+					Name: "s3-protected-b-bucket",
+					// TODO: this should be refactored once we upgrade to Kubeflow > 1.4,
+					// we will no longer need to check the http referer header once namespaced
+					// menu items are supported.
+					Match: []*istionetworkingv1beta1.HTTPMatchRequest{
+						{
+							Headers: map[string]*istionetworkingv1beta1.StringMatch{
+								"referer": {
+									MatchType: &istionetworkingv1beta1.StringMatch_Exact{
+										Exact: fmt.Sprintf("%s/%s/%s/index.html",
+											s3proxyconfig.kubeflowUrl,
+											s3proxyconfig.kubeflowPrefix,
+											namespace),
+									},
+								},
+							},
+							Uri: &istionetworkingv1beta1.StringMatch{
+								MatchType: &istionetworkingv1beta1.StringMatch_Prefix{
+									Prefix: "/protected-b",
+								},
+							},
+						},
+						{
+							Headers: map[string]*istionetworkingv1beta1.StringMatch{
+								"referer": {
+									MatchType: &istionetworkingv1beta1.StringMatch_Exact{
+										Exact: fmt.Sprintf("%s/%s/%s/sw_modify_header.js",
+											s3proxyconfig.kubeflowUrl,
+											s3proxyconfig.kubeflowPrefix,
+											namespace),
+									},
+								},
+							},
+							Uri: &istionetworkingv1beta1.StringMatch{
+								MatchType: &istionetworkingv1beta1.StringMatch_Prefix{
+									Prefix: "/protected-b",
 								},
 							},
 						},
