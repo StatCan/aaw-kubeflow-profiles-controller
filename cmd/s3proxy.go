@@ -492,7 +492,7 @@ func generateS3ProxyVirtualService(profile *kubeflowv1.Profile, s3proxyconfig *S
 							},
 							Uri: &istionetworkingv1beta1.StringMatch{
 								MatchType: &istionetworkingv1beta1.StringMatch_Prefix{
-									Prefix: "premium",
+									Prefix: "/premium",
 								},
 							},
 						},
@@ -509,7 +509,7 @@ func generateS3ProxyVirtualService(profile *kubeflowv1.Profile, s3proxyconfig *S
 							},
 							Uri: &istionetworkingv1beta1.StringMatch{
 								MatchType: &istionetworkingv1beta1.StringMatch_Prefix{
-									Prefix: "premium",
+									Prefix: "/premium",
 								},
 							},
 						},
