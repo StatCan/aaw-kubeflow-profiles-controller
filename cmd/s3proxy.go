@@ -61,7 +61,6 @@ func NewS3ProxyConfig() (*S3ProxyConfig, error) {
 	cfg.argocdSourceTargetRevision = util.ParseEnvVar("S3PROXY_ARGOCD_SOURCE_TARGET_REVISION")
 	cfg.argocdSourcePath = util.ParseEnvVar("S3PROXY_ARGOCD_SOURCE_PATH")
 	cfg.argocdProject = util.ParseEnvVar("S3PROXY_ARGOCD_PROJECT")
-	cfg.sourceControlEnabledLabel = util.ParseEnvVar("S3PROXY_SOURCE_CONTROL_ENABLED_LABEL")
 	// S3Proxy Configuration Options
 	cfg.kubeflowUrl = util.ParseEnvVar("S3PROXY_KUBEFLOW_ROOT_URL")
 	cfg.kubeflowPrefix = util.ParseEnvVar("S3PROXY_KUBEFLOW_PREFIX")
