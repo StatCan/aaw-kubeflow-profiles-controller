@@ -277,8 +277,13 @@ func createRule(contributors []string, profile string) error {
 			s.Schema += strings.Replace(contributors[i], "-", "", -1) + "|"
 		}
 	}
-	t.Schema = "(" + s.Schema + ")"
-	s.Schema = "(" + s.Schema + ")"
+	if profile == "trino-admin" {
+		t.Schema = ".*"
+		s.Schema = ".*"
+	} else {
+		t.Schema = "(" + s.Schema + ")"
+		s.Schema = "(" + s.Schema + ")"
+	}
 	tbl = append(tbl, t)
 	sch = append(sch, s)
 	if err != nil {
