@@ -323,8 +323,21 @@ func generateS3ProxyArgoApp(profile *kubeflowv1.Profile, s3proxyconfig *S3ProxyC
 				RepoURL:        s3proxyconfig.argocdSourceRepoUrl,
 				TargetRevision: s3proxyconfig.argocdSourceTargetRevision,
 				Path:           s3proxyconfig.argocdSourcePath,
+				Directory: &argocdv1alph1.ApplicationSourceDirectory{
+					Recurse: true,
+					Jsonnet: argocdv1alph1.ApplicationSourceJsonnet{
+						ExtVars: []argocdv1alph1.JsonnetVar{
+							{
+								Name:  "userNamespace",
+								Value: profile.Name,
+							},
+						},
+					},
+				},
 			},
-			SyncPolicy: &argocdv1alph1.SyncPolicy{},
+			SyncPolicy: &argocdv1alph1.SyncPolicy{
+				Automated: &argocdv1alph1.SyncPolicyAutomated{},
+			},
 		},
 	}
 
