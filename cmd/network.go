@@ -840,14 +840,14 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		giteaPort22 := intstr.FromInt(22)
 		giteaPort3000 := intstr.FromInt(3000)
 		policies = append(policies, &networkingv1.NetworkPolicy{
-				ObjectMeta: metav1.ObjectMeta{
+			ObjectMeta: metav1.ObjectMeta{
 				Name:      "allow-gitea-http-egress-prot-b",
 				Namespace: profile.Name,
 				OwnerReferences: []metav1.OwnerReference{
 					*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
 				},
 			},
-				Spec: networkingv1.NetworkPolicySpec{
+			Spec: networkingv1.NetworkPolicySpec{
 				PodSelector: metav1.LabelSelector{
 					MatchLabels: map[string]string{
 						"app":                        "gitea",
@@ -883,14 +883,14 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 			},
 		})
 		policies = append(policies, &networkingv1.NetworkPolicy{
-				ObjectMeta: metav1.ObjectMeta{
+			ObjectMeta: metav1.ObjectMeta{
 				Name:      "allow-gitea-http-ingress-prot-b",
 				Namespace: profile.Name,
 				OwnerReferences: []metav1.OwnerReference{
 					*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
 				},
 			},
-				Spec: networkingv1.NetworkPolicySpec{
+			Spec: networkingv1.NetworkPolicySpec{
 				PodSelector: metav1.LabelSelector{
 					MatchLabels: map[string]string{
 						"app":                        "gitea",
@@ -976,6 +976,52 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 			},
 		})
 	}
+
+	// Allow ingress from system pods to s3proxy pods - this is necessary so that users can access
+	// the s3-explorer UI from within the Kubeflow interface.
+	policies = append(policies, &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "s3proxy-allow-ingress",
+			Namespace: profile.Name,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+			},
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"app": "s3proxy",
+				},
+			},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+			Ingress: []networkingv1.NetworkPolicyIngressRule{
+				{
+					Ports: []networkingv1.NetworkPolicyPort{
+						{
+							Protocol: &protocolTCP,
+							Port:     &portHttp,
+						},
+					},
+					From: []networkingv1.NetworkPolicyPeer{
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"namespace.statcan.gc.ca/purpose": "system",
+								},
+							},
+						},
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"namespace.statcan.gc.ca/purpose": "daaas",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
 
 	return policies
 }
