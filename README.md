@@ -76,7 +76,7 @@ Creates an Azure Blob Storage container for a user in a few storage accounts (e.
 In addition, the controller is responsible for managing links from `PersistentVolume`'s to any buckets from Fair Data Infrastructure (FDI) Section of DAaas.  This is accomplished by querying unclassified and protected-b `OPA` gateways which return `json` responses containing buckets along with permissions. The controller parses the returned `json`, creating a `PersistentVolume` and `PersistentVolumeClaim` for each bucket in accordance with the permission constraints.
 
 #### Configuration
-- `BLOB_CSI_FDI_OPA_DAEMON_TICKER_MILLIS`: the time interval at which the opa gateways are queried, in milliseconds. 
+- `BLOB_CSI_FDI_OPA_DAEMON_TICKER_MILLIS`: the time interval at which the opa gateways are queried, in milliseconds.
 - `BLOB_CSI_FDI_UNCLASS_OPA_ENDPOINT`: the http address pointing to the unclassified OPA gateway.
 - `BLOB_CSI_FDI_UNCLASS_SPN_SECRET_NAME`: the name of a secret containing data `azurestoragespnclientsecret: value`,
 where value is a secret registered under the unclassified FDI service principal.
@@ -92,17 +92,7 @@ where value is a secret registered under the protected-b FDI service principal.
 - `BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AUTH_TYPE`: for the current implementation, only `spn` auth type is supported
 - `BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AAD_ENDPOINT`: the azure active directory endpoint
 
-For more context on the blob-csi system as a whole (from deployment of infrastructure to azure containers), see this [diagram](./docs/diagrams/blobcsi_system.png).
-  - Legend:
-    - Line types:
-      - Solid lines follow the paths of the deployment or provisioning of resources.
-      - Dashed lines outline the paths for connectivity.
-    - Line Colours:
-      - Navy blue lines are used for edges connecting nodes within the kubernetes cluster.
-      - Light green lines are assiciated with kubeflow from a users perspective.
-      - Yellow lines are associated with argocd.
-      - Purple lines are associated with terraform.
-      - Light blue lines are associated with edges that connect from nodes anywhere in the diagram to an azure resource.
+For more context on the blob-csi system as a whole, see [here](https://github.com/StatCan/aaw-developer-docs/blob/main/docs/features/object-storage/blobcsi.md)
 
 *This will deprecate the minio controller.*
 
