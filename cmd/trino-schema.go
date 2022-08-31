@@ -67,6 +67,7 @@ var trinoSchema = &cobra.Command{
 						clusterUrl = "https://trino.aaw-dev.cloud.statcan.ca/v1/statement"
 						prefixSA = "aawdevcc00"
 					} else {
+						klog.Fatalf("error in creating POST request: %v", cfg.Host)
 						clusterUrl = "https://trino.aaw-prod.cloud.statcan.ca/v1/statement"
 						prefixSA = "aawprodcc00"
 					}
