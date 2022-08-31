@@ -63,7 +63,7 @@ var trinoSchema = &cobra.Command{
 
 				//Create a schema in each catalog for the profile
 				for _, catalog := range catalogs {
-					if strings.Contains(cfg.Host, "aaw-dev") {
+					if cfg.Host == "https://10.131.0.1:443" { // Dev cluster internal ip address
 						clusterUrl = "https://trino.aaw-dev.cloud.statcan.ca/v1/statement"
 						prefixSA = "aawdevcc00"
 					} else {
