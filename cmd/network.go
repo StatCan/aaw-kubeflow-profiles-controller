@@ -926,7 +926,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 	// Employee-only namespaces are allowed egress to pods in the cloud-main-system namespace.
 	// This network policy should only be created for namespaces whose state.aaw.statcan.gc.ca/non-employee-users
 	// label indicates that the namespace does not contain any non-employee users.
-	val, labelExists = profile.ObjectMeta.Labels["state.aaw.statcan.gc.ca/non-employee-users"]
+	val, labelExists = profile.ObjectMeta.Labels["state.aaw.statcan.gc.ca/exists-non-cloud-main-user"]
 	existsNonEmployeeUser, _ := strconv.ParseBool(val)
 
 	portHttps := intstr.FromInt(443)
