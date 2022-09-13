@@ -72,7 +72,7 @@ var cloudMainCmd = &cobra.Command{
 			func(profile *kubeflowv1.Profile) error {
 				// The virtual service should only be created for namespaces consisting only of
 				// StatCan employees
-				val, labelExists := profile.ObjectMeta.Labels["state.aaw.statcan.gc.ca/non-employee-users"]
+				val, labelExists := profile.ObjectMeta.Labels["state.aaw.statcan.gc.ca/exists-non-cloud-main-user"]
 				existsNonEmployeeUser, _ := strconv.ParseBool(val)
 				if labelExists && !existsNonEmployeeUser {
 					// Create the Istio virtual service
