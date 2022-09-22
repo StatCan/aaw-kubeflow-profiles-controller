@@ -72,10 +72,10 @@ var trinoSchema = &cobra.Command{
 						prefixSA = "aawprodcc00"
 					}
 
-					if catalog == "prob" {
+					if catalog == "protb" {
 						storageAccount = "samgprotb"
 					} else {
-						storageAccount = "samgstandard"
+						storageAccount = "samgpremium"
 					}
 					body = strings.NewReader("CREATE SCHEMA IF NOT EXISTS " + catalog + "." + strings.Replace(profile.Name, "-", "", -1) + " WITH (location = 'wasbs://" + profile.Name + "@" + prefixSA + storageAccount + ".blob.core.windows.net/')")
 					req, err = http.NewRequest("POST", clusterUrl, body)
