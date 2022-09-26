@@ -24,7 +24,7 @@ import (
 	// project packages
 )
 
-var catalogs = []string{"prob", "unclassified"}
+var catalogs = []string{"protb", "unclassified"}
 var trinoSchema = &cobra.Command{
 	Use:   "trino-schema",
 	Short: "Create Trino schemas",
@@ -67,7 +67,6 @@ var trinoSchema = &cobra.Command{
 						clusterUrl = "https://trino.aaw-dev.cloud.statcan.ca/v1/statement"
 						prefixSA = "aawdevcc00"
 					} else {
-						klog.Fatalf("error in creating POST request: %v", cfg.Host)
 						clusterUrl = "https://trino.aaw-prod.cloud.statcan.ca/v1/statement"
 						prefixSA = "aawprodcc00"
 					}
