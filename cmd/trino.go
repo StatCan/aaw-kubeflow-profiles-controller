@@ -50,16 +50,24 @@ type Rules struct {
 }
 type config struct {
 	namespace string
-	configmap []string
+	configmap string
 }
 
-var t = &config{
+var unclassified = &config{
 	namespace: "trino-system",
-	configmap: []string{"trino-unclassified-rules", "trino-prob-rules"},
+	configmap: "trino-unclassified-rules",
+}
+
+var protb = &config{
+	namespace: "trino-protb-system",
+	configmap: "trino-protb-rules",
 }
 
 var sch = []Schema{}
 var tbl = []Table{}
+
+var protbSchema = []Schema{}
+var protbTable = []Table{}
 
 var trino = &cobra.Command{
 	Use:   "Trino",
@@ -117,25 +125,10 @@ var trino = &cobra.Command{
 						}
 					}
 				}
-				createRule(append(contributors, profile.Name), profile.Name)
 
-				// Create cm if it does not exist, update trino rule data to confimap if it exists
-				for _, cm := range t.configmap {
-					var trinoConfigMap *corev1.ConfigMap
-					c, _ := configMapLister.ConfigMaps(t.namespace).Get(cm)
-					if c == nil {
-						var trinoConfigMap, err = generateTrinoConfigMap(cm)
-						klog.Infof("creating configMap %s/%s", t.namespace, cm)
-						_, err = kubeClient.CoreV1().ConfigMaps(t.namespace).Create(
-							context.Background(), trinoConfigMap, metav1.CreateOptions{})
-						if err != nil {
-							return err
-						}
-					} else {
-						trinoConfigMap, err = generateTrinoConfigMap(cm)
-						updateTrinoConfigMap(trinoConfigMap, configMapLister, kubeClient, cm)
-					}
-				}
+				createInstance(append(contributors, profile.Name), profile.Name, configMapLister, kubeClient, unclassified.namespace, unclassified.configmap)
+				createInstance(append(contributors, profile.Name), profile.Name, configMapLister, kubeClient, protb.namespace, protb.configmap)
+
 				return nil
 			},
 		)
@@ -189,10 +182,35 @@ var trino = &cobra.Command{
 	},
 }
 
+func createInstance(contributors []string, profile string, configMapLister clientv1.ConfigMapLister, kubeClient kubernetes.Interface, namespace string, configmapName string) {
+	if namespace == "trino-protb-system" {
+		createProtbRule(contributors, profile)
+	} else {
+		createRule(append(contributors, profile), profile)
+	}
+	// Create cm if it does not exist, update trino rule data to confimap if it exists
+	var trinoConfigMap *corev1.ConfigMap
+	c, _ := configMapLister.ConfigMaps(namespace).Get(configmapName)
+	if c == nil {
+		var trinoConfigMap, err = generateTrinoConfigMap(configmapName, namespace)
+		klog.Infof("creating configMap %s/%s", namespace, configmapName)
+		_, err = kubeClient.CoreV1().ConfigMaps(namespace).Create(
+			context.Background(), trinoConfigMap, metav1.CreateOptions{})
+		if err != nil {
+			klog.Fatalf("error creating configmap: %v", err)
+			return
+		}
+	} else {
+		trinoConfigMap, err = generateTrinoConfigMap(configmapName, namespace)
+		updateTrinoConfigMap(trinoConfigMap, configMapLister, kubeClient, configmapName, namespace)
+	}
+
+}
+
 // Update Trino configmap on each profile to pick up updated role bindings
-func updateTrinoConfigMap(cm *corev1.ConfigMap, configMapLister clientv1.ConfigMapLister, kubeClient kubernetes.Interface, cmName string) error {
+func updateTrinoConfigMap(cm *corev1.ConfigMap, configMapLister clientv1.ConfigMapLister, kubeClient kubernetes.Interface, cmName string, namespace string) error {
 	//Update configmap for each profile
-	currentStandardConfigMap, err := configMapLister.ConfigMaps("trino-system").Get(cmName)
+	currentStandardConfigMap, err := configMapLister.ConfigMaps(namespace).Get(cmName)
 	if !reflect.DeepEqual(cm.Data, currentStandardConfigMap.Data) {
 		klog.Infof("updating configMap %s/%s", cm.Namespace, cmName)
 		currentStandardConfigMap.Data = cm.Data
@@ -207,9 +225,13 @@ func updateTrinoConfigMap(cm *corev1.ConfigMap, configMapLister clientv1.ConfigM
 
 // Create Trino configmap using schema and table rules in the trino-system ns
 // Convert Rules slice into json format
-func generateTrinoConfigMap(fileName string) (*corev1.ConfigMap, error) {
+func generateTrinoConfigMap(fileName string, namespace string) (*corev1.ConfigMap, error) {
 	var rules = []Rules{}
-	rules = append(rules, Rules{Schema: sch, Table: tbl})
+	if namespace == "trino-protb-system" {
+		rules = append(rules, Rules{Schema: protbSchema, Table: protbTable})
+	} else {
+		rules = append(rules, Rules{Schema: sch, Table: tbl})
+	}
 	data, _ := json.MarshalIndent(rules, "", "  ")
 	var output = string(data)
 	output = strings.TrimPrefix(output, "[")
@@ -222,7 +244,7 @@ func generateTrinoConfigMap(fileName string) (*corev1.ConfigMap, error) {
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fileName,
-			Namespace: "trino-system",
+			Namespace: namespace,
 		},
 		Data: map[string]string{
 			fileName + ".json": output,
@@ -269,6 +291,7 @@ func createRule(contributors []string, profile string) error {
 	}
 	var s Schema = initializeSchema(profile)
 	var t Table = initializeTable(profile)
+	t.Priv = append(t.Priv, "SELECT", "INSERT", "DELETE", "UPDATE", "OWNERSHIP")
 	for i := 0; i < len(contributors); i++ {
 		// format the schema field, removing dashes and appending brackets
 		if i == len(contributors)-1 {
@@ -292,10 +315,55 @@ func createRule(contributors []string, profile string) error {
 	return nil
 }
 
+// Create protb schema and table rules. 2 table rules are created:
+// 1. Readonly on unclassified schema 2. All privledge access on protb schema
+func createProtbRule(contributors []string, profile string) error {
+
+	for i := 0; i < len(protbTable); i++ {
+		if protbTable[i].User == profile {
+			removeIndex(i)
+		}
+	}
+	var s Schema = initializeSchema(profile)
+	var t Table = initializeTable(profile)
+	t.Priv = append(t.Priv, "SELECT", "INSERT", "DELETE", "UPDATE", "OWNERSHIP")
+
+	var readOnlyTable Table = initializeTable(profile)
+	readOnlyTable.Priv = append(readOnlyTable.Priv, "SELECT")
+	for i := 0; i < len(contributors); i++ {
+		// format the schema field, removing dashes and appending brackets
+		if i == len(contributors)-1 {
+			s.Schema += strings.Replace(contributors[i], "-", "", -1) + "protb"
+			readOnlyTable.Schema += strings.Replace(contributors[i], "-", "", -1)
+		} else {
+			s.Schema += strings.Replace(contributors[i], "-", "", -1) + "protb" + "|"
+			readOnlyTable.Schema += strings.Replace(contributors[i], "-", "", -1) + "|"
+		}
+	}
+	if profile == "trino-admin" {
+		t.Schema = ".*"
+		s.Schema = ".*"
+	} else {
+		t.Schema = "(" + s.Schema + ")"
+		s.Schema = "(" + s.Schema + ")"
+		readOnlyTable.Schema = "(" + readOnlyTable.Schema + ")"
+
+	}
+	protbTable = append(protbTable, t, readOnlyTable)
+	protbSchema = append(protbSchema, s)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // Remove existing schema and table rules
 func removeIndex(index int) {
 	sch = append(sch[:index], sch[index+1:]...)
 	tbl = append(tbl[:index], tbl[index+1:]...)
+	protbSchema = append(protbSchema[:index], protbSchema[index+1:]...)
+	protbTable = append(protbTable[:index], protbTable[index+1:]...)
 }
 
 // Generate default Schema rule
@@ -315,7 +383,7 @@ func initializeTable(containerName string) Table {
 	t.User = containerName
 	t.Table = ".*"
 	t.Schema = ""
-	t.Priv = append(t.Priv, "SELECT", "INSERT", "DELETE", "UPDATE", "OWNERSHIP")
+	t.Priv = nil
 	return *t
 }
 

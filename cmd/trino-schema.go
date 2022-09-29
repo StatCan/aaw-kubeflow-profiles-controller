@@ -24,7 +24,12 @@ import (
 	// project packages
 )
 
-var catalogs = []string{"protb", "unclassified"}
+var clusterUrl string
+var storageAccount string
+var body *strings.Reader
+var prefixSA string
+var schemaName string
+var catalogs = []string{"unclassified", "protb"}
 var trinoSchema = &cobra.Command{
 	Use:   "trino-schema",
 	Short: "Create Trino schemas",
@@ -55,28 +60,19 @@ var trinoSchema = &cobra.Command{
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
 			func(profile *kubeflowv1.Profile) error {
-				var clusterUrl string
-				var storageAccount string
-				var body *strings.Reader
-				var prefixSA string
 				var req *http.Request
-
 				//Create a schema in each catalog for the profile
 				for _, catalog := range catalogs {
 					if cfg.Host == "https://10.131.0.1:443" { // Dev cluster internal ip address
-						clusterUrl = "https://trino.aaw-dev.cloud.statcan.ca/v1/statement"
 						prefixSA = "aawdevcc00"
+						trinoInstance(catalog, profile, "dev")
 					} else {
-						clusterUrl = "https://trino.aaw-prod.cloud.statcan.ca/v1/statement"
 						prefixSA = "aawprodcc00"
+						trinoInstance(catalog, profile, "prod")
 					}
 
-					if catalog == "protb" {
-						storageAccount = "samgprotb"
-					} else {
-						storageAccount = "samgpremium"
-					}
-					body = strings.NewReader("CREATE SCHEMA IF NOT EXISTS " + catalog + "." + strings.Replace(profile.Name, "-", "", -1) + " WITH (location = 'wasbs://" + profile.Name + "@" + prefixSA + storageAccount + ".blob.core.windows.net/')")
+					body = strings.NewReader("CREATE SCHEMA IF NOT EXISTS " + catalog + "." + schemaName + " WITH (location = 'wasbs://" + profile.Name + "@" + prefixSA + storageAccount + ".blob.core.windows.net/')")
+					//body = strings.NewReader("Drop schema unclassified" + "." + schemaName)
 					req, err = http.NewRequest("POST", clusterUrl, body)
 					if err != nil {
 						klog.Fatalf("error in creating POST request: %v", err)
@@ -110,6 +106,27 @@ var trinoSchema = &cobra.Command{
 			klog.Fatalf("error running controller: %v", err)
 		}
 	},
+}
+
+// Logic to use appropriate trino instance prod/dev/unclass/protb, schema name and storage account
+func trinoInstance(catalog string, profile *kubeflowv1.Profile, cluster string) {
+	if catalog == "protb" && cluster == "dev" {
+		clusterUrl = "https://trino-protb.aaw-dev.cloud.statcan.ca/v1/statement"
+		schemaName = strings.Replace(profile.Name, "-", "", -1) + "protb"
+		storageAccount = "samgprotb"
+	} else if catalog == "protb" && cluster == "prod" {
+		clusterUrl = "https://trino-protb.aaw.cloud.statcan.ca/v1/statement"
+		schemaName = strings.Replace(profile.Name, "-", "", -1) + "protb"
+		storageAccount = "samgprotb"
+	} else if catalog == "unclassified" && cluster == "dev" {
+		clusterUrl = "https://trino.aaw-dev.cloud.statcan.ca/v1/statement"
+		schemaName = strings.Replace(profile.Name, "-", "", -1)
+		storageAccount = "samgpremium"
+	} else {
+		clusterUrl = "https://trino-protb.aaw-dev.cloud.statcan.ca/v1/statement"
+		schemaName = strings.Replace(profile.Name, "-", "", -1)
+		storageAccount = "samgpremium"
+	}
 }
 
 //Submit a GET request using the nextUri from the response of the POST request to retrieve query result
