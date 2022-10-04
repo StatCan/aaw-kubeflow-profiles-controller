@@ -110,20 +110,12 @@ var trinoSchema = &cobra.Command{
 
 // Logic to use appropriate trino instance prod/dev/unclass/protb, schema name and storage account
 func trinoInstance(catalog string, profile *kubeflowv1.Profile, cluster string) {
-	if catalog == "protb" && cluster == "dev" {
-		clusterUrl = "https://trino-protb.aaw-dev.cloud.statcan.ca/v1/statement"
-		schemaName = strings.Replace(profile.Name, "-", "", -1) + "protb"
-		storageAccount = "samgprotb"
-	} else if catalog == "protb" && cluster == "prod" {
-		clusterUrl = "https://trino-protb.aaw.cloud.statcan.ca/v1/statement"
-		schemaName = strings.Replace(profile.Name, "-", "", -1) + "protb"
-		storageAccount = "samgprotb"
-	} else if catalog == "unclassified" && cluster == "dev" {
+	if catalog == "unclassified" && cluster == "dev" {
 		clusterUrl = "https://trino.aaw-dev.cloud.statcan.ca/v1/statement"
 		schemaName = strings.Replace(profile.Name, "-", "", -1)
 		storageAccount = "samgpremium"
 	} else {
-		clusterUrl = "https://trino-protb.aaw-dev.cloud.statcan.ca/v1/statement"
+		clusterUrl = "https://trino.aaw.cloud.statcan.ca/v1/statement"
 		schemaName = strings.Replace(profile.Name, "-", "", -1)
 		storageAccount = "samgpremium"
 	}
