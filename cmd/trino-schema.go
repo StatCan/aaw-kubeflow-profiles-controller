@@ -29,7 +29,7 @@ var storageAccount string
 var body *strings.Reader
 var prefixSA string
 var schemaName string
-var catalogs = []string{"unclassified", "protb"}
+var catalogs = []string{"unclassified"}
 var trinoSchema = &cobra.Command{
 	Use:   "trino-schema",
 	Short: "Create Trino schemas",
