@@ -44,13 +44,13 @@ type S3ProxyConfig struct {
 	argocdSourceTargetRevision string // the git branch to deploy from
 	argocdSourcePath           string // the path from the root of the git source repo
 	argocdProject              string // argocd instances's project to deploy applications within
-	sourceControlEnabledLabel  string // the label that indicates a user has opted in to using s3proxy.
-	// one such example is sourcecontrol.statcan.gc.ca/enabled
-	kubeflowUrl string // the url for kubeflow's central dashboard
+	kubeflowUrl                string // the url for kubeflow's central dashboard
 	// (for dev: https://kubeflow.aaw-dev.cloud.statcan.ca, for production:
 	// https://kubeflow.aaw.cloud.statcan.ca
 	kubeflowPrefix string // the prefix where s3-explorer can be accessed from the kubeflow dashboard.
 }
+
+const s3EnabledLabel = "s3.statcan.gc.ca/enabled"
 
 // Constructs the controller's config based on classification.
 func NewS3ProxyConfig() (*S3ProxyConfig, error) {
@@ -138,95 +138,106 @@ var s3proxyCmd = &cobra.Command{
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
 			func(profile *kubeflowv1.Profile) error {
-				// Generate argocd application
-				s3ArgoCdApp, err := generateS3ProxyArgoApp(profile, s3proxyconfig)
+				// See if the user has opted into source control; if not, then do not create s3proxy pods
+				var replicas int32
 
-				if err != nil {
-					return err
+				if val, ok := profile.Labels[s3EnabledLabel]; ok && val == "true" {
+					replicas = 1
+				} else {
+					replicas = 0
 				}
-				//   	_                     ____ ____       _
-				//     / \   _ __ __ _  ___  / ___|  _ \     / \   _ __  _ __
-				//    / _ \ | '__/ _` |/ _ \| |   | | | |   / _ \ | '_ \| '_ \
-				//   / ___ \| | | (_| | (_) | |___| |_| |  / ___ \| |_) | |_) |
-				//  /_/   \_\_|  \__, |\___/ \____|____/  /_/   \_\ .__/| .__/
-				// 			     |___/                            |_|   |_|
-				currents3ArgoCdApp, err := argoAppLister.Applications(s3ArgoCdApp.Namespace).Get(s3ArgoCdApp.Name)
-				if errors.IsNotFound(err) {
-					klog.Infof("creating argo app %s/%s", s3ArgoCdApp.Namespace, s3ArgoCdApp.Name)
-					_, err = argocdClient.ArgoprojV1alpha1().Applications(s3ArgoCdApp.Namespace).Create(
-						context.Background(), s3ArgoCdApp, metav1.CreateOptions{})
+
+				if replicas > 0 {
+					// Generate argocd application
+					s3ArgoCdApp, err := generateS3ProxyArgoApp(profile, s3proxyconfig)
+
 					if err != nil {
 						return err
 					}
-				} else if !reflect.DeepEqual(s3ArgoCdApp.Spec, currents3ArgoCdApp.Spec) {
-					klog.Infof("updating argo app %s/%s", s3ArgoCdApp.Namespace, s3ArgoCdApp.Name)
+					//   	_                     ____ ____       _
+					//     / \   _ __ __ _  ___  / ___|  _ \     / \   _ __  _ __
+					//    / _ \ | '__/ _` |/ _ \| |   | | | |   / _ \ | '_ \| '_ \
+					//   / ___ \| | | (_| | (_) | |___| |_| |  / ___ \| |_) | |_) |
+					//  /_/   \_\_|  \__, |\___/ \____|____/  /_/   \_\ .__/| .__/
+					// 			     |___/                            |_|   |_|
+					currents3ArgoCdApp, err := argoAppLister.Applications(s3ArgoCdApp.Namespace).Get(s3ArgoCdApp.Name)
+					if errors.IsNotFound(err) {
+						klog.Infof("creating argo app %s/%s", s3ArgoCdApp.Namespace, s3ArgoCdApp.Name)
+						_, err = argocdClient.ArgoprojV1alpha1().Applications(s3ArgoCdApp.Namespace).Create(
+							context.Background(), s3ArgoCdApp, metav1.CreateOptions{})
+						if err != nil {
+							return err
+						}
+					} else if !reflect.DeepEqual(s3ArgoCdApp.Spec, currents3ArgoCdApp.Spec) {
+						klog.Infof("updating argo app %s/%s", s3ArgoCdApp.Namespace, s3ArgoCdApp.Name)
 
-					currents3ArgoCdApp.Spec = s3ArgoCdApp.Spec
+						currents3ArgoCdApp.Spec = s3ArgoCdApp.Spec
 
-					_, err = argocdClient.ArgoprojV1alpha1().Applications(s3ArgoCdApp.Namespace).Update(context.Background(),
-						currents3ArgoCdApp, metav1.UpdateOptions{})
+						_, err = argocdClient.ArgoprojV1alpha1().Applications(s3ArgoCdApp.Namespace).Update(context.Background(),
+							currents3ArgoCdApp, metav1.UpdateOptions{})
+						if err != nil {
+							return err
+						}
+					}
+
+					//  _   _  ____ ___ _   ___  __
+					// | \ | |/ ___|_ _| \ | \ \/ /   ___ _ __ ___
+					// |  \| | |  _ | ||  \| |\  /   / __| '_ ` _ \
+					// | |\  | |_| || || |\  |/  \  | (__| | | | | |
+					// |_| \_|\____|___|_| \_/_/\_\  \___|_| |_| |_|
+					nginxConfigMap, err := generateNginxConfigMap(profile, s3proxyconfig)
 					if err != nil {
 						return err
 					}
-				}
+					currentGiteaConfigMap, err := configMapLister.ConfigMaps(nginxConfigMap.Namespace).Get(nginxConfigMap.Name)
+					if errors.IsNotFound(err) {
+						klog.Infof("creating configMap %s/%s", nginxConfigMap.Namespace, nginxConfigMap.Name)
+						_, err = kubeClient.CoreV1().ConfigMaps(nginxConfigMap.Namespace).Create(
+							context.Background(), nginxConfigMap, metav1.CreateOptions{})
+						if err != nil {
+							return err
+						}
+					} else if !reflect.DeepEqual(nginxConfigMap.Data, currentGiteaConfigMap.Data) {
+						klog.Infof("updating configMap %s/%s", nginxConfigMap.Namespace, nginxConfigMap.Name)
+						currentGiteaConfigMap.Data = nginxConfigMap.Data
 
-				//  _   _  ____ ___ _   ___  __
-				// | \ | |/ ___|_ _| \ | \ \/ /   ___ _ __ ___
-				// |  \| | |  _ | ||  \| |\  /   / __| '_ ` _ \
-				// | |\  | |_| || || |\  |/  \  | (__| | | | | |
-				// |_| \_|\____|___|_| \_/_/\_\  \___|_| |_| |_|
-				nginxConfigMap, err := generateNginxConfigMap(profile, s3proxyconfig)
-				if err != nil {
-					return err
-				}
-				currentGiteaConfigMap, err := configMapLister.ConfigMaps(nginxConfigMap.Namespace).Get(nginxConfigMap.Name)
-				if errors.IsNotFound(err) {
-					klog.Infof("creating configMap %s/%s", nginxConfigMap.Namespace, nginxConfigMap.Name)
-					_, err = kubeClient.CoreV1().ConfigMaps(nginxConfigMap.Namespace).Create(
-						context.Background(), nginxConfigMap, metav1.CreateOptions{})
+						_, err = kubeClient.CoreV1().ConfigMaps(nginxConfigMap.Namespace).Update(context.Background(),
+							currentGiteaConfigMap, metav1.UpdateOptions{})
+						if err != nil {
+							return err
+						}
+					}
+
+					//  ___     _   _        __     ______
+					// |_ _|___| |_(_) ___   \ \   / / ___|
+					//  | |/ __| __| |/ _ \   \ \ / /\___ \
+					//  | |\__ \ |_| | (_) |   \ V /  ___) |
+					// |___|___/\__|_|\___/     \_/  |____/
+					// Create the Istio virtual service
+					virtualService, err := generateS3ProxyVirtualService(profile, s3proxyconfig)
 					if err != nil {
 						return err
 					}
-				} else if !reflect.DeepEqual(nginxConfigMap.Data, currentGiteaConfigMap.Data) {
-					klog.Infof("updating configMap %s/%s", nginxConfigMap.Namespace, nginxConfigMap.Name)
-					currentGiteaConfigMap.Data = nginxConfigMap.Data
-
-					_, err = kubeClient.CoreV1().ConfigMaps(nginxConfigMap.Namespace).Update(context.Background(),
-						currentGiteaConfigMap, metav1.UpdateOptions{})
-					if err != nil {
-						return err
-					}
-				}
-
-				//  ___     _   _        __     ______
-				// |_ _|___| |_(_) ___   \ \   / / ___|
-				//  | |/ __| __| |/ _ \   \ \ / /\___ \
-				//  | |\__ \ |_| | (_) |   \ V /  ___) |
-				// |___|___/\__|_|\___/     \_/  |____/
-				// Create the Istio virtual service
-				virtualService, err := generateS3ProxyVirtualService(profile, s3proxyconfig)
-				if err != nil {
-					return err
-				}
-				currentVirtualService, err := virtualServiceLister.VirtualServices(profile.Name).Get(virtualService.Name)
-				// If the virtual service is not found and the user has opted into having source control, create the virtual service.
-				if errors.IsNotFound(err) {
-					// Always create the virtual service
-					klog.Infof("Creating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
-					_, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Create(
-						context.Background(), virtualService, metav1.CreateOptions{},
-					)
-					if err != nil {
-						return err
-					}
-				} else if !reflect.DeepEqual(virtualService.Spec, currentVirtualService.Spec) {
-					klog.Infof("Updating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
-					currentVirtualService = virtualService
-					_, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Update(
-						context.Background(), currentVirtualService, metav1.UpdateOptions{},
-					)
-					if err != nil {
-						return err
+					currentVirtualService, err := virtualServiceLister.VirtualServices(profile.Name).Get(virtualService.Name)
+					// If the virtual service is not found and the user has opted into having source control, create the virtual service.
+					if errors.IsNotFound(err) {
+						// Always create the virtual service
+						klog.Infof("Creating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
+						_, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Create(
+							context.Background(), virtualService, metav1.CreateOptions{},
+						)
+						if err != nil {
+							return err
+						}
+					} else if !reflect.DeepEqual(virtualService.Spec, currentVirtualService.Spec) {
+						klog.Infof("Updating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
+						currentVirtualService = virtualService
+						_, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Update(
+							context.Background(), currentVirtualService, metav1.UpdateOptions{},
+						)
+						if err != nil {
+							return err
+						}
 					}
 				}
 				return nil
