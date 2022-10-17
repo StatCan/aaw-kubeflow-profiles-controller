@@ -138,7 +138,7 @@ var s3proxyCmd = &cobra.Command{
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
 			func(profile *kubeflowv1.Profile) error {
-				// See if the user has opted into source control; if not, then do not create s3proxy pods
+				// See if the user has opted into object storage; if not, then do not create s3proxy pods
 				var replicas int32
 
 				if val, ok := profile.Labels[s3EnabledLabel]; ok && val == "true" {
