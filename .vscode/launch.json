@@ -19,6 +19,20 @@
             "envFile": "${workspaceFolder}/.env"
         },
         {
+            "name": "Debug S3Proxy Profile Controller",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "cwd": "${workspaceFolder}",
+            "program": "main.go",
+            "args": [
+                "--kubeconfig",
+                "${env:KUBECONFIG}",
+                "s3proxy"
+            ],
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
             "name": "Debug Network Policy Profile Controller",
             "type": "go",
             "request": "launch",
