@@ -186,7 +186,7 @@ func createInstance(contributors []string, profile string, configMapLister clien
 	if namespace == "trino-protb-system" {
 		createProtbRule(contributors, profile)
 	} else {
-		createRule(append(contributors, profile), profile)
+		createRule(contributors, profile)
 	}
 	// Create cm if it does not exist, update trino rule data to confimap if it exists
 	var trinoConfigMap *corev1.ConfigMap
@@ -284,11 +284,6 @@ func extractName(name string) string {
 //     ]                                                                                                                                                                                  │
 //},
 func createRule(contributors []string, profile string) error {
-	for i := 0; i < len(tbl); i++ {
-		if tbl[i].User == profile {
-			removeIndex(i)
-		}
-	}
 	var s Schema = initializeSchema(profile)
 	var t Table = initializeTable(profile)
 	t.Priv = append(t.Priv, "SELECT", "INSERT", "DELETE", "UPDATE", "OWNERSHIP")
@@ -319,11 +314,6 @@ func createRule(contributors []string, profile string) error {
 // 1. Readonly on unclassified schema 2. All privledge access on protb schema
 func createProtbRule(contributors []string, profile string) error {
 
-	for i := 0; i < len(protbTable); i++ {
-		if protbTable[i].User == profile {
-			removeIndex(i)
-		}
-	}
 	var s Schema = initializeSchema(profile)
 	var t Table = initializeTable(profile)
 	t.Priv = append(t.Priv, "SELECT", "INSERT", "DELETE", "UPDATE", "OWNERSHIP")
