@@ -717,6 +717,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 			},
 		},
 	})
+	portHttp := intstr.FromString("http")
 
 	// Allow egress to postgres database for kubeflow profiles that opt into using Gitea.
 	val, labelExists := profile.ObjectMeta.Labels["sourcecontrol.statcan.gc.ca/enabled"]
@@ -764,7 +765,6 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		giteaPort80 := intstr.FromInt(80)
 		giteaPort22 := intstr.FromInt(22)
 		giteaPort3000 := intstr.FromInt(3000)
-		portHttp := intstr.FromString("http")
 
 		// Allow ingress from the kubeflow gateway
 		policies = append(policies, &networkingv1.NetworkPolicy{
@@ -939,6 +939,58 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 								NamespaceSelector: &metav1.LabelSelector{ // TODO: double check that these label selectors work as expected.
 									MatchLabels: map[string]string{
 										"kubernetes.io/metadata.name": "cloud-main-system",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		})
+	}
+
+	// Allow ingress from system pods to s3proxy pods - this is necessary so that users can access
+	// the s3-explorer UI from within the Kubeflow interface. Only allow this if the user has
+	// opted into per-namespace source control.
+	val, labelExists = profile.ObjectMeta.Labels["s3.statcan.gc.ca/enabled"]
+	s3proxyEnabled, _ := strconv.ParseBool(val)
+
+	if labelExists && s3proxyEnabled {
+		policies = append(policies, &networkingv1.NetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "s3proxy-allow-ingress",
+				Namespace: profile.Name,
+				OwnerReferences: []metav1.OwnerReference{
+					*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+				},
+			},
+			Spec: networkingv1.NetworkPolicySpec{
+				PodSelector: metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						"app": "s3proxy",
+					},
+				},
+				PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+				Ingress: []networkingv1.NetworkPolicyIngressRule{
+					{
+						Ports: []networkingv1.NetworkPolicyPort{
+							{
+								Protocol: &protocolTCP,
+								Port:     &portHttp,
+							},
+						},
+						From: []networkingv1.NetworkPolicyPeer{
+							{
+								NamespaceSelector: &metav1.LabelSelector{
+									MatchLabels: map[string]string{
+										"namespace.statcan.gc.ca/purpose": "system",
+									},
+								},
+							},
+							{
+								NamespaceSelector: &metav1.LabelSelector{
+									MatchLabels: map[string]string{
+										"namespace.statcan.gc.ca/purpose": "daaas",
 									},
 								},
 							},
