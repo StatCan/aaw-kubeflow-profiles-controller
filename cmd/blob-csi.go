@@ -87,6 +87,7 @@ type FdiOpaConnector struct {
 type Bucket struct {
 	Readers []string
 	Writers []string
+	SPN     string
 }
 
 const AawContainerOwner = "AAW"
@@ -194,6 +195,10 @@ func (connector *FdiOpaConnector) generateContainerConfigs(namespace string) []A
 			// skip this bucket as they lack permissions
 			continue
 		}
+		connector.FdiConfig.SPNSecretName = bucketContents.SPN + "-secret"
+		servicePrincipalName := strings.Replace(strings.ToUpper(bucketContents.SPN), "-", "_", -1)
+		connector.FdiConfig.AzureStorageSPNClientID = util.ParseEnvVar(servicePrincipalName + "_AZURE_STORAGE_SPN_CLIENTID")
+		connector.FdiConfig.AzureStorageSPNTenantID = util.ParseEnvVar("BLOB_CSI_FDI_GLOBAL_SP_TENANTID")
 		containerConfig := AzureContainerConfig{
 			Name:           bucketName,
 			Classification: connector.FdiConfig.Classification,
@@ -203,7 +208,6 @@ func (connector *FdiOpaConnector) generateContainerConfigs(namespace string) []A
 			Owner:          FdiContainerOwner,
 		}
 		generated = append(generated, containerConfig)
-
 	}
 	return generated
 }
@@ -540,11 +544,11 @@ func formattedContainerName(containerName string) string {
 	if len(containerName) < 3 {
 		padding := 3 - len(containerName)
 		containerName = containerName + strings.Repeat("a", padding)
-	// truncate container names that exceed max length
+		// truncate container names that exceed max length
 	} else if len(containerName) > 63 {
 		containerName = containerName[:63]
 	}
-	// confirm last character is not a dash, and replace with 'a' if it is 
+	// confirm last character is not a dash, and replace with 'a' if it is
 	if string(containerName[len(containerName)-1]) == "-" {
 		containerName = containerName[:len(containerName)-1] + "a"
 	}
@@ -608,14 +612,14 @@ var blobcsiCmd = &cobra.Command{
 			FdiConfig: FDIConfig{
 				Classification:          "unclassified",
 				OPAGatewayUrl:           util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_OPA_ENDPOINT"),
-				SPNSecretName:           util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_SPN_SECRET_NAME"),
+				SPNSecretName:           "",
 				SPNSecretNamespace:      util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_SPN_SECRET_NAMESPACE"),
 				PVCapacity:              util.ParseIntegerEnvVar("BLOB_CSI_FDI_UNCLASS_PV_STORAGE_CAP"),
 				StorageAccount:          util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_STORAGE_ACCOUNT"),
 				ResourceGroup:           util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_RESOURCE_GROUP"),
 				AzureStorageAuthType:    util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_AUTH_TYPE"),
-				AzureStorageSPNClientID: util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_SPN_CLIENTID"),
-				AzureStorageSPNTenantID: util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_SPN_TENANTID"),
+				AzureStorageSPNClientID: "",
+				AzureStorageSPNTenantID: "",
 				AzureStorageAADEndpoint: util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_AAD_ENDPOINT"),
 			},
 		}
@@ -630,14 +634,14 @@ var blobcsiCmd = &cobra.Command{
 			FdiConfig: FDIConfig{
 				Classification:          "protected-b",
 				OPAGatewayUrl:           util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_OPA_ENDPOINT"),
-				SPNSecretName:           util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_SPN_SECRET_NAME"),
+				SPNSecretName:           "",
 				SPNSecretNamespace:      util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_SPN_SECRET_NAMESPACE"),
 				PVCapacity:              util.ParseIntegerEnvVar("BLOB_CSI_FDI_PROTECTED_B_PV_STORAGE_CAP"),
 				StorageAccount:          util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_STORAGE_ACCOUNT"),
 				ResourceGroup:           util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_RESOURCE_GROUP"),
 				AzureStorageAuthType:    util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AUTH_TYPE"),
-				AzureStorageSPNClientID: util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_SPN_CLIENTID"),
-				AzureStorageSPNTenantID: util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_SPN_TENANTID"),
+				AzureStorageSPNClientID: "",
+				AzureStorageSPNTenantID: "",
 				AzureStorageAADEndpoint: util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AAD_ENDPOINT"),
 			},
 		}
