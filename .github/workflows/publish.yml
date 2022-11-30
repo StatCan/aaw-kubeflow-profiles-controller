@@ -14,6 +14,7 @@ on:
   push:
     branches:
       - main
+      - feat-remote-pipeline
 
 # Environment variables available to all jobs and steps in this workflow
 env:
