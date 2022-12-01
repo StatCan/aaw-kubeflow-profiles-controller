@@ -71,6 +71,7 @@ type AzureContainerConfig struct {
 	Capacity       int
 	ReadOnly       bool
 	Owner          string // the owner could be AAW or FDI for example
+	SPNClientID    string // Client id of the container's service principal
 }
 
 // High level structure for storing OPA responses and metadata
@@ -206,6 +207,7 @@ func (connector *FdiOpaConnector) generateContainerConfigs(namespace string) []A
 			Capacity:       connector.FdiConfig.PVCapacity,
 			ReadOnly:       readOnly,
 			Owner:          FdiContainerOwner,
+			SPNClientID:    connector.FdiConfig.AzureStorageSPNClientID,
 		}
 		generated = append(generated, containerConfig)
 	}
@@ -327,7 +329,7 @@ func pvForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerCon
 			"storageAccount":          fdiConfig.StorageAccount,
 			"resourceGroup":           fdiConfig.ResourceGroup,
 			"AzureStorageAuthType":    fdiConfig.AzureStorageAuthType,
-			"AzureStorageSPNClientId": fdiConfig.AzureStorageSPNClientID,
+			"AzureStorageSPNClientId": containerConfig.SPNClientID,
 			"AzureStorageSPNTenantId": fdiConfig.AzureStorageSPNTenantID,
 			"AzureStorageAADEndpoint": fdiConfig.AzureStorageAADEndpoint,
 		}
@@ -619,7 +621,7 @@ var blobcsiCmd = &cobra.Command{
 				ResourceGroup:           util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_RESOURCE_GROUP"),
 				AzureStorageAuthType:    util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_AUTH_TYPE"),
 				AzureStorageSPNClientID: "",
-				AzureStorageSPNTenantID: "",
+				AzureStorageSPNTenantID: util.ParseEnvVar("BLOB_CSI_FDI_GLOBAL_SP_TENANTID"),
 				AzureStorageAADEndpoint: util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_AAD_ENDPOINT"),
 			},
 		}
@@ -641,7 +643,7 @@ var blobcsiCmd = &cobra.Command{
 				ResourceGroup:           util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_RESOURCE_GROUP"),
 				AzureStorageAuthType:    util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AUTH_TYPE"),
 				AzureStorageSPNClientID: "",
-				AzureStorageSPNTenantID: "",
+				AzureStorageSPNTenantID: util.ParseEnvVar("BLOB_CSI_FDI_GLOBAL_SP_TENANTID"),
 				AzureStorageAADEndpoint: util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AAD_ENDPOINT"),
 			},
 		}
