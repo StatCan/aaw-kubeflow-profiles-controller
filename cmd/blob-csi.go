@@ -72,6 +72,7 @@ type AzureContainerConfig struct {
 	ReadOnly       bool
 	Owner          string // the owner could be AAW or FDI for example
 	SPNClientID    string // Client id of the container's service principal
+	subFolderName  string
 }
 
 // High level structure for storing OPA responses and metadata
@@ -86,9 +87,10 @@ type FdiOpaConnector struct {
 
 // Single Bucket struct for Opa Response
 type Bucket struct {
-	Readers []string
-	Writers []string
-	SPN     string
+	SubFolderName string
+	Readers       []string
+	Writers       []string
+	SPN           string
 }
 
 const AawContainerOwner = "AAW"
@@ -168,8 +170,12 @@ func (connector *FdiOpaConnector) generateContainerConfigs(namespace string) []A
 	if opaData.Result == nil {
 		return nil
 	}
+	//test := Bucket{SubFolderName: "subfolder1", Readers: []string{"rohan-katkar"}, SPN: "rohan-test-readonly-protb-dev-sp"}
+	//opaData.Result["rohan-test-readonly"] = test
 	// build instances based on opa response.
 	for bucketName, bucketContents := range connector.Result {
+		//if bucketName == "rohan-test-readonly" && namespace == "rohan-katkar" {
+
 		isReader := false
 		// determine if the given profile namespace is a reader for the bucket
 		for _, readerNamespace := range bucketContents.Readers {
@@ -208,9 +214,11 @@ func (connector *FdiOpaConnector) generateContainerConfigs(namespace string) []A
 			ReadOnly:       readOnly,
 			Owner:          FdiContainerOwner,
 			SPNClientID:    connector.FdiConfig.AzureStorageSPNClientID,
+			subFolderName:  bucketContents.SubFolderName,
 		}
 		generated = append(generated, containerConfig)
 	}
+	//}
 	return generated
 }
 
@@ -265,6 +273,9 @@ func parseSecret(name string) (string, string) {
 func buildPvName(namespace string, postfixes ...string) string {
 	pvName := namespace
 	for _, postfix := range postfixes {
+		if strings.Contains(postfix, "/") {
+			postfix = strings.Split(postfix, "/")[0]
+		}
 		pvName = pvName + fmt.Sprintf("-%s", strings.ToLower(postfix))
 	}
 	return pvName
@@ -332,9 +343,13 @@ func pvForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerCon
 			"AzureStorageSPNClientId": containerConfig.SPNClientID,
 			"AzureStorageSPNTenantId": fdiConfig.AzureStorageSPNTenantID,
 			"AzureStorageAADEndpoint": fdiConfig.AzureStorageAADEndpoint,
+			"protocol":                "fuse2",
 		}
 		// FDI system uses adls storage, so we must provide this flag in mount options
 		mountOptions = append(mountOptions, "--use-adls=true")
+		if containerConfig.subFolderName != "" {
+			mountOptions = append(mountOptions, "--subdirectory="+containerConfig.Name+"/"+containerConfig.subFolderName)
+		}
 	} else {
 		// Throw error for any other owner, until something is implemented.
 		return nil, fmt.Errorf("no PV configuration exists for owner '%s'. Valid owners are: %s", containerConfig.Owner,
