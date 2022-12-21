@@ -138,7 +138,7 @@ func generateCloudMainVirtualService(profile *kubeflowv1.Profile) (*istionetwork
 	// Create virtual service
 	virtualService := istionetworkingclient.VirtualService{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "cloud-main-virtualservice",
+			Name:      "direct-through-cloud-main-egress-gateway",
 			Namespace: namespace,
 			// Indicate that the profile owns the virtualservice resource
 			OwnerReferences: []metav1.OwnerReference{
@@ -148,6 +148,10 @@ func generateCloudMainVirtualService(profile *kubeflowv1.Profile) (*istionetwork
 		Spec: istionetworkingv1beta1.VirtualService{
 			Hosts: []string{
 				CLOUD_MAIN_GITLAB_HOST,
+			},
+			Gateways: []string{
+				"mesh",
+				fmt.Sprintf("%s/cloud-main-egress-gateway", CLOUD_MAIN_SYSTEM_NAMESPACE),
 			},
 			Http: []*istionetworkingv1beta1.HTTPRoute{
 				{
