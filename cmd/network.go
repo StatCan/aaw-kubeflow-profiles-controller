@@ -902,6 +902,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 	existsNonEmployeeUser, _ := strconv.ParseBool(val)
 
 	portHttps := intstr.FromInt(443)
+	altPortHttps := intstr.FromInt(8443)
 	portSsh := intstr.FromInt(22)
 	if labelExists && !existsNonEmployeeUser {
 		policies = append(policies, &networkingv1.NetworkPolicy{
@@ -928,6 +929,10 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 							{
 								Protocol: &protocolTCP,
 								Port:     &portHttps,
+							},
+							{
+								Protocol: &protocolTCP,
+								Port:     &altPortHttps,
 							},
 							{
 								Protocol: &protocolTCP,
