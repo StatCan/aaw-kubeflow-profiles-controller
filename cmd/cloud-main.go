@@ -30,6 +30,7 @@ import (
 
 const CLOUD_MAIN_GITLAB_HOST = "gitlab.k8s.cloud.statcan.ca"
 const ISTIO_EGRESS_GATEWAY_SVC = "egress-gateway"
+const ISTIO_SERVICE_ENTRY_NAME = "cnn"
 const CLOUD_MAIN_SYSTEM_NAMESPACE = "cloud-main-system"
 
 const HTTPS_PORT = 443
@@ -153,18 +154,24 @@ func generateCloudMainVirtualService(profile *kubeflowv1.Profile) (*istionetwork
 				"mesh",
 				fmt.Sprintf("%s/cloud-main-egress-gateway", CLOUD_MAIN_SYSTEM_NAMESPACE),
 			},
-			Http: []*istionetworkingv1beta1.HTTPRoute{
+			Tls: []*istionetworkingv1beta1.TLSRoute{
 				{
-					Name: "cloud-main-https-route",
-					Match: []*istionetworkingv1beta1.HTTPMatchRequest{
+					Match: []*istionetworkingv1beta1.TLSMatchAttributes{
 						{
+							Gateways: []string{
+								"mesh",
+							},
 							Port: HTTPS_PORT,
+							SniHosts: []string{
+								CLOUD_MAIN_GITLAB_HOST,
+							},
 						},
 					},
-					Route: []*istionetworkingv1beta1.HTTPRouteDestination{
+					Route: []*istionetworkingv1beta1.RouteDestination{
 						{
 							Destination: &istionetworkingv1beta1.Destination{
-								Host: fmt.Sprintf("%s.%s.svc.cluster.local", ISTIO_EGRESS_GATEWAY_SVC, CLOUD_MAIN_SYSTEM_NAMESPACE),
+								Host:   fmt.Sprintf("%s.%s.svc.cluster.local", ISTIO_EGRESS_GATEWAY_SVC, CLOUD_MAIN_SYSTEM_NAMESPACE),
+								Subset: ISTIO_SERVICE_ENTRY_NAME,
 								Port: &istionetworkingv1beta1.PortSelector{
 									Number: HTTPS_PORT,
 								},
@@ -173,23 +180,31 @@ func generateCloudMainVirtualService(profile *kubeflowv1.Profile) (*istionetwork
 					},
 				},
 				{
-					Name: "cloud-main-ssh-route",
-					Match: []*istionetworkingv1beta1.HTTPMatchRequest{
+					Match: []*istionetworkingv1beta1.TLSMatchAttributes{
 						{
-							Port: SSH_PORT,
-						},
-					},
-					Route: []*istionetworkingv1beta1.HTTPRouteDestination{
-						{
-							Destination: &istionetworkingv1beta1.Destination{
-								Host: fmt.Sprintf("%s.%s.svc.cluster.local", ISTIO_EGRESS_GATEWAY_SVC, CLOUD_MAIN_SYSTEM_NAMESPACE),
-								Port: &istionetworkingv1beta1.PortSelector{
-									Number: SSH_PORT,
-								},
+							Gateways: []string{
+								fmt.Sprintf("%s/cloud-main-egress-gateway", CLOUD_MAIN_SYSTEM_NAMESPACE),
+							},
+							Port: HTTPS_PORT,
+							SniHosts: []string{
+								CLOUD_MAIN_GITLAB_HOST,
 							},
 						},
 					},
+					Route: []*istionetworkingv1beta1.RouteDestination{{
+						Destination: &istionetworkingv1beta1.Destination{
+							Host: CLOUD_MAIN_GITLAB_HOST,
+							Port: &istionetworkingv1beta1.PortSelector{
+								Number: HTTPS_PORT,
+							},
+						},
+						Weight: 100,
+					}},
 				},
+			},
+			ExportTo: []string{
+				namespace,
+				CLOUD_MAIN_SYSTEM_NAMESPACE,
 			},
 		},
 	}
