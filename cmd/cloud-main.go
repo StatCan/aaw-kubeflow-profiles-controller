@@ -133,6 +133,40 @@ var cloudMainCmd = &cobra.Command{
 	},
 }
 
+func generateCloudMainServiceEntry(profile *kubeflowv1.Profile) (*istionetworkingclient.ServiceEntry, error) {
+	// Get namespace from profile
+	namespace := profile.Name
+	// Create service entry
+	serviceEntry := istionetworkingclient.ServiceEntry{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ISTIO_SERVICE_ENTRY_NAME,
+			Namespace: namespace,
+			// Indicate that the profile owns the ServiceEntry
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+			},
+		},
+		Spec: istionetworkingv1beta1.ServiceEntry{
+			Hosts: []string{
+				CLOUD_MAIN_GITLAB_HOST,
+			},
+			Ports: []*istionetworkingv1beta1.Port{
+				{
+					Number:   HTTPS_PORT,
+					Name:     "tls",
+					Protocol: "TLS",
+				},
+			},
+			Resolution: istionetworkingv1beta1.ServiceEntry_DNS,
+			ExportTo: []string{
+				namespace,
+				CLOUD_MAIN_SYSTEM_NAMESPACE,
+			},
+		},
+	}
+	return &serviceEntry, nil
+}
+
 func generateCloudMainVirtualService(profile *kubeflowv1.Profile) (*istionetworkingclient.VirtualService, error) {
 	// Get namespace from profile
 	namespace := profile.Name
