@@ -133,6 +133,35 @@ var cloudMainCmd = &cobra.Command{
 	},
 }
 
+func generateCloudMainDestinationRule(profile *kubeflowv1.Profile) (*istionetworkingclient.DestinationRule, error) {
+	// Get namespace from profile
+	namespace := profile.Name
+	// Create destination rule
+	destinationRule := istionetworkingclient.DestinationRule{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "direct-through-cloud-main-egress-gateway",
+			Namespace: namespace,
+			// Indicate that the profile owns the ServiceEntry
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+			},
+		},
+		Spec: istionetworkingv1beta1.DestinationRule{
+			Host: fmt.Sprintf("%s.%s.svc.cluster.local", ISTIO_EGRESS_GATEWAY_SVC, CLOUD_MAIN_SYSTEM_NAMESPACE),
+			Subsets: []*istionetworkingv1beta1.Subset{
+				{
+					Name: ISTIO_SERVICE_ENTRY_NAME,
+				},
+			},
+			ExportTo: []string{
+				namespace,
+				CLOUD_MAIN_SYSTEM_NAMESPACE,
+			},
+		},
+	}
+	return &destinationRule, nil
+}
+
 func generateCloudMainServiceEntry(profile *kubeflowv1.Profile) (*istionetworkingclient.ServiceEntry, error) {
 	// Get namespace from profile
 	namespace := profile.Name
