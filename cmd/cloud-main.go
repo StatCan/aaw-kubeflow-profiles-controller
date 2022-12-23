@@ -152,6 +152,15 @@ var cloudMainCmd = &cobra.Command{
 						)
 					}
 				} else {
+					virtualService, err := generateCloudMainVirtualService(profile)
+					currentVirtualService, err := virtualServiceLister.VirtualServices(profile.Name).Get(virtualService.Name)
+					if errors.IsNotFound(err) {
+						klog.Infof("serviceentry %s/%s doesn't exist.", currentVirtualService.Namespace, currentVirtualService.Name)
+					} else {
+						err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Delete(
+							context.Background(), currentVirtualService.Name, metav1.DeleteOptions{},
+						)
+					}
 					fmt.Println("Non Employee User")
 				}
 
