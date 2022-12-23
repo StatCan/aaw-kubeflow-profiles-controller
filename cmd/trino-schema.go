@@ -11,6 +11,8 @@ import (
 	kubeflowclientset "github.com/StatCan/profiles-controller/pkg/generated/clientset/versioned"
 
 	kubeflowinformers "github.com/StatCan/profiles-controller/pkg/generated/informers/externalversions"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/azure"
 	"k8s.io/klog"
@@ -20,6 +22,7 @@ import (
 	"github.com/StatCan/profiles-controller/pkg/signals"
 	"github.com/spf13/cobra"
 	kubeinformers "k8s.io/client-go/informers"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	// project packages
 )
@@ -55,6 +58,9 @@ var trinoSchema = &cobra.Command{
 		// Setup Kubeflow informers
 		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*(time.Duration(requeue_time)))
 		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*(time.Duration(requeue_time)))
+		// Secret
+		secretsInformer := kubeInformerFactory.Core().V1().Secrets()
+		secretsLister := secretsInformer.Lister()
 
 		// Setup controller
 		controller := profiles.NewController(
@@ -63,16 +69,20 @@ var trinoSchema = &cobra.Command{
 				var req *http.Request
 				//Create a schema in each catalog for the profile
 				for _, catalog := range catalogs {
-					if cfg.Host == "https://10.131.0.1:443" { // Dev cluster internal ip address
-						prefixSA = "aawdevcc00"
-						trinoInstance(catalog, profile, "dev")
-					} else {
-						prefixSA = "aawprodcc00"
-						trinoInstance(catalog, profile, "prod")
-					}
+					//if cfg.Host == "https://10.131.0.1:443" { // Dev cluster internal ip address
+					prefixSA = "aawdevcc00"
+					trinoInstance(catalog, profile, "dev")
+					// } else {
+					// 	prefixSA = "aawprodcc00" // todo: replace with prod cluster internal ip address
+					// 	trinoInstance(catalog, profile, "prod")
+					// }
+					//Fetch JWT Token from admin namespace from default Secret
+					secret, _ := secretsLister.Secrets("rohan-katkar").List(labels.Everything())
 
+					token := fetchToken(secret) // JWT token from rohan-katkar ns
 					body = strings.NewReader("CREATE SCHEMA IF NOT EXISTS " + catalog + "." + schemaName + " WITH (location = 'wasbs://" + profile.Name + "@" + prefixSA + storageAccount + ".blob.core.windows.net/')")
 					//body = strings.NewReader("Drop schema unclassified" + "." + schemaName)
+
 					req, err = http.NewRequest("POST", clusterUrl, body)
 					if err != nil {
 						klog.Fatalf("error in creating POST request: %v", err)
@@ -81,6 +91,7 @@ var trinoSchema = &cobra.Command{
 					req.Header.Set("X-Trino-User", "Rohan Katkar")
 					req.Header.Set("X-Trino-Catalog", catalog)
 					req.Header.Set("X-Trino-Set-Catalog", catalog)
+					req.Header.Set("Authorization", "Bearer "+token)
 
 					resp, err := http.DefaultClient.Do(req)
 					if err != nil {
@@ -90,6 +101,7 @@ var trinoSchema = &cobra.Command{
 						nextUriCall(resp)
 					} else if resp.StatusCode == http.StatusServiceUnavailable {
 						resp, _ := http.DefaultClient.Do(req)
+						// re-try request
 						nextUriCall(resp)
 					}
 				}
@@ -101,6 +113,10 @@ var trinoSchema = &cobra.Command{
 		kubeInformerFactory.Start(stopCh)
 		kubeflowInformerFactory.Start(stopCh)
 
+		klog.Info("Waiting for configMap informer caches to sync")
+		if ok := cache.WaitForCacheSync(stopCh, secretsInformer.Informer().HasSynced); !ok {
+			klog.Fatalf("failed to wait for caches to sync")
+		}
 		// Run the controller
 		if err = controller.Run(2, stopCh); err != nil {
 			klog.Fatalf("error running controller: %v", err)
@@ -108,9 +124,19 @@ var trinoSchema = &cobra.Command{
 	},
 }
 
+// Fetch JWT token from default-token secret
+func fetchToken(secretList []*v1.Secret) string {
+	for _, s := range secretList {
+		if strings.Contains(s.ObjectMeta.Name, "default-token") {
+			return string(s.Data["token"])
+		}
+	}
+	return ""
+}
+
 // Logic to use appropriate trino instance prod/dev/unclass/protb, schema name and storage account
 func trinoInstance(catalog string, profile *kubeflowv1.Profile, cluster string) {
-	if catalog == "unclassified" && cluster == "dev" {
+	if cluster == "dev" {
 		clusterUrl = "https://trino.aaw-dev.cloud.statcan.ca/v1/statement"
 		schemaName = strings.Replace(profile.Name, "-", "", -1)
 		storageAccount = "samgpremium"
@@ -133,8 +159,8 @@ func nextUriCall(resp *http.Response) {
 		klog.Fatalf("error in creating GET request: %v", err)
 	}
 	response, err := http.DefaultClient.Do(r)
-	if response.StatusCode != http.StatusOK {
-		klog.Fatalf("error sending and returning HTTP response  : %v", err)
+	if err != nil || response.StatusCode != http.StatusOK {
+		klog.Fatalf("error in creating GET request: %v", err)
 	}
 }
 
