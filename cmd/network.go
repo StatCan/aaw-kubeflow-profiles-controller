@@ -915,7 +915,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 			},
 			Spec: networkingv1.NetworkPolicySpec{
 				PodSelector: metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{ // TODO: is this a good way to verify that the pod is a notebook?
+					MatchExpressions: []metav1.LabelSelectorRequirement{
 						{
 							Key:      "notebook-name",
 							Operator: metav1.LabelSelectorOpExists,
