@@ -29,8 +29,8 @@ import (
 )
 
 const CLOUD_MAIN_GITLAB_HOST = "gitlab.k8s.cloud.statcan.ca"
-const ISTIO_EGRESS_GATEWAY_SVC = "egress-gateway"
-const ISTIO_SERVICE_ENTRY_NAME = "cnn"
+const ISTIO_EGRESS_GATEWAY_SVC = "cloud-main-egress-gateway"
+const ISTIO_SERVICE_ENTRY_NAME = "cloud-main-hosts"
 const CLOUD_MAIN_SYSTEM_NAMESPACE = "cloud-main-system"
 
 const HTTPS_PORT = 443
@@ -67,6 +67,12 @@ var cloudMainCmd = &cobra.Command{
 		virtualServiceInformer := istioInformerFactory.Networking().V1beta1().VirtualServices()
 		virtualServiceLister := virtualServiceInformer.Lister()
 
+		serviceEntryInformer := istioInformerFactory.Networking().V1beta1().ServiceEntries()
+		serviceEntryLister := serviceEntryInformer.Lister()
+
+		destinationRuleInformer := istioInformerFactory.Networking().V1beta1().DestinationRules()
+		destinationRuleLister := destinationRuleInformer.Lister()
+
 		// Initialize cloud-main controller
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
@@ -76,13 +82,17 @@ var cloudMainCmd = &cobra.Command{
 				val, labelExists := profile.ObjectMeta.Labels["state.aaw.statcan.gc.ca/exists-non-cloud-main-user"]
 				existsNonEmployeeUser, _ := strconv.ParseBool(val)
 				if labelExists && !existsNonEmployeeUser {
-					// Create the Istio virtual service
+					//        _      _               _                       _
+					// __   _(_)_ __| |_ _   _  __ _| |  ___  ___ _ ____   _(_) ___ ___
+					// \ \ / / | '__| __| | | |/ _` | | / __|/ _ \ '__\ \ / / |/ __/ _ \
+					//  \ V /| | |  | |_| |_| | (_| | | \__ \  __/ |   \ V /| | (_|  __/
+					//   \_/ |_|_|   \__|\__,_|\__,_|_| |___/\___|_|    \_/ |_|\___\___|
 					virtualService, err := generateCloudMainVirtualService(profile)
 					if err != nil {
 						return err
 					}
 					currentVirtualService, err := virtualServiceLister.VirtualServices(profile.Name).Get(virtualService.Name)
-					// If the virtual service is not found and the user has opted into having source control, create the virtual service.
+					// If the virtual service is not found, create the virtual service.
 					if errors.IsNotFound(err) {
 						// Always create the virtual service
 						klog.Infof("Creating Istio virtualservice %s/%s", virtualService.Namespace, virtualService.Name)
@@ -94,6 +104,51 @@ var cloudMainCmd = &cobra.Command{
 						currentVirtualService = virtualService
 						_, err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Update(
 							context.Background(), currentVirtualService, metav1.UpdateOptions{},
+						)
+					}
+					// 	                       _                       _
+					// 	   ___  ___ _ ____   _(_) ___ ___    ___ _ __ | |_ _ __ _   _
+					//    / __|/ _ \ '__\ \ / / |/ __/ _ \  / _ \ '_ \| __| '__| | | |
+					//    \__ \  __/ |   \ V /| | (_|  __/ |  __/ | | | |_| |  | |_| |
+					//    |___/\___|_|    \_/ |_|\___\___|  \___|_| |_|\__|_|   \__, |
+					// 												     		|___/
+					serviceEntry, err := generateCloudMainServiceEntry(profile)
+					if err != nil {
+						return err
+					}
+					currentServiceEntry, err := serviceEntryLister.ServiceEntries(profile.Name).Get(serviceEntry.Name)
+					// If service entry not found, create it
+					if errors.IsNotFound(err) {
+						klog.Infof("Creating Istio serviceentry %s/%s", serviceEntry.Namespace, serviceEntry.Name)
+						currentServiceEntry, err = istioClient.NetworkingV1beta1().ServiceEntries(serviceEntry.Namespace).Create(
+							context.Background(), serviceEntry, metav1.CreateOptions{},
+						)
+					} else if !reflect.DeepEqual(serviceEntry.Spec, currentServiceEntry.Spec) {
+						currentServiceEntry = serviceEntry
+						_, err = istioClient.NetworkingV1beta1().ServiceEntries(serviceEntry.Namespace).Update(
+							context.Background(), currentServiceEntry, metav1.UpdateOptions{},
+						)
+					}
+					// 	      _           _   _             _   _                          _
+					// 	   __| | ___  ___| |_(_)_ __   __ _| |_(_) ___  _ __    _ __ _   _| | ___
+					//    / _` |/ _ \/ __| __| | '_ \ / _` | __| |/ _ \| '_ \  | '__| | | | |/ _ \
+					//   | (_| |  __/\__ \ |_| | | | | (_| | |_| | (_) | | | | | |  | |_| | |  __/
+					//    \__,_|\___||___/\__|_|_| |_|\__,_|\__|_|\___/|_| |_| |_|   \__,_|_|\___|
+					destinationRule, err := generateCloudMainDestinationRule(profile)
+					if err != nil {
+						return err
+					}
+					currentDestinationRule, err := destinationRuleLister.DestinationRules(profile.Name).Get(destinationRule.Name)
+					// If destination rule not found, create it
+					if errors.IsNotFound(err) {
+						klog.Infof("Creating Istio destinationrule %s/%s", destinationRule.Namespace, destinationRule.Name)
+						currentDestinationRule, err = istioClient.NetworkingV1beta1().DestinationRules(destinationRule.Namespace).Create(
+							context.Background(), destinationRule, metav1.CreateOptions{},
+						)
+					} else if !reflect.DeepEqual(destinationRule.Spec, currentDestinationRule.Spec) {
+						currentDestinationRule = destinationRule
+						_, err = istioClient.NetworkingV1beta1().DestinationRules(destinationRule.Namespace).Update(
+							context.Background(), currentDestinationRule, metav1.UpdateOptions{},
 						)
 					}
 				} else {
