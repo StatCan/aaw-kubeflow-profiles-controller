@@ -902,6 +902,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 	existsNonEmployeeUser, _ := strconv.ParseBool(val)
 
 	portHttps := intstr.FromInt(443)
+	altPortHttps := intstr.FromInt(8443)
 	portSsh := intstr.FromInt(22)
 	if labelExists && !existsNonEmployeeUser {
 		policies = append(policies, &networkingv1.NetworkPolicy{
@@ -914,7 +915,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 			},
 			Spec: networkingv1.NetworkPolicySpec{
 				PodSelector: metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{ // TODO: is this a good way to verify that the pod is a notebook?
+					MatchExpressions: []metav1.LabelSelectorRequirement{
 						{
 							Key:      "notebook-name",
 							Operator: metav1.LabelSelectorOpExists,
@@ -928,6 +929,10 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 							{
 								Protocol: &protocolTCP,
 								Port:     &portHttps,
+							},
+							{
+								Protocol: &protocolTCP,
+								Port:     &altPortHttps,
 							},
 							{
 								Protocol: &protocolTCP,
