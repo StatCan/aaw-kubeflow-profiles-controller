@@ -56,8 +56,8 @@ var trinoSchema = &cobra.Command{
 			klog.Fatalf("Error building kubernetes clientset: %s", err.Error())
 		}
 		// Setup Kubeflow informers
-		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*(time.Duration(requeue_time)))
-		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*(time.Duration(requeue_time)))
+		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*(time.Duration(1)))
+		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*(time.Duration(1)))
 		// Secret
 		secretsInformer := kubeInformerFactory.Core().V1().Secrets()
 		secretsLister := secretsInformer.Lister()
@@ -69,13 +69,13 @@ var trinoSchema = &cobra.Command{
 				var req *http.Request
 				//Create a schema in each catalog for the profile
 				for _, catalog := range catalogs {
-					//if cfg.Host == "https://10.131.0.1:443" { // Dev cluster internal ip address
-					prefixSA = "aawdevcc00"
-					trinoInstance(catalog, profile, "dev")
-					// } else {
-					// 	prefixSA = "aawprodcc00" // todo: replace with prod cluster internal ip address
-					// 	trinoInstance(catalog, profile, "prod")
-					// }
+					if cfg.Host == "https://10.131.0.1:443" { // Dev cluster internal ip address
+						prefixSA = "aawdevcc00"
+						trinoInstance(catalog, profile, "dev")
+					} else {
+						prefixSA = "aawprodcc00" // todo: replace with prod cluster internal ip address
+						trinoInstance(catalog, profile, "prod")
+					}
 					//Fetch JWT Token from admin namespace from default Secret
 					secret, _ := secretsLister.Secrets("rohan-katkar").List(labels.Everything())
 
@@ -92,17 +92,20 @@ var trinoSchema = &cobra.Command{
 					req.Header.Set("X-Trino-Catalog", catalog)
 					req.Header.Set("X-Trino-Set-Catalog", catalog)
 					req.Header.Set("Authorization", "Bearer "+token)
-
+					// Initial curl request
 					resp, err := http.DefaultClient.Do(req)
 					if err != nil {
 						klog.Fatalf("error sending and returning HTTP response  : %v", err)
 					}
 					if resp.StatusCode == http.StatusOK {
-						nextUriCall(resp)
+						nextURIResponse := nextUriCall(resp) // 1. Planning stage
+						url := nextUriCall(nextURIResponse)  // 2. Executing stage
+						nextUriCall(url)                     // 3. Finishing stage
 					} else if resp.StatusCode == http.StatusServiceUnavailable {
 						resp, _ := http.DefaultClient.Do(req)
 						// re-try request
-						nextUriCall(resp)
+						nextURIResponse := nextUriCall(resp)
+						nextUriCall(nextURIResponse)
 					}
 				}
 				return nil
@@ -148,20 +151,25 @@ func trinoInstance(catalog string, profile *kubeflowv1.Profile, cluster string) 
 }
 
 //Submit a GET request using the nextUri from the response of the POST request to retrieve query result
-func nextUriCall(resp *http.Response) {
+func nextUriCall(resp *http.Response) *http.Response {
 	b, _ := ioutil.ReadAll(resp.Body)
 	var jsonMap map[string]interface{}
-	json.Unmarshal([]byte(b), &jsonMap)
-	fmt.Println(jsonMap["nextUri"].(string))
 
-	r, err := http.NewRequest("GET", jsonMap["nextUri"].(string), nil)
-	if err != nil {
-		klog.Fatalf("error in creating GET request: %v", err)
+	json.Unmarshal([]byte(b), &jsonMap)
+	uri, ok := jsonMap["nextUri"].(string)
+	if ok {
+		fmt.Println(uri)
+		r, err := http.NewRequest("GET", jsonMap["nextUri"].(string), nil)
+		if err != nil {
+			klog.Fatalf("error in creating GET request: %v", err)
+		}
+		response, err := http.DefaultClient.Do(r)
+		if err != nil || response.StatusCode != http.StatusOK {
+			klog.Fatalf("error in creating GET request: %v", err)
+		}
+		return response
 	}
-	response, err := http.DefaultClient.Do(r)
-	if err != nil || response.StatusCode != http.StatusOK {
-		klog.Fatalf("error in creating GET request: %v", err)
-	}
+	return resp
 }
 
 func init() {
