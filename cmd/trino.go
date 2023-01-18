@@ -126,8 +126,8 @@ var trino = &cobra.Command{
 					}
 				}
 
-				createInstance(append(contributors, profile.Name), profile.Name, configMapLister, kubeClient, unclassified.namespace, unclassified.configmap)
-				createInstance(append(contributors, profile.Name), profile.Name, configMapLister, kubeClient, protb.namespace, protb.configmap)
+				createInstance(append(contributors, profile.Name), profile.Spec.Owner.Name, configMapLister, kubeClient, unclassified.namespace, unclassified.configmap)
+				createInstance(append(contributors, profile.Name), profile.Spec.Owner.Name, configMapLister, kubeClient, protb.namespace, protb.configmap)
 
 				return nil
 			},
@@ -186,7 +186,7 @@ func createInstance(contributors []string, profile string, configMapLister clien
 	if namespace == "trino-protb-system" {
 		createProtbRule(contributors, profile)
 	} else {
-		createRule(append(contributors, profile), profile)
+		createRule(contributors, profile)
 	}
 	// Create cm if it does not exist, update trino rule data to confimap if it exists
 	var trinoConfigMap *corev1.ConfigMap
@@ -266,8 +266,8 @@ func extractName(name string) string {
 // Ex. Format
 // Schema Rule:
 //{
-//	"user": "rohan-katkar"	                                                                                                                                                                                    ││//         "user": "collin-brown",                                                                                                                                                            │
-//  "schema": "(rohankatkar)",                                                                                                                                                         │
+//	"user": "rohan-katkar"	                                                                                                                                                                                                                                                                                                                           │
+//  "schema": "(rohankatkar)",
 //  "owner": true                                                                                                                                                                      │
 //},
 // Table Rule:
@@ -284,11 +284,6 @@ func extractName(name string) string {
 //     ]                                                                                                                                                                                  │
 //},
 func createRule(contributors []string, profile string) error {
-	for i := 0; i < len(tbl); i++ {
-		if tbl[i].User == profile {
-			removeIndex(i)
-		}
-	}
 	var s Schema = initializeSchema(profile)
 	var t Table = initializeTable(profile)
 	t.Priv = append(t.Priv, "SELECT", "INSERT", "DELETE", "UPDATE", "OWNERSHIP")
@@ -319,11 +314,6 @@ func createRule(contributors []string, profile string) error {
 // 1. Readonly on unclassified schema 2. All privledge access on protb schema
 func createProtbRule(contributors []string, profile string) error {
 
-	for i := 0; i < len(protbTable); i++ {
-		if protbTable[i].User == profile {
-			removeIndex(i)
-		}
-	}
 	var s Schema = initializeSchema(profile)
 	var t Table = initializeTable(profile)
 	t.Priv = append(t.Priv, "SELECT", "INSERT", "DELETE", "UPDATE", "OWNERSHIP")
@@ -358,29 +348,21 @@ func createProtbRule(contributors []string, profile string) error {
 	return nil
 }
 
-// Remove existing schema and table rules
-func removeIndex(index int) {
-	sch = append(sch[:index], sch[index+1:]...)
-	tbl = append(tbl[:index], tbl[index+1:]...)
-	protbSchema = append(protbSchema[:index], protbSchema[index+1:]...)
-	protbTable = append(protbTable[:index], protbTable[index+1:]...)
-}
-
 // Generate default Schema rule
-func initializeSchema(containerName string) Schema {
+func initializeSchema(profileOwner string) Schema {
 	var s *Schema
 	s = new(Schema)
 	s.Schema = ""
-	s.User = containerName
+	s.User = profileOwner
 	s.Owner = true
 	return *s
 }
 
 // Generate default Table rule
-func initializeTable(containerName string) Table {
+func initializeTable(profileOwner string) Table {
 	var t *Table
 	t = new(Table)
-	t.User = containerName
+	t.User = profileOwner
 	t.Table = ".*"
 	t.Schema = ""
 	t.Priv = nil
