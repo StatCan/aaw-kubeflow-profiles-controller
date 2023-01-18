@@ -9,8 +9,6 @@ import (
 
 	kubeflowclientset "github.com/StatCan/profiles-controller/pkg/generated/clientset/versioned"
 
-	"golang.org/x/text/language"
-
 	kubeflowinformers "github.com/StatCan/profiles-controller/pkg/generated/informers/externalversions"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/rbac/v1"
@@ -24,7 +22,6 @@ import (
 	"github.com/StatCan/profiles-controller/pkg/controllers/profiles"
 	"github.com/StatCan/profiles-controller/pkg/signals"
 	"github.com/spf13/cobra"
-	"golang.org/x/text/cases"
 	kubeinformers "k8s.io/client-go/informers"
 	clientv1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
@@ -118,17 +115,15 @@ var trino = &cobra.Command{
 							if sub.Kind == "User" {
 								//extract kubeflow contributors that have edit role-bindings
 								profileOwnerName = strings.Split(sub.Name, "@")[0]
-								contributors = append(contributors, profileOwnerName)
+								contributors = append(contributors, strings.Replace(profileOwnerName, ".", "", -1))
 							}
 						}
 					}
 				}
-				// return all contributors on profile
-				activeDirName := azureADDNames(contributors, profile)
 				//unclassified rules
-				createInstance(activeDirName, formatProfileName(strings.Split(profile.Spec.Owner.Name, "@")[0]), configMapLister, kubeClient, "trino-system", "trino-unclassified-rules")
+				createInstance(append(contributors, strings.Replace(profile.Name, "-", "", -1)), profile.Spec.Owner.Name, configMapLister, kubeClient, "trino-system", "trino-unclassified-rules")
 				// protected-b rules
-				createInstance(activeDirName, formatProfileName(strings.Split(profileOwnerName, "@")[0]), configMapLister, kubeClient, "trino-protb-system", "trino-protb-rules")
+				createInstance(append(contributors, strings.Replace(profile.Name, "-", "", -1)), profile.Spec.Owner.Name, configMapLister, kubeClient, "trino-protb-system", "trino-protb-rules")
 
 				return nil
 			},
@@ -181,29 +176,6 @@ var trino = &cobra.Command{
 			klog.Fatalf("error running controller: %v", err)
 		}
 	},
-}
-
-// Return list of all contributors on profile in Azure usernames format
-// Ex. profile: rohan-katkar -> returns Rohan Katkar
-// returns list of contributors
-func azureADDNames(contributors []string, profile *kubeflowv1.Profile) []string {
-	var activeDirNames = []string{}
-	owner := strings.Split(profile.Spec.Owner.Name, "@")[0]
-	if !containsOwner(contributors, owner) {
-		contributors = append(contributors, owner)
-	}
-	for _, name := range contributors {
-		activeDirNames = append(activeDirNames, formatProfileName(name))
-	}
-	return activeDirNames
-}
-
-// Format profile name
-func formatProfileName(profileName string) string {
-	p := strings.Split(profileName, ".")
-	var fullName = strings.Join(p[:], " ")
-	var format = cases.Title(language.Und, cases.NoLower).String(fullName)
-	return format
 }
 
 // Append profile owner as a contributor
@@ -384,20 +356,20 @@ func createProtbRule(contributors []string, profile string) error {
 }
 
 // Generate default Schema rule
-func initializeSchema(containerName string) Schema {
+func initializeSchema(profileOwner string) Schema {
 	var s *Schema
 	s = new(Schema)
 	s.Schema = ""
-	s.User = containerName
+	s.User = profileOwner
 	s.Owner = true
 	return *s
 }
 
 // Generate default Table rule
-func initializeTable(containerName string) Table {
+func initializeTable(profileOwner string) Table {
 	var t *Table
 	t = new(Table)
-	t.User = containerName
+	t.User = profileOwner
 	t.Table = ".*"
 	t.Schema = ""
 	t.Priv = nil
