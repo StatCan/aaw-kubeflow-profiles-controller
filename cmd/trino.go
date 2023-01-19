@@ -53,7 +53,7 @@ type config struct {
 	configmap string
 }
 
-var trinoAdmins = []string{"Rohan Katkar", "Pat Ledgerwood"}
+var trinoAdmins = []string{"rohan.katkar@cloud.statcan.ca", "pat.ledgerwood@cloud.statcan.ca"}
 
 var sch = []Schema{}
 var tbl = []Table{}
@@ -272,7 +272,7 @@ func extractName(name string) string {
 // Ex. Format
 // Schema Rule:
 //{
-//	"user": "Jose Matsuda"	                                                                                                                                                                                    ││//         "user": "collin-brown",                                                                                                                                                            │
+//	"user": "Jose Matsuda"	                                                                                                                                                                                    ││
 //  "schema": "(josematsuda)",                                                                                                                                                         │
 //  "owner": true                                                                                                                                                                      │
 //},

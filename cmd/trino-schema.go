@@ -88,7 +88,7 @@ var trinoSchema = &cobra.Command{
 						klog.Fatalf("error in creating POST request: %v", err)
 					}
 					// Utilise Trino request & response headers to set session user and catalog
-					req.Header.Set("X-Trino-User", "Rohan Katkar")
+					req.Header.Set("X-Trino-User", "rohan.katkar@cloud.statcan.ca")
 					req.Header.Set("X-Trino-Catalog", catalog)
 					req.Header.Set("X-Trino-Set-Catalog", catalog)
 					req.Header.Set("Authorization", "Bearer "+token)
