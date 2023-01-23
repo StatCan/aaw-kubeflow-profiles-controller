@@ -65,49 +65,17 @@ var trinoSchema = &cobra.Command{
 		// Setup controller
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
+			//Create a schema in each catalog for the profile
+
 			func(profile *kubeflowv1.Profile) error {
-				var req *http.Request
-				//Create a schema in each catalog for the profile
-				for _, catalog := range catalogs {
-					if cfg.Host == "https://10.131.0.1:443" { // Dev cluster internal ip address
-						prefixSA = "aawdevcc00"
-						trinoInstance(catalog, profile, "dev")
-					} else {
-						prefixSA = "aawprodcc00" // todo: replace with prod cluster internal ip address
-						trinoInstance(catalog, profile, "prod")
-					}
-					//Fetch JWT Token from admin namespace from default Secret
-					secret, _ := secretsLister.Secrets("rohan-katkar").List(labels.Everything())
+				//Fetch JWT Token from admin namespace from default Secret
+				secret, _ := secretsLister.Secrets("rohan-katkar").List(labels.Everything())
 
-					token := fetchToken(secret) // JWT token from rohan-katkar ns
-					body = strings.NewReader("CREATE SCHEMA IF NOT EXISTS " + catalog + "." + schemaName + " WITH (location = 'wasbs://" + profile.Name + "@" + prefixSA + storageAccount + ".blob.core.windows.net/')")
-					//body = strings.NewReader("Drop schema unclassified" + "." + schemaName)
-
-					req, err = http.NewRequest("POST", clusterUrl, body)
-					if err != nil {
-						klog.Fatalf("error in creating POST request: %v", err)
-					}
-					// Utilise Trino request & response headers to set session user and catalog
-					req.Header.Set("X-Trino-User", "rohan.katkar@cloud.statcan.ca")
-					req.Header.Set("X-Trino-Catalog", catalog)
-					req.Header.Set("X-Trino-Set-Catalog", catalog)
-					req.Header.Set("Authorization", "Bearer "+token)
-					// Initial curl request
-					resp, err := http.DefaultClient.Do(req)
-					if err != nil {
-						klog.Fatalf("error sending and returning HTTP response  : %v", err)
-					}
-					if resp.StatusCode == http.StatusOK {
-						nextURIResponse := nextUriCall(resp) // 1. Planning stage
-						url := nextUriCall(nextURIResponse)  // 2. Executing stage
-						nextUriCall(url)                     // 3. Finishing stage
-					} else if resp.StatusCode == http.StatusServiceUnavailable {
-						resp, _ := http.DefaultClient.Do(req)
-						// re-try request
-						nextURIResponse := nextUriCall(resp)
-						nextUriCall(nextURIResponse)
-					}
-				}
+				token := fetchToken(secret)
+				//unclassified  schema
+				createSchema(token, "unclassified", "aawdevcc00", profile)
+				//protected-b schema
+				createSchema(token, "protb", "aawdevcc00", profile)
 				return nil
 			},
 		)
@@ -127,6 +95,50 @@ var trinoSchema = &cobra.Command{
 	},
 }
 
+func getCatalogName(catalog string, profile *kubeflowv1.Profile) string {
+	if catalog == "protb" {
+		schemaName = strings.Replace(profile.Name, "-", "", -1) + "protb"
+		clusterUrl = "https://trino-protb.aaw-dev.cloud.statcan.ca/v1/statement"
+	} else {
+		schemaName = strings.Replace(profile.Name, "-", "", -1)
+		clusterUrl = "https://trino.aaw-dev.cloud.statcan.ca/v1/statement"
+	}
+	return schemaName
+}
+
+func createSchema(token string, catalog string, prefixSA string, profile *kubeflowv1.Profile) {
+	var req *http.Request
+
+	schemaName = getCatalogName(catalog, profile)
+	body = strings.NewReader("CREATE SCHEMA IF NOT EXISTS " + catalog + "." + schemaName + " WITH (location = 'wasbs://" + profile.Name + "@" + prefixSA + storageAccount + ".blob.core.windows.net/')")
+	//body = strings.NewReader("Drop schema unclassified" + "." + schemaName)
+
+	req, err = http.NewRequest("POST", clusterUrl, body)
+	if err != nil {
+		klog.Fatalf("error in creating POST request: %v", err)
+	}
+	// Utilise Trino request & response headers to set session user and catalog
+	req.Header.Set("X-Trino-User", "rohan.katkar@cloud.statcan.ca")
+	req.Header.Set("X-Trino-Catalog", catalog)
+	req.Header.Set("X-Trino-Set-Catalog", catalog)
+	req.Header.Set("Authorization", "Bearer "+token)
+	// Initial curl request
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		klog.Fatalf("error sending and returning HTTP response  : %v", err)
+	}
+	if resp.StatusCode == http.StatusOK {
+		nextURIResponse := nextUriCall(resp) // 1. Planning stage
+		url := nextUriCall(nextURIResponse)  // 2. Executing stage
+		nextUriCall(url)                     // 3. Finishing stage
+	} else if resp.StatusCode == http.StatusServiceUnavailable {
+		resp, _ := http.DefaultClient.Do(req)
+		// re-try request
+		nextURIResponse := nextUriCall(resp)
+		nextUriCall(nextURIResponse)
+	}
+}
+
 // Fetch JWT token from default-token secret
 func fetchToken(secretList []*v1.Secret) string {
 	for _, s := range secretList {
@@ -135,19 +147,6 @@ func fetchToken(secretList []*v1.Secret) string {
 		}
 	}
 	return ""
-}
-
-// Logic to use appropriate trino instance prod/dev/unclass/protb, schema name and storage account
-func trinoInstance(catalog string, profile *kubeflowv1.Profile, cluster string) {
-	if cluster == "dev" {
-		clusterUrl = "https://trino.aaw-dev.cloud.statcan.ca/v1/statement"
-		schemaName = strings.Replace(profile.Name, "-", "", -1)
-		storageAccount = "samgpremium"
-	} else {
-		clusterUrl = "https://trino.aaw.cloud.statcan.ca/v1/statement"
-		schemaName = strings.Replace(profile.Name, "-", "", -1)
-		storageAccount = "samgpremium"
-	}
 }
 
 //Submit a GET request using the nextUri from the response of the POST request to retrieve query result
