@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -73,9 +72,9 @@ var trinoSchema = &cobra.Command{
 
 				token := fetchToken(secret)
 				//unclassified  schema
-				createSchema(token, "unclassified", "aawdevcc00", profile)
+				createSchema(token, "unclassified", "aawdevcc00", "samgpreium", profile)
 				//protected-b schema
-				createSchema(token, "protb", "aawdevcc00", profile)
+				createSchema(token, "protb", "aawdevcc00", "samgprotb", profile)
 				return nil
 			},
 		)
@@ -108,7 +107,7 @@ func getCatalogName(catalog string, profile *kubeflowv1.Profile) string {
 	return schemaName
 }
 
-func createSchema(token string, catalog string, prefixSA string, profile *kubeflowv1.Profile) {
+func createSchema(token string, catalog string, prefixSA string, storageAccount string, profile *kubeflowv1.Profile) {
 	var req *http.Request
 
 	schemaName = getCatalogName(catalog, profile)
@@ -160,7 +159,7 @@ func nextUriCall(resp *http.Response) *http.Response {
 	json.Unmarshal([]byte(b), &jsonMap)
 	uri, ok := jsonMap["nextUri"].(string)
 	if ok {
-		fmt.Println(uri)
+		klog.Info(uri)
 		r, err := http.NewRequest("GET", jsonMap["nextUri"].(string), nil)
 		if err != nil {
 			klog.Fatalf("error in creating GET request: %v", err)
