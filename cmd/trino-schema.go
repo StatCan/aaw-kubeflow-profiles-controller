@@ -99,9 +99,11 @@ func getCatalogName(catalog string, profile *kubeflowv1.Profile) string {
 	if catalog == "protb" {
 		schemaName = strings.Replace(profile.Name, "-", "", -1) + "protb"
 		clusterUrl = "https://trino-protb.aaw-dev.cloud.statcan.ca/v1/statement"
+		klog.Info("Executing " + schemaName + " " + clusterUrl)
 	} else {
 		schemaName = strings.Replace(profile.Name, "-", "", -1)
 		clusterUrl = "https://trino.aaw-dev.cloud.statcan.ca/v1/statement"
+		klog.Info("Executing " + schemaName + " " + clusterUrl)
 	}
 	return schemaName
 }
@@ -130,7 +132,8 @@ func createSchema(token string, catalog string, prefixSA string, profile *kubefl
 	if resp.StatusCode == http.StatusOK {
 		nextURIResponse := nextUriCall(resp) // 1. Planning stage
 		url := nextUriCall(nextURIResponse)  // 2. Executing stage
-		nextUriCall(url)                     // 3. Finishing stage
+		finishResp := nextUriCall(url)       // 3. Finishing stage
+		nextUriCall(finishResp)
 	} else if resp.StatusCode == http.StatusServiceUnavailable {
 		resp, _ := http.DefaultClient.Do(req)
 		// re-try request
