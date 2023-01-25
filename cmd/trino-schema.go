@@ -111,7 +111,7 @@ func createSchema(token string, catalog string, prefixSA string, storageAccount 
 	var req *http.Request
 
 	schemaName = getCatalogName(catalog, profile)
-	body = strings.NewReader("CREATE SCHEMA IF NOT EXISTS " + catalog + "." + schemaName + " WITH (location = 'wasbs://" + profile.Name + "@" + prefixSA + storageAccount + ".blob.core.windows.net/')")
+	body = strings.NewReader("CREATE SCHEMA IF NOT EXISTS " + catalog + "." + schemaName + " WITH (location = 'wasbs://" + strings.Replace(profile.Name, "-", ".", -1) + "@" + prefixSA + storageAccount + ".blob.core.windows.net/')")
 	req, err = http.NewRequest("POST", clusterUrl, body)
 	if err != nil {
 		klog.Fatalf("error in creating POST request: %v", err)
