@@ -26,11 +26,9 @@ import (
 	// project packages
 )
 
-var clusterUrl string
 var storageAccount string
 var body *strings.Reader
 var prefixSA string
-var schemaName string
 var catalogs = []string{"unclassified"}
 var trinoSchema = &cobra.Command{
 	Use:   "trino-schema",
@@ -72,9 +70,9 @@ var trinoSchema = &cobra.Command{
 
 				token := fetchToken(secret)
 				//unclassified  schema
-				createSchema(token, "unclassified", "aawdevcc00", "samgpremium", profile)
+				//createSchema(token, "unclassified", "aawdevcc00", "samgpremium", profile)
 				//protected-b schema
-				createSchema(token, "protb", "aawdevcc00", "samgprotb", profile)
+				createSchema(token, "protb", "aawdevcc00", "samgprotb", profile, "https://trino-protb.aaw-dev.cloud.statcan.ca/v1/statement", strings.Replace(profile.Name, "-", "", -1)+"protb")
 				return nil
 			},
 		)
@@ -94,24 +92,9 @@ var trinoSchema = &cobra.Command{
 	},
 }
 
-func getCatalogName(catalog string, profile *kubeflowv1.Profile) string {
-	if catalog == "protb" {
-		schemaName = strings.Replace(profile.Name, "-", "", -1) + "protb"
-		clusterUrl = "https://trino-protb.aaw-dev.cloud.statcan.ca/v1/statement"
-		klog.Info("Executing " + schemaName + " " + clusterUrl)
-	} else {
-		schemaName = strings.Replace(profile.Name, "-", "", -1)
-		clusterUrl = "https://trino.aaw-dev.cloud.statcan.ca/v1/statement"
-		klog.Info("Executing " + schemaName + " " + clusterUrl)
-	}
-	return schemaName
-}
-
-func createSchema(token string, catalog string, prefixSA string, storageAccount string, profile *kubeflowv1.Profile) {
+func createSchema(token string, catalog string, prefixSA string, storageAccount string, profile *kubeflowv1.Profile, clusterUrl string, schemaName string) {
 	var req *http.Request
-
-	schemaName = getCatalogName(catalog, profile)
-	body = strings.NewReader("CREATE SCHEMA IF NOT EXISTS " + catalog + "." + schemaName + " WITH (location = 'wasbs://" + strings.Replace(profile.Name, "-", ".", -1) + "@" + prefixSA + storageAccount + ".blob.core.windows.net/')")
+	body = strings.NewReader("CREATE SCHEMA IF NOT EXISTS " + catalog + "." + schemaName + " WITH (location = 'wasbs://" + profile.Name + "@" + prefixSA + storageAccount + ".blob.core.windows.net/')")
 	req, err = http.NewRequest("POST", clusterUrl, body)
 	if err != nil {
 		klog.Fatalf("error in creating POST request: %v", err)
