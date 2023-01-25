@@ -72,7 +72,7 @@ var trinoSchema = &cobra.Command{
 
 				token := fetchToken(secret)
 				//unclassified  schema
-				createSchema(token, "unclassified", "aawdevcc00", "samgpreium", profile)
+				createSchema(token, "unclassified", "aawdevcc00", "samgpremium", profile)
 				//protected-b schema
 				createSchema(token, "protb", "aawdevcc00", "samgprotb", profile)
 				return nil
@@ -112,8 +112,6 @@ func createSchema(token string, catalog string, prefixSA string, storageAccount 
 
 	schemaName = getCatalogName(catalog, profile)
 	body = strings.NewReader("CREATE SCHEMA IF NOT EXISTS " + catalog + "." + schemaName + " WITH (location = 'wasbs://" + profile.Name + "@" + prefixSA + storageAccount + ".blob.core.windows.net/')")
-	//body = strings.NewReader("Drop schema unclassified" + "." + schemaName)
-
 	req, err = http.NewRequest("POST", clusterUrl, body)
 	if err != nil {
 		klog.Fatalf("error in creating POST request: %v", err)
@@ -131,8 +129,7 @@ func createSchema(token string, catalog string, prefixSA string, storageAccount 
 	if resp.StatusCode == http.StatusOK {
 		nextURIResponse := nextUriCall(resp) // 1. Planning stage
 		url := nextUriCall(nextURIResponse)  // 2. Executing stage
-		finishResp := nextUriCall(url)       // 3. Finishing stage
-		nextUriCall(finishResp)
+		nextUriCall(url)                     // 3. Finishing stage
 	} else if resp.StatusCode == http.StatusServiceUnavailable {
 		resp, _ := http.DefaultClient.Do(req)
 		// re-try request
