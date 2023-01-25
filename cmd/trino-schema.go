@@ -71,6 +71,7 @@ var trinoSchema = &cobra.Command{
 				token := fetchToken(secret)
 				//unclassified  schema
 				//createSchema(token, "unclassified", "aawdevcc00", "samgpremium", profile)
+				createSchema(token, "unclassified", "aawdevcc00", "samgpremium", profile, "https://trino.aaw-dev.cloud.statcan.ca/v1/statement", strings.Replace(profile.Name, "-", "", -1))
 				//protected-b schema
 				createSchema(token, "protb", "aawdevcc00", "samgprotb", profile, "https://trino-protb.aaw-dev.cloud.statcan.ca/v1/statement", strings.Replace(profile.Name, "-", "", -1)+"protb")
 				return nil
