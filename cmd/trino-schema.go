@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StatCan/profiles-controller/internal/util"
 	kubeflowclientset "github.com/StatCan/profiles-controller/pkg/generated/clientset/versioned"
 
 	kubeflowinformers "github.com/StatCan/profiles-controller/pkg/generated/informers/externalversions"
@@ -70,10 +71,9 @@ var trinoSchema = &cobra.Command{
 
 				token := fetchToken(secret)
 				//unclassified  schema
-				//createSchema(token, "unclassified", "aawdevcc00", "samgpremium", profile)
-				createSchema(token, "unclassified", "aawdevcc00", "samgpremium", profile, "https://trino.aaw-dev.cloud.statcan.ca/v1/statement", strings.Replace(profile.Name, "-", "", -1))
+				createSchema(token, util.ParseEnvVar("TRINO_UNCLASSIFIED_SCHEMA_NAME"), util.ParseEnvVar("TRINO_STORAGE_ACCOUNT_PREFIX"), util.ParseEnvVar("TRINO_UNCLASSIFIED_SA"), profile, util.ParseEnvVar("TRINO_UNCLASSIFIED_CLUSTER_URL"), strings.Replace(profile.Name, "-", "", -1))
 				//protected-b schema
-				createSchema(token, "protb", "aawdevcc00", "samgprotb", profile, "https://trino-protb.aaw-dev.cloud.statcan.ca/v1/statement", strings.Replace(profile.Name, "-", "", -1)+"protb")
+				createSchema(token, util.ParseEnvVar("TRINO_PROTECTEDB_SCHEMA_NAME"), util.ParseEnvVar("TRINO_STORAGE_ACCOUNT_PREFIX"), util.ParseEnvVar("TRINO_PROTECTEDB_SA"), profile, util.ParseEnvVar("TRINO_PROTECTEDB_CLUSTER_URL"), strings.Replace(profile.Name, "-", "", -1)+"protb")
 				return nil
 			},
 		)
