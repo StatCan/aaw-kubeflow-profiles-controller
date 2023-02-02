@@ -152,7 +152,56 @@ var cloudMainCmd = &cobra.Command{
 						)
 					}
 				} else {
-					fmt.Println("Non Employee User")
+					// If the profile is missing the exists-non-cloud-main-user label or it is set to
+					// 'true', then delete any of the per-namespace cloud main system istio components
+					// that might be deployed.
+
+					//        _      _               _                       _
+					// __   _(_)_ __| |_ _   _  __ _| |  ___  ___ _ ____   _(_) ___ ___
+					// \ \ / / | '__| __| | | |/ _` | | / __|/ _ \ '__\ \ / / |/ __/ _ \
+					//  \ V /| | |  | |_| |_| | (_| | | \__ \  __/ |   \ V /| | (_|  __/
+					//   \_/ |_|_|   \__|\__,_|\__,_|_| |___/\___|_|    \_/ |_|\___\___|
+					virtualService, err := generateCloudMainVirtualService(profile)
+					currentVirtualService, err := virtualServiceLister.VirtualServices(profile.Name).Get(virtualService.Name)
+					if errors.IsNotFound(err) {
+						klog.Infof("virtualservice %s/%s doesn't exist.", virtualService.Namespace, virtualService.Name)
+					} else {
+						klog.Infof("removing virtualservice %s/%s because %s contains a non-employee user.", currentVirtualService.Namespace, currentVirtualService.Name, profile.Name)
+						err = istioClient.NetworkingV1beta1().VirtualServices(virtualService.Namespace).Delete(
+							context.Background(), currentVirtualService.Name, metav1.DeleteOptions{},
+						)
+					}
+					// 	                       _                       _
+					// 	   ___  ___ _ ____   _(_) ___ ___    ___ _ __ | |_ _ __ _   _
+					//    / __|/ _ \ '__\ \ / / |/ __/ _ \  / _ \ '_ \| __| '__| | | |
+					//    \__ \  __/ |   \ V /| | (_|  __/ |  __/ | | | |_| |  | |_| |
+					//    |___/\___|_|    \_/ |_|\___\___|  \___|_| |_|\__|_|   \__, |
+					// 												     		|___/
+					serviceEntry, err := generateCloudMainServiceEntry(profile)
+					currentServiceEntry, err := serviceEntryLister.ServiceEntries(profile.Name).Get(serviceEntry.Name)
+					if errors.IsNotFound(err) {
+						klog.Infof("serviceentry %s/%s doesn't exist.", serviceEntry.Namespace, serviceEntry.Name)
+					} else {
+						klog.Infof("removing serviceentry %s/%s because %s contains a non-employee user.", currentServiceEntry.Namespace, currentServiceEntry.Name, profile.Name)
+						err = istioClient.NetworkingV1beta1().ServiceEntries(serviceEntry.Namespace).Delete(
+							context.Background(), currentServiceEntry.Name, metav1.DeleteOptions{},
+						)
+					}
+					// 	      _           _   _             _   _                          _
+					// 	   __| | ___  ___| |_(_)_ __   __ _| |_(_) ___  _ __    _ __ _   _| | ___
+					//    / _` |/ _ \/ __| __| | '_ \ / _` | __| |/ _ \| '_ \  | '__| | | | |/ _ \
+					//   | (_| |  __/\__ \ |_| | | | | (_| | |_| | (_) | | | | | |  | |_| | |  __/
+					//    \__,_|\___||___/\__|_|_| |_|\__,_|\__|_|\___/|_| |_| |_|   \__,_|_|\___|
+					destinationRule, err := generateCloudMainDestinationRule(profile)
+					currentDestinationRule, err := destinationRuleLister.DestinationRules(profile.Name).Get(destinationRule.Name)
+					if errors.IsNotFound(err) {
+						klog.Infof("destinationrule %s/%s doesn't exist.", destinationRule.Namespace, destinationRule.Name)
+					} else {
+						klog.Infof("removing destinationrule %s/%s because %s contains a non-employee user.", currentDestinationRule.Namespace, currentDestinationRule.Name, profile.Name)
+						err = istioClient.NetworkingV1beta1().DestinationRules(destinationRule.Namespace).Delete(
+							context.Background(), currentDestinationRule.Name, metav1.DeleteOptions{},
+						)
+					}
 				}
 
 				return nil
