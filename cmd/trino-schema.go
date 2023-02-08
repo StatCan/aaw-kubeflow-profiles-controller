@@ -73,7 +73,7 @@ var trinoSchema = &cobra.Command{
 				//unclassified  schema
 				createSchema(token, util.ParseEnvVar("TRINO_UNCLASSIFIED_SCHEMA_NAME"), util.ParseEnvVar("TRINO_STORAGE_ACCOUNT_PREFIX"), util.ParseEnvVar("TRINO_UNCLASSIFIED_SA"), profile, util.ParseEnvVar("TRINO_UNCLASSIFIED_CLUSTER_URL"), strings.Replace(profile.Name, "-", "", -1))
 				//protected-b schema
-				createSchema(token, util.ParseEnvVar("TRINO_PROTECTEDB_SCHEMA_NAME"), util.ParseEnvVar("TRINO_STORAGE_ACCOUNT_PREFIX"), util.ParseEnvVar("TRINO_PROTECTEDB_SA"), profile, util.ParseEnvVar("TRINO_PROTECTEDB_CLUSTER_URL"), strings.Replace(profile.Name, "-", "", -1)+"protb")
+				//createSchema(token, util.ParseEnvVar("TRINO_PROTECTEDB_SCHEMA_NAME"), util.ParseEnvVar("TRINO_STORAGE_ACCOUNT_PREFIX"), util.ParseEnvVar("TRINO_PROTECTEDB_SA"), profile, util.ParseEnvVar("TRINO_PROTECTEDB_CLUSTER_URL"), strings.Replace(profile.Name, "-", "", -1)+"protb")
 				return nil
 			},
 		)
