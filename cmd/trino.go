@@ -121,9 +121,9 @@ var trino = &cobra.Command{
 					}
 				}
 				//unclassified rules
-				createInstance(append(contributors, strings.Replace(profile.Name, "-", "", -1)), profile.Spec.Owner.Name, configMapLister, kubeClient, "trino-system", "trino-unclassified-rules")
+				createInstance(append(contributors, strings.Replace(profile.Name, "-", "", -1)), profile.Spec.Owner.Name, configMapLister, kubeClient, "daaas-system", "trino-unclassified-rules")
 				// protected-b rules
-				createInstance(append(contributors, strings.Replace(profile.Name, "-", "", -1)), profile.Spec.Owner.Name, configMapLister, kubeClient, "trino-protb-system", "trino-protb-rules")
+				createInstance(append(contributors, strings.Replace(profile.Name, "-", "", -1)), profile.Spec.Owner.Name, configMapLister, kubeClient, "daaas-system", "trino-protb-rules")
 
 				return nil
 			},
@@ -190,7 +190,7 @@ func containsOwner(contributors []string, profileOwner string) bool {
 
 // Append trino rules in appropriate configmap and namespace
 func createInstance(contributors []string, profileOwner string, configMapLister clientv1.ConfigMapLister, kubeClient kubernetes.Interface, configNamespace string, configName string) {
-	if configNamespace == "trino-protb-system" {
+	if strings.Contains(configName, "protb") {
 		createProtbRule(contributors, profileOwner)
 	} else {
 		createRule(contributors, profileOwner)
@@ -233,7 +233,7 @@ func updateTrinoConfigMap(cm *corev1.ConfigMap, configMapLister clientv1.ConfigM
 // Convert Rules slice into json format
 func generateTrinoConfigMap(fileName string, namespace string) (*corev1.ConfigMap, error) {
 	var rules = []Rules{}
-	if namespace == "trino-protb-system" {
+	if strings.Contains(fileName, "protb") {
 		rules = append(rules, Rules{Schema: protbSchema, Table: protbTable})
 	} else {
 		rules = append(rules, Rules{Schema: sch, Table: tbl})
