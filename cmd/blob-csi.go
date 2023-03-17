@@ -791,21 +791,21 @@ var blobcsiCmd = &cobra.Command{
 				}
 
 				// aaw containers are created by this code for the given profile
-				// for _, aawContainerConfig := range aawContainerConfigs {
-				// 	formattedContainerName := formattedContainerName(profile.Name)
-				// 	if !aawContainerConfig.ReadOnly {
-				// 		klog.Infof("Creating Container %s/%s... ", aawContainerConfig.Name, formattedContainerName)
-				// 		err := createContainer(blobClients[aawContainerConfig.Name], formattedContainerName)
-				// 		if err == nil {
-				// 			klog.Infof("Created Container %s/%s.", aawContainerConfig.Name, formattedContainerName)
-				// 		} else if strings.Contains(err.Error(), "ContainerAlreadyExists") {
-				// 			klog.Warningf("Container %s/%s Already Exists.", aawContainerConfig.Name, formattedContainerName)
-				// 		} else {
-				// 			klog.Fatalf(err.Error())
-				// 			return err
-				// 		}
-				// 	}
-				// }
+				for _, aawContainerConfig := range aawContainerConfigs {
+					formattedContainerName := formattedContainerName(profile.Name)
+					if !aawContainerConfig.ReadOnly {
+						klog.Infof("Creating Container %s/%s... ", aawContainerConfig.Name, formattedContainerName)
+						err := createContainer(blobClients[aawContainerConfig.Name], formattedContainerName)
+						if err == nil {
+							klog.Infof("Created Container %s/%s.", aawContainerConfig.Name, formattedContainerName)
+						} else if strings.Contains(err.Error(), "ContainerAlreadyExists") {
+							klog.Warningf("Container %s/%s Already Exists.", aawContainerConfig.Name, formattedContainerName)
+						} else {
+							klog.Fatalf(err.Error())
+							return err
+						}
+					}
+				}
 				// Create PVC if it doesn't exist
 				for _, pvc := range generatedClaims {
 					if _, exists := pvcExistsMap[pvc.Name]; !exists {
