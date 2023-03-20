@@ -7,12 +7,9 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
@@ -29,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	v1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
@@ -47,7 +45,6 @@ var capacityScalar = resource.Tera
 // This configuration will be used in the creation of the PV
 type FDIConfig struct {
 	Classification          string // unclassified or prot-b
-	OPAGatewayUrl           string // url for the opa gateway which serves json for fdi buckets
 	SPNSecretName           string // service principal secret name
 	SPNSecretNamespace      string // service principal secret namespace
 	PVCapacity              int
@@ -56,7 +53,6 @@ type FDIConfig struct {
 	AzureStorageAuthType    string // value of spn dictates service principal auth
 	AzureStorageSPNClientID string // fdi client id for service principal in azure portal
 	AzureStorageSPNTenantID string // fdi tenant id for service principal in azure portal
-	AzureStorageAADEndpoint string // azure active directory endpoint
 }
 
 // General Azure Container Configuration
@@ -76,30 +72,33 @@ type AzureContainerConfig struct {
 	PVName         string // name of PV
 }
 
-// High level structure for storing OPA responses and metadata
-// for querying the opa gateway
-type FdiOpaConnector struct {
-	Result     map[string]Bucket `json:"result"` // stores the json response from opa gateway as struct
-	Ticker     *time.Ticker
-	Lock       *sync.RWMutex
-	KillDaemon chan (bool)
-	FdiConfig  FDIConfig
+// High level structure for storing configmap data and metadata
+type FdiConnector struct {
+	FdiConfig FDIConfig
 }
 
-// Single Bucket struct for Opa Response
-type Bucket struct {
-	Readers []string
-	Writers []string
-	SPN     string
-	Name    string
+type BucketData struct {
+	BucketName string   `json:"bucketName`
+	PvName     string   `json:"pvName"`
+	SubFolder  string   `json:"subfolder"`
+	Readers    []string `json:"readers"`
+	Writers    []string `json:"writers"`
+	SPN        string   `json:"spn"`
+	FdiConfig  FDIConfig
 }
 
 const AawContainerOwner = "AAW"
 const FdiContainerOwner = "FDI"
+const DasNamespaceName = "daaas-system"
+const FdiConfigurationCMName = "fdi-aaw-configuration"
 
 // Helper for listing valid container owners
 func getValidContainerOwners() []string {
 	return []string{AawContainerOwner, FdiContainerOwner}
+}
+
+func getFDIConfiMaps() []string {
+	return []string{"fdi-unclassified-internal", "fdi-protected-b-internal", "fdi-protected-b-external", "fdi-unclassified-external"}
 }
 
 var defaultAawContainerConfigs = `
@@ -109,80 +108,32 @@ var defaultAawContainerConfigs = `
 	{"name": "premium-ro", "classification": "protected-b", "secretRef": "azure-secret-premium/azure-blob-csi-system", "capacity": 10, "readOnly": true, "owner": "AAW"}
 `
 
-// Performs an Http get request against given url, unmarshal the response as json
-// and return the data as []byte
-func performHttpGet(url string) ([]byte, error) {
-	resp, err := http.Get(url)
+func extractConfigMapData(configMapLister v1.ConfigMapLister, cmName string) []BucketData {
+	configMapData, err := configMapLister.ConfigMaps(DasNamespaceName).Get(FdiConfigurationCMName)
 	if err != nil {
-		return nil, err
+		klog.Info("ConfigMap doesn't exist")
 	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+	var bucketData []BucketData
+	if err := json.Unmarshal([]byte(configMapData.Data[cmName+".json"]), &bucketData); err != nil {
+		klog.Info(err)
 	}
-
-	return body, nil
+	return bucketData
 }
 
-// This function can be run as a goroutine given a ticker, and it will populate
-// the connector.Result field with data while it runs at the given ticker's interval.
-func (connector *FdiOpaConnector) dataDaemon() {
-	errMsg := "(%s) Error while executing request against url '%s' at time '%s': %s\n"
-	unmarshallMsg := "(%s) Error unmarshalling http response recv'd from url '%s': %s\n"
-	marshalledData := &FdiOpaConnector{}
-	for {
-		select {
-		// if done channel is true, no longer perform any tasks
-		case <-connector.KillDaemon:
-			klog.Infof("(%s) Recv'd stop from done channel, exiting loop!", connector.FdiConfig.Classification)
-			return
-		// as long as the ticker channel is open, execute requests
-		// and populate the data struct.
-		case t := <-connector.Ticker.C:
-			// query the opa gateway
-			bytes, err := performHttpGet(connector.FdiConfig.OPAGatewayUrl)
-			if err != nil {
-				klog.Errorf(errMsg, connector.FdiConfig.Classification, connector.FdiConfig.OPAGatewayUrl, t, err)
-				continue
-			}
-			// parse the response into structured data
-			err = json.Unmarshal(bytes, &marshalledData)
-			if err != nil {
-				klog.Errorf(unmarshallMsg, connector.FdiConfig.Classification, connector.FdiConfig.OPAGatewayUrl, t, err)
-				continue
-			}
-			delete(marshalledData.Result, "httpapi") // do not need httpapi key returned from opa
-			// only update the data if all of above was a success!
-			connector.Lock.Lock()
-			connector.Result = marshalledData.Result
-			connector.Lock.Unlock()
-		}
-	}
-}
-
-func (connector *FdiOpaConnector) generateContainerConfigs(namespace string) []AzureContainerConfig {
+func (connector *FdiConnector) generateContainerConfigs(namespace string, bucketData []BucketData) []AzureContainerConfig {
 	var generated []AzureContainerConfig
 	// read the value stored in data struct
-	connector.Lock.RLock()
-	opaData := connector
-	connector.Lock.RUnlock()
-	// only proceed if the daemon has populated opa data
-	if opaData.Result == nil {
-		return nil
-	}
-	// build instances based on opa response.
-	for bucketName, bucketContents := range connector.Result {
+	for i, _ := range bucketData {
 		isReader := false
 		// determine if the given profile namespace is a reader for the bucket
-		for _, readerNamespace := range bucketContents.Readers {
+		for _, readerNamespace := range bucketData[i].Readers {
 			if readerNamespace == namespace {
 				isReader = true
 			}
 		}
 		// determine if the given profile namespace is a writer for the bucket
 		isWriter := false
-		for _, writerNamespace := range bucketContents.Writers {
+		for _, writerNamespace := range bucketData[i].Writers {
 			if writerNamespace == namespace {
 				isWriter = true
 			}
@@ -199,24 +150,20 @@ func (connector *FdiOpaConnector) generateContainerConfigs(namespace string) []A
 			// skip this bucket as they lack permissions
 			continue
 		}
-		connector.FdiConfig.SPNSecretName = bucketContents.SPN + "-secret"
-		servicePrincipalName := strings.Replace(strings.ToUpper(bucketContents.SPN), "-", "_", -1)
+		connector.FdiConfig.SPNSecretName = bucketData[i].SPN + "-secret"
+		servicePrincipalName := strings.Replace(strings.ToUpper(bucketData[i].SPN), "-", "_", -1)
 		connector.FdiConfig.AzureStorageSPNClientID = util.ParseEnvVar(servicePrincipalName + "_AZURE_STORAGE_SPN_CLIENTID")
 		connector.FdiConfig.AzureStorageSPNTenantID = util.ParseEnvVar("BLOB_CSI_FDI_GLOBAL_SP_TENANTID")
 		containerConfig := AzureContainerConfig{
-			Name:           bucketName,
+			Name:           bucketData[i].BucketName,
 			Classification: connector.FdiConfig.Classification,
 			SecretRef:      fmt.Sprintf("%s/%s", connector.FdiConfig.SPNSecretName, connector.FdiConfig.SPNSecretNamespace),
 			Capacity:       connector.FdiConfig.PVCapacity,
 			ReadOnly:       readOnly,
 			Owner:          FdiContainerOwner,
 			SPNClientID:    connector.FdiConfig.AzureStorageSPNClientID,
-			Subfolder:      "",
-			PVName:         bucketContents.Name,
-		}
-		if strings.Contains(bucketName, "/") {
-			_, after, _ := strings.Cut(bucketName, "/")
-			containerConfig.Subfolder = after
+			Subfolder:      bucketData[i].SubFolder,
+			PVName:         bucketData[i].PvName,
 		}
 		generated = append(generated, containerConfig)
 	}
@@ -340,8 +287,7 @@ func pvForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerCon
 			"AzureStorageAuthType":    fdiConfig.AzureStorageAuthType,
 			"AzureStorageSPNClientId": containerConfig.SPNClientID,
 			"AzureStorageSPNTenantId": fdiConfig.AzureStorageSPNTenantID,
-			// "AzureStorageAADEndpoint": fdiConfig.AzureStorageAADEndpoint,
-			"protocol": "fuse2",
+			"protocol":                "fuse2",
 		}
 		// Mount subfolder using blobfuse2 flag
 		if containerConfig.Subfolder != "" {
@@ -609,10 +555,6 @@ var blobcsiCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		// Setup signals so we can shutdown cleanly
 		stopCh := signals.SetupSignalHandler()
-		opaDaemonTickerDelayMillis, err := strconv.Atoi(util.ParseEnvVar("BLOB_CSI_FDI_OPA_DAEMON_TICKER_MILLIS"))
-		if err != nil {
-			klog.Fatalf("Invalid value for BLOB_CSI_FDI_OPA_DAEMON_TICKER_MILLIS, expecting integer.")
-		}
 
 		// Create Kubernetes config
 		cfg, err := clientcmd.BuildConfigFromFlags(apiserver, kubeconfig)
@@ -629,49 +571,62 @@ var blobcsiCmd = &cobra.Command{
 		if err != nil {
 			klog.Fatalf("error building Kubeflow client: %v", err)
 		}
-		// initialize OpaData struct for unclassified OPA gateway
-		unclassFdiOpaConnector := &FdiOpaConnector{
-			Result: nil,
-			Ticker: time.NewTicker(time.Duration(opaDaemonTickerDelayMillis) * time.Millisecond),
-			Lock:   new(sync.RWMutex),
+		// initialize struct for unclassified Internal configuration
+		unclassInternalFdiConnector := &FdiConnector{
 			FdiConfig: FDIConfig{
 				Classification:          "unclassified",
-				OPAGatewayUrl:           util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_OPA_ENDPOINT"),
 				SPNSecretName:           "",
 				SPNSecretNamespace:      util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_SPN_SECRET_NAMESPACE"),
 				PVCapacity:              util.ParseIntegerEnvVar("BLOB_CSI_FDI_UNCLASS_PV_STORAGE_CAP"),
-				StorageAccount:          util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_STORAGE_ACCOUNT"),
+				StorageAccount:          util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_INTERNAL_STORAGE_ACCOUNT"),
 				ResourceGroup:           util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_RESOURCE_GROUP"),
 				AzureStorageAuthType:    util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_AUTH_TYPE"),
 				AzureStorageSPNClientID: "",
 				AzureStorageSPNTenantID: util.ParseEnvVar("BLOB_CSI_FDI_GLOBAL_SP_TENANTID"),
-				// AzureStorageAADEndpoint: util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_AAD_ENDPOINT"),
 			},
 		}
-		// Spawn thread which will populate the unclassified OpaData struct
-		go unclassFdiOpaConnector.dataDaemon()
-
-		// spawn thread for populating prot-b results from FDI opa gateway
-		protbFdiOpaConnector := &FdiOpaConnector{
-			Result: nil,
-			Ticker: time.NewTicker(time.Duration(opaDaemonTickerDelayMillis) * time.Millisecond),
-			Lock:   new(sync.RWMutex),
+		// initialize struct for protected-b Internal configuration
+		protbInternalFdiConnector := &FdiConnector{
 			FdiConfig: FDIConfig{
 				Classification:          "protected-b",
-				OPAGatewayUrl:           util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_OPA_ENDPOINT"),
 				SPNSecretName:           "",
 				SPNSecretNamespace:      util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_SPN_SECRET_NAMESPACE"),
 				PVCapacity:              util.ParseIntegerEnvVar("BLOB_CSI_FDI_PROTECTED_B_PV_STORAGE_CAP"),
-				StorageAccount:          util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_STORAGE_ACCOUNT"),
+				StorageAccount:          util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_INTERNAL_STORAGE_ACCOUNT"),
 				ResourceGroup:           util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_RESOURCE_GROUP"),
 				AzureStorageAuthType:    util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AUTH_TYPE"),
 				AzureStorageSPNClientID: "",
 				AzureStorageSPNTenantID: util.ParseEnvVar("BLOB_CSI_FDI_GLOBAL_SP_TENANTID"),
-				// AzureStorageAADEndpoint: util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AAD_ENDPOINT"),
 			},
 		}
-		// spawn thread for populating prot-b results from FDI opa gateway
-		go protbFdiOpaConnector.dataDaemon()
+		// initialize struct for unclassified External configuration
+		unclassExternalFdiConnector := &FdiConnector{
+			FdiConfig: FDIConfig{
+				Classification:          "unclassified",
+				SPNSecretName:           "",
+				SPNSecretNamespace:      util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_SPN_SECRET_NAMESPACE"),
+				PVCapacity:              util.ParseIntegerEnvVar("BLOB_CSI_FDI_UNCLASS_PV_STORAGE_CAP"),
+				StorageAccount:          util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_EXTERNAL_STORAGE_ACCOUNT"),
+				ResourceGroup:           util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_RESOURCE_GROUP"),
+				AzureStorageAuthType:    util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_AUTH_TYPE"),
+				AzureStorageSPNClientID: "",
+				AzureStorageSPNTenantID: util.ParseEnvVar("BLOB_CSI_FDI_GLOBAL_SP_TENANTID"),
+			},
+		}
+		// initialize struct for protected-b External configuration
+		protbExternalFdiConnector := &FdiConnector{
+			FdiConfig: FDIConfig{
+				Classification:          "protected-b",
+				SPNSecretName:           "",
+				SPNSecretNamespace:      util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_SPN_SECRET_NAMESPACE"),
+				PVCapacity:              util.ParseIntegerEnvVar("BLOB_CSI_FDI_PROTECTED_B_PV_STORAGE_CAP"),
+				StorageAccount:          util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_EXTERNAL_STORAGE_ACCOUNT"),
+				ResourceGroup:           util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_RESOURCE_GROUP"),
+				AzureStorageAuthType:    util.ParseEnvVar("BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AUTH_TYPE"),
+				AzureStorageSPNClientID: "",
+				AzureStorageSPNTenantID: util.ParseEnvVar("BLOB_CSI_FDI_GLOBAL_SP_TENANTID"),
+			},
+		}
 
 		// Setup informers
 		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*(time.Duration(requeue_time)))
@@ -680,9 +635,11 @@ var blobcsiCmd = &cobra.Command{
 		// pv v.s. pvc is too tricky to read. Using Volumes v.s. Claims.
 		volumeInformer := kubeInformerFactory.Core().V1().PersistentVolumes()
 		claimInformer := kubeInformerFactory.Core().V1().PersistentVolumeClaims()
-
+		// Setup configMap informers
+		configMapInformer := kubeInformerFactory.Core().V1().ConfigMaps()
 		volumeLister := volumeInformer.Lister()
 		claimLister := claimInformer.Lister()
+		configMapLister := configMapInformer.Lister()
 
 		// First, branch off of the service client and create a container client for which
 		// AAW containers are stored
@@ -744,27 +701,56 @@ var blobcsiCmd = &cobra.Command{
 				generatedVolumes = append(generatedVolumes, generatedAawVolumes...)
 				generatedClaims = append(generatedClaims, generatedAawClaims...)
 
-				// Generate the desired-state Claims and Volumes for FDI unclassified containers
-				fdiUnclassContainerConfigs := unclassFdiOpaConnector.generateContainerConfigs(profile.Name)
-				if fdiUnclassContainerConfigs != nil {
-					generatedFdiUnclassVolumes, generatedFdiUnclassClaims, err := generateK8sResourcesForContainer(profile, fdiUnclassContainerConfigs, unclassFdiOpaConnector.FdiConfig)
+				// Generate the desired-state Claims and Volumes for FDI Internal unclassified containers
+				var bucketData = extractConfigMapData(configMapLister, getFDIConfiMaps()[0])
+				fdiUnclassIntContainerConfigs := unclassInternalFdiConnector.generateContainerConfigs(profile.Name, bucketData)
+				if fdiUnclassIntContainerConfigs != nil {
+					generatedFdiUnclassIntVolumes, generatedFdiUnclassIntClaims, err := generateK8sResourcesForContainer(profile, fdiUnclassIntContainerConfigs, unclassInternalFdiConnector.FdiConfig)
 					if err != nil {
 						klog.Fatalf("Error recv'd while generating %s unclassified PV/PVC's structs: %s", FdiContainerOwner, err)
 						return err
 					}
-					generatedVolumes = append(generatedVolumes, generatedFdiUnclassVolumes...)
-					generatedClaims = append(generatedClaims, generatedFdiUnclassClaims...)
+					generatedVolumes = append(generatedVolumes, generatedFdiUnclassIntVolumes...)
+					generatedClaims = append(generatedClaims, generatedFdiUnclassIntClaims...)
+
 				}
-				// Generate the desired-state Claims and Volumes for FDI prot-b containers
-				fdiProtbContainerConfigs := protbFdiOpaConnector.generateContainerConfigs(profile.Name)
-				if fdiProtbContainerConfigs != nil {
-					generatedFdiProtbVolumes, generatedFdiProtbClaims, err := generateK8sResourcesForContainer(profile, fdiProtbContainerConfigs, protbFdiOpaConnector.FdiConfig)
+				// Generate the desired-state Claims and Volumes for FDI Internal prot-b containers
+				bucketData = extractConfigMapData(configMapLister, getFDIConfiMaps()[1])
+				fdiProtbIntContainerConfigs := protbInternalFdiConnector.generateContainerConfigs(profile.Name, bucketData)
+				if fdiProtbIntContainerConfigs != nil {
+					generatedFdiProtbIntVolumes, generatedFdiProtbIntClaims, err := generateK8sResourcesForContainer(profile, fdiProtbIntContainerConfigs, protbInternalFdiConnector.FdiConfig)
 					if err != nil {
 						klog.Fatalf("Error recv'd while generating %s prot-b PV/PVC's structs: %s", FdiContainerOwner, err)
 						return err
 					}
-					generatedVolumes = append(generatedVolumes, generatedFdiProtbVolumes...)
-					generatedClaims = append(generatedClaims, generatedFdiProtbClaims...)
+					generatedVolumes = append(generatedVolumes, generatedFdiProtbIntVolumes...)
+					generatedClaims = append(generatedClaims, generatedFdiProtbIntClaims...)
+				}
+
+				// Generate the desired-state Claims and Volumes for FDI External prot-b containers
+				bucketData = extractConfigMapData(configMapLister, getFDIConfiMaps()[2])
+				fdiProtbExtContainerConfigs := protbExternalFdiConnector.generateContainerConfigs(profile.Name, bucketData)
+				if fdiProtbExtContainerConfigs != nil {
+					generatedFdiProtbExtVolumes, generatedFdiProtbExtClaims, err := generateK8sResourcesForContainer(profile, fdiProtbExtContainerConfigs, protbExternalFdiConnector.FdiConfig)
+					if err != nil {
+						klog.Fatalf("Error recv'd while generating %s prot-b PV/PVC's structs: %s", FdiContainerOwner, err)
+						return err
+					}
+					generatedVolumes = append(generatedVolumes, generatedFdiProtbExtVolumes...)
+					generatedClaims = append(generatedClaims, generatedFdiProtbExtClaims...)
+				}
+
+				// Generate the desired-state Claims and Volumes for FDI External unclassified containers
+				bucketData = extractConfigMapData(configMapLister, getFDIConfiMaps()[3])
+				fdiUnclassExtContainerConfigs := unclassExternalFdiConnector.generateContainerConfigs(profile.Name, bucketData)
+				if fdiUnclassExtContainerConfigs != nil {
+					generatedFdiUnclassExtVolumes, generatedFdiUnclassExtClaims, err := generateK8sResourcesForContainer(profile, fdiUnclassExtContainerConfigs, unclassExternalFdiConnector.FdiConfig)
+					if err != nil {
+						klog.Fatalf("Error recv'd while generating %s prot-b PV/PVC's structs: %s", FdiContainerOwner, err)
+						return err
+					}
+					generatedVolumes = append(generatedVolumes, generatedFdiUnclassExtVolumes...)
+					generatedClaims = append(generatedClaims, generatedFdiUnclassExtClaims...)
 				}
 				// First pass - schedule deletion of PVs no longer desired.
 				pvExistsMap := map[string]bool{}
@@ -870,17 +856,31 @@ var blobcsiCmd = &cobra.Command{
 			},
 			DeleteFunc: controller.HandleObject,
 		})
+		configMapInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+			UpdateFunc: func(old, new interface{}) {
+				newDep := new.(*corev1.ConfigMap)
+				oldDep := old.(*corev1.ConfigMap)
 
-		// Start informers
+				if newDep.ResourceVersion == oldDep.ResourceVersion {
+					return
+				}
+
+				controller.HandleObject(new)
+			},
+			DeleteFunc: controller.HandleObject,
+		})
+
 		kubeInformerFactory.Start(stopCh)
 		kubeflowInformerFactory.Start(stopCh)
 
+		// Wait for caches to sync
+		klog.Info("Waiting for configMap informer caches to sync")
+		if ok := cache.WaitForCacheSync(stopCh, configMapInformer.Informer().HasSynced); !ok {
+			klog.Fatalf("failed to wait for caches to sync")
+		}
+
 		// Run the controller
 		if err = controller.Run(2, stopCh); err != nil {
-			unclassFdiOpaConnector.KillDaemon <- true
-			unclassFdiOpaConnector.Ticker.Stop()
-			protbFdiOpaConnector.KillDaemon <- true
-			protbFdiOpaConnector.Ticker.Stop()
 			klog.Fatalf("error running controller: %v", err)
 		}
 	},
