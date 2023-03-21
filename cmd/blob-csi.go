@@ -278,7 +278,7 @@ func pvForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerCon
 			return nil, fmt.Errorf("invalid configuration passed for %s owned container", FdiContainerOwner)
 		}
 		volumeName = buildPvName(namespace, containerConfig.Owner, containerConfig.Classification, containerConfig.PVName)
-		pvcName = fmt.Sprintf("%s-%s", containerConfig.PVName, containerConfig.Classification)
+		pvcName = fmt.Sprintf("%s-%s-%s", strings.ToLower(containerConfig.Owner), containerConfig.PVName, containerConfig.Classification)
 		volumeAttributes = map[string]string{
 			"containerName":           containerConfig.Name,
 			"storageAccount":          fdiConfig.StorageAccount,
@@ -353,7 +353,7 @@ func pvcForProfile(profile *kubeflowv1.Profile, containerConfig AzureContainerCo
 
 	} else if containerConfig.Owner == FdiContainerOwner {
 		volumeName = buildPvName(namespace, containerConfig.Owner, containerConfig.Classification, containerConfig.PVName)
-		pvcName = fmt.Sprintf("%s-%s", containerConfig.PVName, containerConfig.Classification)
+		pvcName = fmt.Sprintf("%s-%s-%s", strings.ToLower(containerConfig.Owner), containerConfig.PVName, containerConfig.Classification)
 	}
 	storageClass := ""
 
