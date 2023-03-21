@@ -103,10 +103,9 @@ func getFDIConfiMaps() []string {
 
 var defaultAawContainerConfigs = `
 	{"name": "standard", "classification": "unclassified", "secretRef": "azure-secret/azure-blob-csi-system", "capacity": 10, "readOnly": false, "owner": "AAW"}
-	{"name": "premium", "classification": "unclassified", "secretRef": "azure-secret-premium/azure-blob-csi-system", "capacity": 10, "readOnly": false, "owner": "AAW"}
-	{"name": "standard-ro", "classification": "protected-b", "secretRef": "azure-secret/azure-blob-csi-system", "capacity": 10, "readOnly": true, "owner": "AAW"}
-	{"name": "premium-ro", "classification": "protected-b", "secretRef": "azure-secret-premium/azure-blob-csi-system", "capacity": 10, "readOnly": true, "owner": "AAW"}
-`
+	{"name": "aaw-unclassified-ro", "classification": "protected-b", "secretRef": "aawdevcc00samgprotb/azure-blob-csi-system", "capacity": 10, "readOnly": true, "owner": "AAW"}
+	{"name": "aaw-protected-b", "classification": "protected-b", "secretRef": "aawdevcc00samgprotb/azure-blob-csi-system", "capacity": 10, "readOnly": false, "owner": "AAW"}
+	`
 
 func extractConfigMapData(configMapLister v1.ConfigMapLister, cmName string) []BucketData {
 	configMapData, err := configMapLister.ConfigMaps(DasNamespaceName).Get(FdiConfigurationCMName)
