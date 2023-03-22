@@ -54,8 +54,8 @@ var trinoSchema = &cobra.Command{
 			klog.Fatalf("Error building kubernetes clientset: %s", err.Error())
 		}
 		// Setup Kubeflow informers
-		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*(time.Duration(requeue_time)))
-		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*(time.Duration(requeue_time)))
+		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*(time.Duration(util.ParseIntegerEnvVar("REQUEUE_TIME"))))
+		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*(time.Duration(util.ParseIntegerEnvVar("REQUEUE_TIME"))))
 		// Secret
 		secretsInformer := kubeInformerFactory.Core().V1().Secrets()
 		secretsLister := secretsInformer.Lister()
