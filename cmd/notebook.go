@@ -130,27 +130,6 @@ func generatePodDefaults(profile *kubeflowv1.Profile) []*kubeflowv1alpha1.PodDef
 		},
 	})
 
-	defaults = append(defaults, &kubeflowv1alpha1.PodDefault{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "blob-csi-mounts",
-			Namespace: profile.Name,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
-			},
-		},
-		Spec: kubeflowv1alpha1.PodDefaultSpec{
-			Desc: "Mount Buckets to ~/buckets / Monter le stockage sur ~/buckets",
-			Selector: metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"data.statcan.gc.ca/inject-blob-volumes": "true",
-				},
-			},
-			Annotations: map[string]string{
-				"data.statcan.gc.ca/inject-blob-volumes": "true",
-			},
-		},
-	})
-
 	// Default Protected B deny
 	defaults = append(defaults, &kubeflowv1alpha1.PodDefault{
 		ObjectMeta: metav1.ObjectMeta{
