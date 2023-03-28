@@ -1006,10 +1006,10 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		})
 	}
 
-	// Allow egress from protb notebooks to the trino protb instance
+	// Allow egress from protb notebooks to the trino protb instance in daaas-system
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "allow-egress-protb-notebook-to-trino-protb-system",
+			Name:      "allow-egress-protb-notebook-to-daaas-system",
 			Namespace: profile.Name,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
@@ -1026,11 +1026,6 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 				{
 					To: []networkingv1.NetworkPolicyPeer{
 						{
-							NamespaceSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{
-									"trino-namespace": "protected-b",
-								},
-							},
 							PodSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{
 									"component": "coordinator",
@@ -1043,10 +1038,10 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		},
 	})
 
-	// Allow egress from protb notebooks to the trino unclassified instance
+	// Allow egress from unclassified notebooks to the trino unclassified instance in daaas-system
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "allow-egress-notebook-to-trino-system",
+			Name:      "allow-egress-notebook-to-daaas-system",
 			Namespace: profile.Name,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
@@ -1066,9 +1061,9 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 				{
 					To: []networkingv1.NetworkPolicyPeer{
 						{
-							NamespaceSelector: &metav1.LabelSelector{
+							PodSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{
-									"trino-namespace": "unclassified",
+									"release": "trino",
 								},
 							},
 						},
