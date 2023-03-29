@@ -121,9 +121,9 @@ var trino = &cobra.Command{
 					}
 				}
 				//unclassified rules
-				createInstance(append(contributors, strings.Replace(profile.Name, "-", "", -1)), profile.Spec.Owner.Name, configMapLister, kubeClient, "daaas-system", "trino-unclassified-rules")
+				createInstance(append(contributors, strings.Replace(profile.Name, "-", "", -1)), profile.Spec.Owner.Name, configMapLister, kubeClient, "trino-system", "trino-unclassified-rules")
 				// protected-b rules
-				createInstance(append(contributors, strings.Replace(profile.Name, "-", "", -1)), profile.Spec.Owner.Name, configMapLister, kubeClient, "daaas-system", "trino-protb-rules")
+				createInstance(append(contributors, strings.Replace(profile.Name, "-", "", -1)), profile.Spec.Owner.Name, configMapLister, kubeClient, "trino-protb-system", "trino-protb-rules")
 
 				return nil
 			},

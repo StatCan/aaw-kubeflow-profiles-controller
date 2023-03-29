@@ -1006,10 +1006,10 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		})
 	}
 
-	// Allow egress from protb notebooks to the trino protb instance in daaas-system
+	// Allow egress from protb notebooks to the trino protb instance in trino-protb-system
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "allow-egress-protb-notebook-to-daaas-system",
+			Name:      "allow-egress-protb-notebook-to-trino-protb-system",
 			Namespace: profile.Name,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
@@ -1038,10 +1038,10 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		},
 	})
 
-	// Allow egress from unclassified notebooks to the trino unclassified instance in daaas-system
+	// Allow egress from unclassified notebooks to the trino unclassified instance in trino-system
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "allow-egress-notebook-to-daaas-system",
+			Name:      "allow-egress-notebook-to-trino-system",
 			Namespace: profile.Name,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
