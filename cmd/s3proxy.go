@@ -551,7 +551,7 @@ func generateS3ProxyVirtualService(profile *kubeflowv1.Profile, s3proxyconfig *S
 							},
 							Uri: &istionetworkingv1beta1.StringMatch{
 								MatchType: &istionetworkingv1beta1.StringMatch_Prefix{
-									Prefix: "/unclassified",
+									Prefix: "/aaw-unclassified",
 								},
 							},
 						},
