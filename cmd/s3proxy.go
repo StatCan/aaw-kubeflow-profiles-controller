@@ -537,6 +537,24 @@ func generateS3ProxyVirtualService(profile *kubeflowv1.Profile, s3proxyconfig *S
 								},
 							},
 						},
+						//needed for allowing file downloads through kubeflow iframe
+						{
+							Headers: map[string]*istionetworkingv1beta1.StringMatch{
+								"referer": {
+									MatchType: &istionetworkingv1beta1.StringMatch_Exact{
+										Exact: fmt.Sprintf("%s/%s/%s/",
+											s3proxyconfig.kubeflowUrl,
+											s3proxyconfig.kubeflowPrefix,
+											namespace),
+									},
+								},
+							},
+							Uri: &istionetworkingv1beta1.StringMatch{
+								MatchType: &istionetworkingv1beta1.StringMatch_Prefix{
+									Prefix: "/aaw-unclassified",
+								},
+							},
+						},
 					},
 					Route: []*istionetworkingv1beta1.HTTPRouteDestination{
 						{
