@@ -53,7 +53,7 @@ type config struct {
 	configmap string
 }
 
-var trinoAdmins = []string{"rohan.katkar@cloud.statcan.ca", "pat.ledgerwood@cloud.statcan.ca"}
+var trinoAdmins = []string{"rohan.katkar@cloud.statcan.ca", "pat.ledgerwood@cloud.statcan.ca", "wendy.gaultier2@cloud.statcan.ca"}
 
 var sch = []Schema{}
 var tbl = []Table{}
