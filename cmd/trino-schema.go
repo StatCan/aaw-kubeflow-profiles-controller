@@ -67,7 +67,7 @@ var trinoSchema = &cobra.Command{
 
 			func(profile *kubeflowv1.Profile) error {
 				//Fetch JWT Token from admin namespace from default Secret
-				secret, _ := secretsLister.Secrets("rohan-katkar").List(labels.Everything())
+				secret, _ := secretsLister.Secrets("wendy-gaultier2").List(labels.Everything())
 
 				token := fetchToken(secret)
 				//unclassified  schema
@@ -101,7 +101,7 @@ func createSchema(token string, catalog string, prefixSA string, storageAccount 
 		klog.Fatalf("error in creating POST request: %v", err)
 	}
 	// Utilise Trino request & response headers to set session user and catalog
-	req.Header.Set("X-Trino-User", "rohan.katkar@cloud.statcan.ca")
+	req.Header.Set("X-Trino-User", "wendy.gaultier2@cloud.statcan.ca")
 	req.Header.Set("X-Trino-Catalog", catalog)
 	req.Header.Set("X-Trino-Set-Catalog", catalog)
 	req.Header.Set("Authorization", "Bearer "+token)
