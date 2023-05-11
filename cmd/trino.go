@@ -196,7 +196,6 @@ func createInstance(contributors []string, profileOwner string, configMapLister 
 		createRule(contributors, profileOwner)
 	}
 	// Create cm if it does not exist, update trino rule data to confimap if it exists
-	var trinoConfigMap *corev1.ConfigMap
 	c, _ := configMapLister.ConfigMaps(configNamespace).Get(configName)
 	if c == nil {
 		var trinoConfigMap, err = generateTrinoConfigMap(configName, configNamespace)
@@ -208,6 +207,7 @@ func createInstance(contributors []string, profileOwner string, configMapLister 
 			return
 		}
 	} else {
+		var trinoConfigMap *corev1.ConfigMap
 		trinoConfigMap, err = generateTrinoConfigMap(configName, configNamespace)
 		updateTrinoConfigMap(trinoConfigMap, configMapLister, kubeClient, configName, configNamespace)
 	}
