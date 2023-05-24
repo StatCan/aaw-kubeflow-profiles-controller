@@ -103,7 +103,7 @@ func getFDIConfiMaps() []string {
 
 var defaultAawContainerConfigs = `
 {"name": "standard", "classification": "unclassified", "secretRef": "azure-secret/azure-blob-csi-system", "capacity": 10, "readOnly": false, "owner": "AAW"}
-{"name": "aaw-unclassified-ro", "classification": "protected-b", "secretRef": "aawdevcc00samgprotb/azure-blob-csi-system", "capacity": 10, "readOnly": true, "owner": "AAW"}
+{"name": "aaw-unclassified-ro", "classification": "protected-b", "secretRef": "azure-secret/azure-blob-csi-system", "capacity": 10, "readOnly": true, "owner": "AAW"}
 {"name": "aaw-protected-b", "classification": "protected-b", "secretRef": "aawdevcc00samgprotb/azure-blob-csi-system", "capacity": 10, "readOnly": false, "owner": "AAW"}
 `
 
