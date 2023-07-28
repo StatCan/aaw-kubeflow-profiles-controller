@@ -31,7 +31,7 @@ jobs:
     - run: |
         docker build -f Dockerfile -t localhost:5000/profiles-controller:${{ github.sha }} .
         docker push localhost:5000/profiles-controller:${{ github.sha }}
-        docker rmi localhost:5000/
+        docker rmi localhost:5000/profiles-controller:${{ github.sha }}
         docker image prune
 
     # Scan image for vulnerabilities
