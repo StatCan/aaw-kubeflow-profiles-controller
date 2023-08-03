@@ -130,6 +130,28 @@ func generatePodDefaults(profile *kubeflowv1.Profile) []*kubeflowv1alpha1.PodDef
 		},
 	})
 
+	// Default Protected B deny
+	defaults = append(defaults, &kubeflowv1alpha1.PodDefault{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "protected-b",
+			Namespace: profile.Name,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+			},
+		},
+		Spec: kubeflowv1alpha1.PodDefaultSpec{
+			Desc: "Run a Protected B notebook / Exécuter un bloc-notes protégé B",
+			Selector: metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"notebook.statcan.gc.ca/protected-b": "true",
+				},
+			},
+			Labels: map[string]string{
+				"data.statcan.gc.ca/classification": "protected-b",
+			},
+		},
+	})
+
 	return defaults
 }
 
