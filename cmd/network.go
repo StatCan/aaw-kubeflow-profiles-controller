@@ -493,44 +493,6 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		},
 	})
 
-	// Allow egress to daaas-system
-	policies = append(policies, &networkingv1.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "protected-b-minio-egress",
-			Namespace: profile.Name,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
-			},
-		},
-		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "data.statcan.gc.ca/classification",
-						Operator: metav1.LabelSelectorOpIn,
-						Values:   []string{"protected-b"},
-					},
-				},
-			},
-			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
-			Egress: []networkingv1.NetworkPolicyEgressRule{
-				{
-					To: []networkingv1.NetworkPolicyPeer{
-						{
-							NamespaceSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{
-									"namespace.statcan.gc.ca/purpose": "daaas",
-									"namespace.statcan.gc.ca/use":     "minio",
-								},
-							},
-							PodSelector: &metav1.LabelSelector{},
-						},
-					},
-				},
-			},
-		},
-	})
-
 	// Allow egress to Vault
 	port8200 := intstr.FromInt(8200)
 	policies = append(policies, &networkingv1.NetworkPolicy{
@@ -565,57 +527,6 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 								MatchLabels: map[string]string{
 									"app.kubernetes.io/instance": "vault",
 									"component":                  "server",
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	})
-
-	// Allow egress to Pipelines
-	port9000 := intstr.FromInt(9000)
-	port9001 := intstr.FromInt(9001)
-
-	// Allow egress to MinIO
-	policies = append(policies, &networkingv1.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "unclassified-minio-egress",
-			Namespace: profile.Name,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
-			},
-		},
-		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "data.statcan.gc.ca/classification",
-						Operator: metav1.LabelSelectorOpNotIn,
-						Values:   []string{"protected-b"},
-					},
-				},
-			},
-			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
-			Egress: []networkingv1.NetworkPolicyEgressRule{
-				{
-					Ports: []networkingv1.NetworkPolicyPort{
-						{
-							Protocol: &protocolTCP,
-							Port:     &port9000,
-						},
-						{
-							Protocol: &protocolTCP,
-							Port:     &port9001,
-						},
-					},
-					To: []networkingv1.NetworkPolicyPeer{
-						{
-							NamespaceSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{
-									"namespace.statcan.gc.ca/purpose": "daaas",
-									"namespace.statcan.gc.ca/use":     "minio",
 								},
 							},
 						},
