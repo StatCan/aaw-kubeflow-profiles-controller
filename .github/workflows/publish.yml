@@ -18,9 +18,15 @@ on:
 # Environment variables available to all jobs and steps in this workflow
 env:
   REGISTRY_NAME: k8scc01covidacr
+  TRIVY_VERSION: "v0.43.1"
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
     steps:
     - uses: actions/checkout@master
 
@@ -32,13 +38,23 @@ jobs:
         password: ${{ secrets.REGISTRY_PASSWORD }}
 
     # Container build and push to a Azure Container registry (ACR)
-    - run: |
-        docker build -f Dockerfile -t ${{ env.REGISTRY_NAME }}.azurecr.io/profiles-controller:${{ github.sha }} .
-        docker push ${{ env.REGISTRY_NAME }}.azurecr.io/profiles-controller:${{ github.sha }}
+    - name: Build image
+      run: |
+        docker build -f Dockerfile -t localhost:5000/profiles-controller:${{ github.sha }} .
+        docker push localhost:5000/profiles-controller:${{ github.sha }}
+        docker rmi localhost:5000/profiles-controller:${{ github.sha }}
+        docker image prune
+        
 
     # Scan image for vulnerabilities
-    - uses: Azure/container-scan@v0
-      with:
-        image-name: ${{ env.REGISTRY_NAME }}.azurecr.io/profiles-controller:${{ github.sha }}
-        severity-threshold: CRITICAL
-        run-quality-checks: false
+    - name: Aqua Security Trivy image scan
+      run: |
+        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin ${{ env.TRIVY_VERSION }}
+        trivy image localhost:5000/profiles-controller:${{ github.sha }} --exit-code 1 --timeout=20m --security-checks vuln --severity CRITICAL
+
+    # Push if passed scanning
+    - name: Push image to registry
+      run: |
+        docker pull localhost:5000/profiles-controller:${{ github.sha }}
+        docker tag localhost:5000/profiles-controller:${{ github.sha }} ${{ env.REGISTRY_NAME }}.azurecr.io/profiles-controller:${{ github.sha }}
+        docker push ${{ env.REGISTRY_NAME }}.azurecr.io/profiles-controller:${{ github.sha }}
