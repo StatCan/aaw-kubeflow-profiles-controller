@@ -94,8 +94,6 @@ where value is a secret registered under the protected-b FDI service principal.
 
 For more context on the blob-csi system as a whole, see [here](https://github.com/StatCan/aaw-developer-docs/blob/main/docs/features/object-storage/blobcsi.md)
 
-*This will deprecate the minio controller.*
-
 #### Local Development
 The [Taskfile](./Taskfile.yml) includes task `blobcsi:dev` for preparing your local environment for development and testing. Due to the controller's dependency on Azure [blob-csi driver](https://github.com/kubernetes-sigs/blob-csi-driver) a cluster with the [blob-csi driver](https://github.com/kubernetes-sigs/blob-csi-driver) installed is required. As such, it is recommended to debug and test against the development k8s context for AAW. With the local environment configured, the Vscode Debugger can be used through `Run and Debug: blobcsi Controller` in the debug pane.
 
@@ -150,9 +148,6 @@ Within AAW, these variables are defined in the [statcan charts repo](https://git
 
 Responsible for creating, removing and updating `LimitRange` resources for a given profile. `LimitRange` resources are generated to limit the cpu and memory resources for the kubeflow profile's default container. `LimitRange` resources require the implementation of a controller managing `ResourceQuotas`, which is provided in this package (see [quotas.go](./cmd/quotas.go)). Implementing `LimitRange` resources allows any Pod to run associated with the `Profile`, restricted by a `ResourceQuota`.
 
-### [minio.go](./cmd/minio.go)
-
-Responsible for the configuration of MinIO buckets for the given `Profile`. Configured MinIO buckets may be used by the associated `Profile` for object storage accessible directly within their notebooks.
 
 ### [network.go](./cmd/network.go)
 
@@ -164,10 +159,8 @@ Responsible for the following networking policies:
 - Egress from unclassified workloads
 - Egress from unclassified workloads to the ingress gateway
 - Egress to port 443 from protected-b workloads
-- Egress to the daaas-system
 - Egress to vault
 - Egress to pipelines
-- Egress to MinIO
 - Egress to Elasticsearch
 - Egress to Artifactory
 

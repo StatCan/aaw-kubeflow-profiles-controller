@@ -245,7 +245,5 @@ tasks:
     cmds:
       - echo "To enable local testing for blobcsi, you need to be able to query the OPA gateways locally!"
       - echo "Run the below commands in separate terminals"
-      - echo "kubectl port-forward -n fdi-gateway-unclassified-system service/minio-gateway-opa 8181:8181"
-      - echo "kubectl port-forward -n fdi-gateway-protected-b-system service/minio-gateway-opa 8182:8181"
       - echo "Run the vscode debugger for blob-csi!"
     deps: [env:create]

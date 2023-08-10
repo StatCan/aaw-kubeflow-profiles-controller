@@ -109,27 +109,6 @@ var notebookCmd = &cobra.Command{
 func generatePodDefaults(profile *kubeflowv1.Profile) []*kubeflowv1alpha1.PodDefault {
 	defaults := []*kubeflowv1alpha1.PodDefault{}
 
-	defaults = append(defaults, &kubeflowv1alpha1.PodDefault{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "minio-mounts",
-			Namespace: profile.Name,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
-			},
-		},
-		Spec: kubeflowv1alpha1.PodDefaultSpec{
-			Desc: "Mount MinIO storage to ~/minio (experimental) / Monter le stockage MinIO sur ~/minio (expérimental)",
-			Selector: metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"minio-mounts": "true",
-				},
-			},
-			Annotations: map[string]string{
-				"data.statcan.gc.ca/inject-boathouse": "true",
-			},
-		},
-	})
-
 	// Default Protected B deny
 	defaults = append(defaults, &kubeflowv1alpha1.PodDefault{
 		ObjectMeta: metav1.ObjectMeta{
