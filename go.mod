@@ -6,7 +6,7 @@ go 1.18
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v0.3.0
-	github.com/argoproj/argo-cd/v2 v2.3.2
+	github.com/argoproj/argo-cd/v2 v2.3.4
 	github.com/hashicorp/vault/api v1.3.1
 	github.com/lib/pq v1.10.5
 	github.com/minio/minio-go/v7 v7.0.21
@@ -34,7 +34,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.1.1 // indirect
 	github.com/PuerkitoBio/purell v1.1.1 // indirect
 	github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578 // indirect
-	github.com/argoproj/gitops-engine v0.6.1 // indirect
+	github.com/argoproj/gitops-engine v0.6.2 // indirect
 	github.com/argoproj/pkg v0.11.1-0.20211203175135-36c59d8fafe0 // indirect
 	github.com/armon/go-metrics v0.3.10 // indirect
 	github.com/armon/go-radix v1.0.0 // indirect
