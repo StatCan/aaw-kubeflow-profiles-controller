@@ -58,8 +58,7 @@ jobs:
         image: localhost:5000/profiles-controller:${{ github.sha }}
         format: 'list'
         exit-code: '0'
-        # Must determine when / how we want to exit
-        #exit-level: 'fatal'
+        exit-level: 'fatal'
         ignore: 'DKL-DI-0006'
         
     # Push if passed scanning
