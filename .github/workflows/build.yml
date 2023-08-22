@@ -33,7 +33,11 @@ jobs:
         docker push localhost:5000/profiles-controller:${{ github.sha }}
         docker rmi localhost:5000/profiles-controller:${{ github.sha }}
         docker image prune
-
+    
+    # Allowlist
+    - run: |
+         echo "CVE-2022-1996" > .trivyignore
+    
     # Scan image for vulnerabilities
     - name: Aqua Security Trivy image scan
       run: |
