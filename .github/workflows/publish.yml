@@ -60,7 +60,7 @@ jobs:
       with:
         image: localhost:5000/profiles-controller:${{ github.sha }}
         format: 'list'
-        exit-code: '0'
+        exit-code: '1'
         exit-level: 'fatal'
         ignore: 'DKL-DI-0006'
         
