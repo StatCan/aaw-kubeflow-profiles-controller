@@ -37,14 +37,12 @@ jobs:
         docker build -f Dockerfile -t localhost:5000/profiles-controller:${{ github.sha }} .
         docker push localhost:5000/profiles-controller:${{ github.sha }}
         docker image prune
-    
-    # Allowlist
-    - run: |
-         echo "CVE-2022-1996" > .trivyignore
-    
+
     # Scan image for vulnerabilities
     - name: Aqua Security Trivy image scan
       run: |
+        # Allowlist
+        printf ${{ secrets.CVE_ALLOWLIST }} > .trivyignore
         curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin ${{ env.TRIVY_VERSION }}
         trivy image localhost:5000/profiles-controller:${{ github.sha }} --exit-code 1 --timeout=20m --security-checks vuln --severity CRITICAL
 
