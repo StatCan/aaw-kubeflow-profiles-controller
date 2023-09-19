@@ -42,7 +42,7 @@ jobs:
     - name: Aqua Security Trivy image scan
       run: |
         # Allowlist
-        printf ${{ secrets.CVE_ALLOWLIST }} > .trivyignore
+        printf "testb;ahjbaa" > .trivyignore
         curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin ${{ env.TRIVY_VERSION }}
         trivy image localhost:5000/profiles-controller:${{ github.sha }} --exit-code 1 --timeout=20m --security-checks vuln --severity CRITICAL
 
