@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"regexp"
@@ -78,7 +77,7 @@ type FdiConnector struct {
 }
 
 type BucketData struct {
-	BucketName string   `json:"bucketName`
+	BucketName string   `json:"bucketName"`
 	PvName     string   `json:"pvName"`
 	SubFolder  string   `json:"subfolder"`
 	Readers    []string `json:"readers"`
@@ -178,7 +177,7 @@ func generateAawContainerConfigs() []AzureContainerConfig {
 	if _, err := os.Stat("instances.json"); os.IsNotExist(err) {
 		config = defaultAawContainerConfigs
 	} else {
-		config_bytes, err := ioutil.ReadFile("instances.json") // just pass the file name
+		config_bytes, err := os.ReadFile("instances.json") // just pass the file name
 		if err != nil {
 			log.Fatal(err)
 		}

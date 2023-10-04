@@ -5,7 +5,7 @@ module github.com/StatCan/profiles-controller
 go 1.19
 
 require (
-	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v0.3.0
+	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.1.0
 	github.com/argoproj/argo-cd/v2 v2.8.4
 	github.com/lib/pq v1.10.5
 	github.com/spf13/cobra v1.7.0
@@ -21,8 +21,8 @@ require (
 require (
 	cloud.google.com/go/compute v1.19.1 // indirect
 	cloud.google.com/go/compute/metadata v0.2.3 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.1.1 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/internal v1.0.0 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.6.0 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/internal v1.3.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20210617225240-d185dfc1b5a1 // indirect
 	github.com/Azure/go-autorest v14.2.0+incompatible // indirect
 	github.com/Azure/go-autorest/autorest v0.11.27 // indirect
