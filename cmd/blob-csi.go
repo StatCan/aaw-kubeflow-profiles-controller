@@ -121,7 +121,7 @@ func extractConfigMapData(configMapLister v1.ConfigMapLister, cmName string) []B
 func (connector *FdiConnector) generateContainerConfigs(namespace string, bucketData []BucketData) []AzureContainerConfig {
 	var generated []AzureContainerConfig
 	// read the value stored in data struct
-	for i, _ := range bucketData {
+	for i := range bucketData {
 		isReader := false
 		// determine if the given profile namespace is a reader for the bucket
 		for _, readerNamespace := range bucketData[i].Readers {
@@ -455,7 +455,13 @@ func createPVC(client *kubernetes.Clientset, pvc *corev1.PersistentVolumeClaim) 
 	)
 }
 
-func getBlobClient(client *kubernetes.Clientset, containerConfig AzureContainerConfig) (azblob.ServiceClient, error) {
+func handleError(err error) {
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+}
+
+func getBlobClient(client *kubernetes.Clientset, containerConfig AzureContainerConfig) (*azblob.Client, error) {
 
 	fmt.Println(containerConfig.SecretRef)
 	secretName, secretNamespace := parseSecret(containerConfig.SecretRef)
@@ -464,25 +470,21 @@ func getBlobClient(client *kubernetes.Clientset, containerConfig AzureContainerC
 		secretName,
 		metav1.GetOptions{},
 	)
-	if err != nil {
-		return azblob.ServiceClient{}, err
-	}
+	handleError(err)
 
 	storageAccountName := string(secret.Data["azurestorageaccountname"])
 	storageAccountKey := string(secret.Data["azurestorageaccountkey"])
 
 	cred, err := azblob.NewSharedKeyCredential(storageAccountName, storageAccountKey)
-	if err != nil {
-		return azblob.ServiceClient{}, err
-	}
-	service, err := azblob.NewServiceClientWithSharedKey(
+	handleError(err)
+
+	service, err := azblob.NewClientWithSharedKeyCredential(
 		fmt.Sprintf("https://%s.blob.core.windows.net/", storageAccountName),
 		cred,
 		nil,
 	)
-	if err != nil {
-		return azblob.ServiceClient{}, err
-	}
+	handleError(err)
+
 	return service, nil
 }
 
@@ -515,11 +517,11 @@ func formattedContainerName(containerName string) string {
 	return containerName
 }
 
-func createContainer(service azblob.ServiceClient, containerName string) error {
-	container := service.NewContainerClient(containerName)
-	_, err := container.Create(context.Background(), nil)
-	return err
-}
+// func createContainer(service azblob.Client, containerName string) error {
+// 	container := service.NewContainerClient(containerName)
+// 	_, err := container.Create(context.Background(), nil)
+// 	return err
+// }
 
 // Generates the PV's and PVC's corresponding to the container
 func generateK8sResourcesForContainer(profile *kubeflowv1.Profile, containerConfigs []AzureContainerConfig, configInterface interface{}) ([]corev1.PersistentVolume, []corev1.PersistentVolumeClaim, error) {
@@ -642,7 +644,7 @@ var blobcsiCmd = &cobra.Command{
 		// First, branch off of the service client and create a container client for which
 		// AAW containers are stored
 		aawContainerConfigs := generateAawContainerConfigs()
-		blobClients := map[string]azblob.ServiceClient{}
+		blobClients := map[string]*azblob.Client{}
 		for _, instance := range aawContainerConfigs {
 			if !instance.ReadOnly {
 				client, err := getBlobClient(kubeClient, instance)
@@ -793,12 +795,14 @@ var blobcsiCmd = &cobra.Command{
 					formattedContainerName := formattedContainerName(profile.Name)
 					if !aawContainerConfig.ReadOnly {
 						klog.Infof("Creating Container %s/%s... ", aawContainerConfig.Name, formattedContainerName)
-						err := createContainer(blobClients[aawContainerConfig.Name], formattedContainerName)
+						// err := createContainer(blobClients[aawContainerConfig.Name], formattedContainerName)
+						containerCreateResp, err := blobClients[aawContainerConfig.Name].CreateContainer(context.Background(), formattedContainerName, nil)
 						if err == nil {
 							klog.Infof("Created Container %s/%s.", aawContainerConfig.Name, formattedContainerName)
 						} else if strings.Contains(err.Error(), "ContainerAlreadyExists") {
 							klog.Warningf("Container %s/%s Already Exists.", aawContainerConfig.Name, formattedContainerName)
 						} else {
+							fmt.Println(containerCreateResp)
 							klog.Fatalf(err.Error())
 							return err
 						}
