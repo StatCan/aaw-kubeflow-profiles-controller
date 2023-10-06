@@ -517,12 +517,6 @@ func formattedContainerName(containerName string) string {
 	return containerName
 }
 
-// func createContainer(service azblob.Client, containerName string) error {
-// 	container := service.NewContainerClient(containerName)
-// 	_, err := container.Create(context.Background(), nil)
-// 	return err
-// }
-
 // Generates the PV's and PVC's corresponding to the container
 func generateK8sResourcesForContainer(profile *kubeflowv1.Profile, containerConfigs []AzureContainerConfig, configInterface interface{}) ([]corev1.PersistentVolume, []corev1.PersistentVolumeClaim, error) {
 	generatedVolumes := []corev1.PersistentVolume{}
@@ -795,7 +789,6 @@ var blobcsiCmd = &cobra.Command{
 					formattedContainerName := formattedContainerName(profile.Name)
 					if !aawContainerConfig.ReadOnly {
 						klog.Infof("Creating Container %s/%s... ", aawContainerConfig.Name, formattedContainerName)
-						// err := createContainer(blobClients[aawContainerConfig.Name], formattedContainerName)
 						containerCreateResp, err := blobClients[aawContainerConfig.Name].CreateContainer(context.Background(), formattedContainerName, nil)
 						if err == nil {
 							klog.Infof("Created Container %s/%s.", aawContainerConfig.Name, formattedContainerName)
