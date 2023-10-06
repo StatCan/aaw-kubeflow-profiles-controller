@@ -437,7 +437,7 @@ func generateGiteaArgoApp(profile *kubeflowv1.Profile, replicas int32, giteaconf
 				Namespace: profile.Name,
 				Name:      "in-cluster",
 			},
-			Source: argocdv1alph1.ApplicationSource{
+			Source: &argocdv1alph1.ApplicationSource{
 				RepoURL:        giteaconfig.Deploymentparams.argocdSourceRepoUrl,
 				TargetRevision: giteaconfig.Deploymentparams.argocdSourceTargetRevision,
 				Path:           giteaconfig.Deploymentparams.argocdSourcePath,
@@ -586,13 +586,13 @@ func connect(host string, port string, username string, passwd string, dbname st
 
 // Wrapper function for submitting a query to a database handle.
 // Any queries are printed as is, with PASSWORD parameters masked.
-func performQuery(db *sql.DB, query string, args ...any) error {
+func performQuery(db *sql.DB, query string, args ...interface{}) error {
 	// mask any passwords within the query
 	r := regexp.MustCompile("PASSWORD *'.*'")
 	maskedQuery := r.ReplaceAllString(query, "PASSWORD ****MASKED****")
 
 	klog.Infof("Attempting query '%s'!", maskedQuery)
-	_, err := db.Exec(query, args...)
+	_, err := db.Exec(query, args)
 	if err != nil {
 		klog.Errorf("Error returned for query %s: %v", maskedQuery, err)
 		return err

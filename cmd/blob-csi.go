@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"regexp"
@@ -78,7 +77,7 @@ type FdiConnector struct {
 }
 
 type BucketData struct {
-	BucketName string   `json:"bucketName`
+	BucketName string   `json:"bucketName"`
 	PvName     string   `json:"pvName"`
 	SubFolder  string   `json:"subfolder"`
 	Readers    []string `json:"readers"`
@@ -122,7 +121,7 @@ func extractConfigMapData(configMapLister v1.ConfigMapLister, cmName string) []B
 func (connector *FdiConnector) generateContainerConfigs(namespace string, bucketData []BucketData) []AzureContainerConfig {
 	var generated []AzureContainerConfig
 	// read the value stored in data struct
-	for i, _ := range bucketData {
+	for i := range bucketData {
 		isReader := false
 		// determine if the given profile namespace is a reader for the bucket
 		for _, readerNamespace := range bucketData[i].Readers {
@@ -178,7 +177,7 @@ func generateAawContainerConfigs() []AzureContainerConfig {
 	if _, err := os.Stat("instances.json"); os.IsNotExist(err) {
 		config = defaultAawContainerConfigs
 	} else {
-		config_bytes, err := ioutil.ReadFile("instances.json") // just pass the file name
+		config_bytes, err := os.ReadFile("instances.json") // just pass the file name
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -456,7 +455,13 @@ func createPVC(client *kubernetes.Clientset, pvc *corev1.PersistentVolumeClaim) 
 	)
 }
 
-func getBlobClient(client *kubernetes.Clientset, containerConfig AzureContainerConfig) (azblob.ServiceClient, error) {
+func handleError(err error) {
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+}
+
+func getBlobClient(client *kubernetes.Clientset, containerConfig AzureContainerConfig) (*azblob.Client, error) {
 
 	fmt.Println(containerConfig.SecretRef)
 	secretName, secretNamespace := parseSecret(containerConfig.SecretRef)
@@ -465,25 +470,21 @@ func getBlobClient(client *kubernetes.Clientset, containerConfig AzureContainerC
 		secretName,
 		metav1.GetOptions{},
 	)
-	if err != nil {
-		return azblob.ServiceClient{}, err
-	}
+	handleError(err)
 
 	storageAccountName := string(secret.Data["azurestorageaccountname"])
 	storageAccountKey := string(secret.Data["azurestorageaccountkey"])
 
 	cred, err := azblob.NewSharedKeyCredential(storageAccountName, storageAccountKey)
-	if err != nil {
-		return azblob.ServiceClient{}, err
-	}
-	service, err := azblob.NewServiceClientWithSharedKey(
+	handleError(err)
+
+	service, err := azblob.NewClientWithSharedKeyCredential(
 		fmt.Sprintf("https://%s.blob.core.windows.net/", storageAccountName),
 		cred,
 		nil,
 	)
-	if err != nil {
-		return azblob.ServiceClient{}, err
-	}
+	handleError(err)
+
 	return service, nil
 }
 
@@ -514,12 +515,6 @@ func formattedContainerName(containerName string) string {
 		containerName = containerName[:len(containerName)-1] + "a"
 	}
 	return containerName
-}
-
-func createContainer(service azblob.ServiceClient, containerName string) error {
-	container := service.NewContainerClient(containerName)
-	_, err := container.Create(context.Background(), nil)
-	return err
 }
 
 // Generates the PV's and PVC's corresponding to the container
@@ -643,7 +638,7 @@ var blobcsiCmd = &cobra.Command{
 		// First, branch off of the service client and create a container client for which
 		// AAW containers are stored
 		aawContainerConfigs := generateAawContainerConfigs()
-		blobClients := map[string]azblob.ServiceClient{}
+		blobClients := map[string]*azblob.Client{}
 		for _, instance := range aawContainerConfigs {
 			if !instance.ReadOnly {
 				client, err := getBlobClient(kubeClient, instance)
@@ -794,12 +789,13 @@ var blobcsiCmd = &cobra.Command{
 					formattedContainerName := formattedContainerName(profile.Name)
 					if !aawContainerConfig.ReadOnly {
 						klog.Infof("Creating Container %s/%s... ", aawContainerConfig.Name, formattedContainerName)
-						err := createContainer(blobClients[aawContainerConfig.Name], formattedContainerName)
+						containerCreateResp, err := blobClients[aawContainerConfig.Name].CreateContainer(context.Background(), formattedContainerName, nil)
 						if err == nil {
 							klog.Infof("Created Container %s/%s.", aawContainerConfig.Name, formattedContainerName)
 						} else if strings.Contains(err.Error(), "ContainerAlreadyExists") {
 							klog.Warningf("Container %s/%s Already Exists.", aawContainerConfig.Name, formattedContainerName)
 						} else {
+							fmt.Println(containerCreateResp)
 							klog.Fatalf(err.Error())
 							return err
 						}

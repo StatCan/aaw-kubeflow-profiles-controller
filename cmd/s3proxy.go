@@ -330,7 +330,7 @@ func generateS3ProxyArgoApp(profile *kubeflowv1.Profile, s3proxyconfig *S3ProxyC
 				Namespace: profile.Name,
 				Name:      "in-cluster",
 			},
-			Source: argocdv1alph1.ApplicationSource{
+			Source: &argocdv1alph1.ApplicationSource{
 				RepoURL:        s3proxyconfig.argocdSourceRepoUrl,
 				TargetRevision: s3proxyconfig.argocdSourceTargetRevision,
 				Path:           s3proxyconfig.argocdSourcePath,

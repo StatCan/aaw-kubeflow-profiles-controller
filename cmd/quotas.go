@@ -67,7 +67,7 @@ func overrideResourceQuotas(profile *kubeflowv1.Profile) corev1.ResourceList {
 	// quotas.statcan.gc.ca/{key}
 	// We will not clobber requests.nvidia.com/gpu because
 	// quotas.statcan.gc.ca/requests.nvidia.com/gpu is not a valid label.
-	for key, _ := range defaultResources {
+	for key := range defaultResources {
 		if overrideValue, ok := profile.Labels[quotaPrefixLabel+key.String()]; ok {
 			overrides[key] = resource.MustParse(overrideValue)
 			klog.Infof("Overriding resource quota from label profile %s, %s: %d", profile.Name, key.String(), overrides[key])
