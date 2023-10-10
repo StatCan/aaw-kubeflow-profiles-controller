@@ -457,7 +457,7 @@ func createPVC(client *kubernetes.Clientset, pvc *corev1.PersistentVolumeClaim) 
 
 func handleError(err error) {
 	if err != nil {
-		log.Fatal(err.Error())
+		log.Panic(err.Error())
 	}
 }
 
@@ -485,7 +485,7 @@ func getBlobClient(client *kubernetes.Clientset, containerConfig AzureContainerC
 	)
 	handleError(err)
 
-	return service, nil
+	return service, err
 }
 
 // Formats container names to be in accordance with the azure requirement
@@ -642,9 +642,7 @@ var blobcsiCmd = &cobra.Command{
 		for _, instance := range aawContainerConfigs {
 			if !instance.ReadOnly {
 				client, err := getBlobClient(kubeClient, instance)
-				if err != nil {
-					panic(err.Error())
-				}
+				handleError(err)
 				blobClients[instance.Name] = client
 			}
 		}
