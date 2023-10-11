@@ -91,6 +91,13 @@ const FdiContainerOwner = "FDI"
 const DasNamespaceName = "daaas-system"
 const FdiConfigurationCMName = "fdi-aaw-configuration"
 
+// helper for logging errors
+func handleError(err error) {
+	if err != nil {
+		log.Panic(err)
+	}
+}
+
 // Helper for listing valid container owners
 func getValidContainerOwners() []string {
 	return []string{AawContainerOwner, FdiContainerOwner}
@@ -455,12 +462,10 @@ func createPVC(client *kubernetes.Clientset, pvc *corev1.PersistentVolumeClaim) 
 	)
 }
 
-func handleError(err error) {
-	if err != nil {
-		log.Fatal(err.Error())
-	}
-}
-
+// Create a new azblob Client using a storage account
+//
+// returns service azblob Client to the approriate storage account
+// returns err if an error is encountered
 func getBlobClient(client *kubernetes.Clientset, containerConfig AzureContainerConfig) (*azblob.Client, error) {
 
 	fmt.Println(containerConfig.SecretRef)
@@ -470,20 +475,28 @@ func getBlobClient(client *kubernetes.Clientset, containerConfig AzureContainerC
 		secretName,
 		metav1.GetOptions{},
 	)
-	handleError(err)
+	if err != nil {
+		log.Panic(err.Error())
+		return nil, err
+	}
 
 	storageAccountName := string(secret.Data["azurestorageaccountname"])
 	storageAccountKey := string(secret.Data["azurestorageaccountkey"])
-
 	cred, err := azblob.NewSharedKeyCredential(storageAccountName, storageAccountKey)
-	handleError(err)
+	if err != nil {
+		log.Panic(err.Error())
+		return nil, err
+	}
 
 	service, err := azblob.NewClientWithSharedKeyCredential(
 		fmt.Sprintf("https://%s.blob.core.windows.net/", storageAccountName),
 		cred,
 		nil,
 	)
-	handleError(err)
+	if err != nil {
+		log.Panic(err.Error())
+		return nil, err
+	}
 
 	return service, nil
 }
@@ -642,9 +655,7 @@ var blobcsiCmd = &cobra.Command{
 		for _, instance := range aawContainerConfigs {
 			if !instance.ReadOnly {
 				client, err := getBlobClient(kubeClient, instance)
-				if err != nil {
-					panic(err.Error())
-				}
+				handleError(err)
 				blobClients[instance.Name] = client
 			}
 		}
