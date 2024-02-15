@@ -36,7 +36,8 @@ For mounting there are a lot of helpful useful functions in `blob-csi.go` that w
   like the building of the pv / pvc spec, the creation and deletion of them etc.
 */
 
-//const profileLabel = "kubeflow-profile"
+const ontapLabel = "ontap-cvo"
+
 //const automountLabel = "blob.aaw.statcan.gc.ca/automount"
 
 // helper for logging errors
@@ -163,9 +164,9 @@ var ontapcvoCmd = &cobra.Command{
 		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*(time.Duration(requeue_time)))
 		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*(time.Duration(requeue_time)))
 
-		// Setup configMap informers
-		configMapInformer := kubeInformerFactory.Core().V1().ConfigMaps()
-		configMapLister := configMapInformer.Lister()
+		// Setup Secret informers
+		secretInformer := kubeInformerFactory.Core().V1().Secrets()
+		secretLister := secretInformer.Lister()
 
 		// First, branch off of the service client and create a container client for which
 		// AAW containers are stored
@@ -185,10 +186,18 @@ var ontapcvoCmd = &cobra.Command{
 			func(profile *kubeflowv1.Profile) error {
 				/*
 					Now that we have the profile what is our order of business?
-					Check for a label, if it has the label then check if there is a secret.
+					List labels and check for a label, if it has the label then check if there is a secret.
 					check secret go here, if they have one then can assume they have everything set up.
 					implementation below...
 				*/
+
+				// Get all the Labels and iterate trying to find label
+				allLabels := profile.Labels
+				for k, v := range allLabels {
+					if k == ontapLabel {
+						// check for secret
+					}
+				}
 
 				/*
 					If there is a label, and there is no secret in the namespace, then we need to create a user and make the secret
@@ -294,34 +303,6 @@ var ontapcvoCmd = &cobra.Command{
 						}
 					}
 				}
-
-				// aaw containers are created by this code for the given profile
-				for _, aawContainerConfig := range aawContainerConfigs {
-					formattedContainerName := formattedContainerName(profile.Name)
-					if !aawContainerConfig.ReadOnly {
-						klog.Infof("Creating Container %s/%s... ", aawContainerConfig.Name, formattedContainerName)
-						containerCreateResp, err := blobClients[aawContainerConfig.Name].CreateContainer(context.Background(), formattedContainerName, nil)
-						if err == nil {
-							klog.Infof("Created Container %s/%s.", aawContainerConfig.Name, formattedContainerName)
-						} else if strings.Contains(err.Error(), "ContainerAlreadyExists") {
-							klog.Warningf("Container %s/%s Already Exists.", aawContainerConfig.Name, formattedContainerName)
-						} else {
-							fmt.Println(containerCreateResp)
-							klog.Fatalf(err.Error())
-							return err
-						}
-					}
-				}
-				// Create PVC if it doesn't exist
-				for _, pvc := range generatedClaims {
-					if _, exists := pvcExistsMap[pvc.Name]; !exists {
-						_, err := createPVC(kubeClient, &pvc)
-						if err != nil {
-							return err
-						}
-					}
-				}
-
 				return nil
 			}, // end controller setup
 		)
