@@ -129,7 +129,7 @@ var ontapcvoCmd = &cobra.Command{
 		// Setup signals so we can shutdown cleanly
 		stopCh := signals.SetupSignalHandler()
 
-		// Create Kubernetes config
+		// Create Kubernetes c onfig
 		cfg, err := clientcmd.BuildConfigFromFlags(apiserver, kubeconfig)
 		if err != nil {
 			klog.Fatalf("error building kubeconfig: %v", err)
@@ -183,21 +183,39 @@ var ontapcvoCmd = &cobra.Command{
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
 			func(profile *kubeflowv1.Profile) error {
-				// Get all Volumes associated to this profile
-				volumes := []corev1.PersistentVolume{}
-				allvolumes, err := volumeLister.List(labels.Everything())
-				if err != nil {
-					return err
-				}
-				for _, v := range allvolumes {
-					if v.GetOwnerReferences() != nil {
-						for _, obj := range v.GetOwnerReferences() {
-							if obj.Kind == "Profile" && obj.Name == profile.Name {
-								volumes = append(volumes, *v)
-							}
-						}
-					}
-				}
+				/*
+					Now that we have the profile what is our order of business?
+					Check for a label, if it has the label then check if there is a secret.
+					check secret go here, if they have one then can assume they have everything set up.
+					implementation below...
+				*/
+
+				/*
+					If there is a label, and there is no secret in the namespace, then we need to create a user and make the secret
+					https://docs.netapp.com/us-en/ontap-restapi/ontap/protocols_s3_services_svm.uuid_users_endpoint_overview.html#creating-an-s3-user-configuration
+
+					We must still determine what goes into `name` as part of the mapping.
+					implementation below....
+				*/
+
+				/*
+					At this point each profile with a label should have a secret, is this where we should check for the expiration date?
+					If so can do it here or whatever
+					implementation below...
+				*/
+
+				/*
+					Expiration date has been checked / secret has been renewed.
+					At this point we are done with explicit API calls whose purpose is user management
+					https://docs.netapp.com/us-en/ontap-restapi/ontap/protocols_s3_services_svm.uuid_users_endpoint_overview.html
+					we could look into deleting users as well based on profile but maybe not for first iteration.
+					implementation below...
+				*/
+
+				/*
+					Now we could possibly do the actual mounting, though this we may need help with, or maybe this should be its own
+					controller. Should probably be it's own controller yes that watches NOTEBOOKS.
+				*/
 
 				// Get all Claims associated to this profile
 				claims := []corev1.PersistentVolumeClaim{}
