@@ -18,7 +18,6 @@ import (
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	v1 "k8s.io/client-go/listers/core/v1"
@@ -225,84 +224,6 @@ var ontapcvoCmd = &cobra.Command{
 					Now we could possibly do the actual mounting, though this we may need help with, or maybe this should be its own
 					controller. Should probably be it's own controller yes that watches NOTEBOOKS.
 				*/
-
-				// Get all Claims associated to this profile
-				claims := []corev1.PersistentVolumeClaim{}
-				nsclaims, err := claimLister.PersistentVolumeClaims(profile.Name).List(labels.Everything())
-				if err != nil {
-					return err
-				}
-				for _, c := range nsclaims {
-					if c.GetOwnerReferences() != nil {
-						for _, obj := range c.GetOwnerReferences() {
-							if obj.Kind == "Profile" {
-								claims = append(claims, *c)
-							}
-						}
-					}
-				}
-				generatedVolumes := []corev1.PersistentVolume{}
-				generatedClaims := []corev1.PersistentVolumeClaim{}
-				// Generate the desired-state Claims and Volumes for AAW containers
-				generatedAawVolumes, generatedAawClaims, err := generateK8sResourcesForContainer(profile, aawContainerConfigs, nil)
-				if err != nil {
-					klog.Fatalf("Error recv'd while generating %s PV/PVC's structs: %s", AawContainerOwner, err)
-					return err
-				}
-				generatedVolumes = append(generatedVolumes, generatedAawVolumes...)
-				generatedClaims = append(generatedClaims, generatedAawClaims...)
-
-				// Generate the desired-state Claims and Volumes for FDI Internal unclassified containers
-				var bucketData = extractConfigMapData(configMapLister, getFDIConfiMaps()[0])
-				fdiUnclassIntContainerConfigs := unclassInternalFdiConnector.generateContainerConfigs(profile.Name, bucketData)
-				if fdiUnclassIntContainerConfigs != nil {
-					generatedFdiUnclassIntVolumes, generatedFdiUnclassIntClaims, err := generateK8sResourcesForContainer(profile, fdiUnclassIntContainerConfigs, unclassInternalFdiConnector.FdiConfig)
-					if err != nil {
-						klog.Fatalf("Error recv'd while generating %s unclassified PV/PVC's structs: %s", FdiContainerOwner, err)
-						return err
-					}
-					generatedVolumes = append(generatedVolumes, generatedFdiUnclassIntVolumes...)
-					generatedClaims = append(generatedClaims, generatedFdiUnclassIntClaims...)
-
-				}
-
-				// First pass - schedule deletion of PVs no longer desired.
-				pvExistsMap := map[string]bool{}
-				for _, pv := range volumes {
-					delete := true
-					for _, desiredPV := range generatedVolumes {
-						if pv.Name == desiredPV.Name {
-							delete = false
-							pvExistsMap[desiredPV.Name] = true
-							break
-						}
-					}
-					if delete || pv.Status.Phase == corev1.VolumeReleased || pv.Status.Phase == corev1.VolumeFailed {
-						err = deletePV(kubeClient, &pv)
-						if err != nil {
-							klog.Warningf("Error deleting PV %s: %s", pv.Name, err.Error())
-						}
-					}
-				}
-
-				// First pass - schedule deletion of PVCs no longer desired.
-				pvcExistsMap := map[string]bool{}
-				for _, pvc := range claims {
-					delete := true
-					for _, desiredPVC := range generatedClaims {
-						if pvc.Name == desiredPVC.Name {
-							pvcExistsMap[desiredPVC.Name] = true
-							delete = false
-							break
-						}
-					}
-					if delete {
-						err = deletePVC(kubeClient, &pvc)
-						if err != nil {
-							klog.Warningf("Error deleting PVC %s/%s: %s", pvc.Namespace, pvc.Name, err.Error())
-						}
-					}
-				}
 				return nil
 			}, // end controller setup
 		)
