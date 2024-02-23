@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
-	"github.com/StatCan/profiles-controller/internal/util"
 	kubeflowv1 "github.com/StatCan/profiles-controller/pkg/apis/kubeflow/v1"
 	"github.com/StatCan/profiles-controller/pkg/controllers/profiles"
 	kubeflowclientset "github.com/StatCan/profiles-controller/pkg/generated/clientset/versioned"
@@ -115,10 +114,35 @@ func getBlobClient(client *kubernetes.Clientset, containerConfig AzureContainerC
 
 /*
 AIM: create a user using the API call
-This will be called with the information of a
+This will be called with the information of the Cloud AD to create a good S3 User
+https://docs.netapp.com/us-en/ontap-restapi/ontap/protocols_s3_services_svm.uuid_users_endpoint_overview.html#creating-an-s3-user-configuration
+In addition to creating a user, this may also need to create the secret from the response given.
 */
 func createUser() {
 
+}
+
+/*
+This will check for a specific secret, and if found return true
+Needs to take in profile information and then look for our specific secret
+*/
+func secretExists() bool {
+	// We don't actually need secret informers, since informers look at changes in state
+	// https://www.macias.info/entry/202109081800_k8s_informers.md
+	// If found
+	return true
+	// Not found
+	return false
+}
+
+/*
+This will if the secret has expired and then
+*/
+func checkExpired() bool {
+	// If expired
+	return true
+	// Not found
+	return false
 }
 
 var ontapcvoCmd = &cobra.Command{
@@ -144,40 +168,10 @@ var ontapcvoCmd = &cobra.Command{
 		if err != nil {
 			klog.Fatalf("error building Kubeflow client: %v", err)
 		}
-		// initialize struct for unclassified Internal configuration
-		unclassInternalFdiConnector := &FdiConnector{
-			FdiConfig: FDIConfig{
-				Classification:          "unclassified",
-				SPNSecretName:           "",
-				SPNSecretNamespace:      util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_SPN_SECRET_NAMESPACE"),
-				PVCapacity:              util.ParseIntegerEnvVar("BLOB_CSI_FDI_UNCLASS_PV_STORAGE_CAP"),
-				StorageAccount:          util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_INTERNAL_STORAGE_ACCOUNT"),
-				ResourceGroup:           util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_CS_RESOURCE_GROUP"),
-				AzureStorageAuthType:    util.ParseEnvVar("BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_AUTH_TYPE"),
-				AzureStorageSPNClientID: "",
-				AzureStorageSPNTenantID: util.ParseEnvVar("BLOB_CSI_FDI_GLOBAL_SP_TENANTID"),
-			},
-		}
 
 		// Setup informers
 		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*(time.Duration(requeue_time)))
 		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*(time.Duration(requeue_time)))
-
-		// Setup Secret informers
-		secretInformer := kubeInformerFactory.Core().V1().Secrets()
-		secretLister := secretInformer.Lister()
-
-		// First, branch off of the service client and create a container client for which
-		// AAW containers are stored
-		aawContainerConfigs := generateAawContainerConfigs()
-		blobClients := map[string]*azblob.Client{}
-		for _, instance := range aawContainerConfigs {
-			if !instance.ReadOnly {
-				client, err := getBlobClient(kubeClient, instance)
-				handleError(err)
-				blobClients[instance.Name] = client
-			}
-		}
 
 		// Setup controller
 		controller := profiles.NewController(
@@ -194,36 +188,17 @@ var ontapcvoCmd = &cobra.Command{
 				allLabels := profile.Labels
 				for k, v := range allLabels {
 					if k == ontapLabel {
-						// check for secret
+						if !secretExists() {
+							// if the secret does not exist, then do API call to create user
+							createUser()
+						}
+						// Secret does exist do nothing, or for future iteration can check for expiration date
+						if checkExpired() {
+							// Do things, but for first iteration may not care.
+						}
 					}
-				}
-
-				/*
-					If there is a label, and there is no secret in the namespace, then we need to create a user and make the secret
-					https://docs.netapp.com/us-en/ontap-restapi/ontap/protocols_s3_services_svm.uuid_users_endpoint_overview.html#creating-an-s3-user-configuration
-
-					We must still determine what goes into `name` as part of the mapping.
-					implementation below....
-				*/
-
-				/*
-					At this point each profile with a label should have a secret, is this where we should check for the expiration date?
-					If so can do it here or whatever
-					implementation below...
-				*/
-
-				/*
-					Expiration date has been checked / secret has been renewed.
-					At this point we are done with explicit API calls whose purpose is user management
-					https://docs.netapp.com/us-en/ontap-restapi/ontap/protocols_s3_services_svm.uuid_users_endpoint_overview.html
-					we could look into deleting users as well based on profile but maybe not for first iteration.
-					implementation below...
-				*/
-
-				/*
-					Now we could possibly do the actual mounting, though this we may need help with, or maybe this should be its own
-					controller. Should probably be it's own controller yes that watches NOTEBOOKS.
-				*/
+				} // End iterating through labels on profile
+				// Could also check for deleting S3 users + secret clean up but maybe not for first iteration.
 				return nil
 			}, // end controller setup
 		)
