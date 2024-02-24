@@ -126,11 +126,17 @@ func createUser() {
 This will check for a specific secret, and if found return true
 Needs to take in profile information and then look for our specific secret
 */
-func secretExists() bool {
+func secretExists(client *kubernetes.Clientset) bool {
 	// We don't actually need secret informers, since informers look at changes in state
 	// https://www.macias.info/entry/202109081800_k8s_informers.md
-	// If found
-	return true
+	// We only care about err, so no need for secret, err
+	_, err := client.CoreV1().Secrets("namespacehere").Get(context.Background(), "secretName", metav1.GetOptions{})
+	if err != nil {
+		// Then we found it? Confirm this
+		fmt.Println("Found the secret")
+		return true
+	}
+
 	// Not found
 	return false
 }
@@ -159,6 +165,7 @@ var ontapcvoCmd = &cobra.Command{
 			klog.Fatalf("error building kubeconfig: %v", err)
 		}
 
+		// Builds k8s client for us to use, pass this in to functions for us to use
 		kubeClient, err := kubernetes.NewForConfig(cfg)
 		if err != nil {
 			klog.Fatalf("Error building kubernetes clientset: %s", err.Error())
@@ -188,7 +195,7 @@ var ontapcvoCmd = &cobra.Command{
 				allLabels := profile.Labels
 				for k, v := range allLabels {
 					if k == ontapLabel {
-						if !secretExists() {
+						if !secretExists(kubeClient) {
 							// if the secret does not exist, then do API call to create user
 							createUser()
 						}
