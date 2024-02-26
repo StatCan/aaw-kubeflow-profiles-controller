@@ -2,21 +2,23 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/base64"
 	"log"
 	"strings"
 	"time"
 
+	azidentity "github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	kubeflowv1 "github.com/StatCan/profiles-controller/pkg/apis/kubeflow/v1"
 	"github.com/StatCan/profiles-controller/pkg/controllers/profiles"
 	kubeflowclientset "github.com/StatCan/profiles-controller/pkg/generated/clientset/versioned"
 	kubeflowinformers "github.com/StatCan/profiles-controller/pkg/generated/informers/externalversions"
 	"github.com/StatCan/profiles-controller/pkg/signals"
+	msgraphsdk "github.com/microsoftgraph/msgraph-sdk-go"
+	users "github.com/microsoftgraph/msgraph-sdk-go/users"
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
-	v1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
 )
@@ -43,19 +45,6 @@ func handleError(err error) {
 }
 
 // remnant of blob-csi keeping in case useful
-func extractConfigMapData(configMapLister v1.ConfigMapLister, cmName string) []BucketData {
-	configMapData, err := configMapLister.ConfigMaps(DasNamespaceName).Get(FdiConfigurationCMName)
-	if err != nil {
-		klog.Info("ConfigMap doesn't exist")
-	}
-	var bucketData []BucketData
-	if err := json.Unmarshal([]byte(configMapData.Data[cmName+".json"]), &bucketData); err != nil {
-		klog.Info(err)
-	}
-	return bucketData
-}
-
-// remnant of blob-csi keeping in case useful
 // name/namespace -> (name, namespace)
 func parseSecret(name string) (string, string) {
 	// <name>/<namespace> or <name> => <name>/default
@@ -75,7 +64,35 @@ This will be called with the information of the Cloud AD to create a good S3 Use
 https://docs.netapp.com/us-en/ontap-restapi/ontap/protocols_s3_services_svm.uuid_users_endpoint_overview.html#creating-an-s3-user-configuration
 In addition to creating a user, this may also need to create the secret from the response given.
 */
-func createUser(ownerEmail string, namespaceStr string) {
+func createUser(ownerEmail string, namespaceStr string, client *kubernetes.Clientset) {
+	// Step 0 Get the App Registration Info
+	secret, _ := client.CoreV1().Secrets("namespacehere").Get(context.Background(), "secretName", metav1.GetOptions{})
+	TENANT_ID, _ := base64.StdEncoding.DecodeString(string(secret.Data["TENANT_ID"]))
+	CLIENT_ID, _ := base64.StdEncoding.DecodeString(string(secret.Data["CLIENT_ID"]))
+	CLIENT_SECRET, _ := base64.StdEncoding.DecodeString(string(secret.Data["CLIENT_SECRET"]))
+
+	// Step 1 is authenticating with Azure to get the `onPremisesSamAccountName` to be used as an S3 user
+	cred, _ := azidentity.NewClientSecretCredential( // fill this out with values later
+		string(TENANT_ID),
+		string(CLIENT_ID),
+		string(CLIENT_SECRET),
+		nil,
+	)
+
+	graphClient, _ := msgraphsdk.NewGraphServiceClientWithCredentials(
+		cred, []string{"https://graph.microsoft.com/.default"})
+
+	query := users.UserItemRequestBuilderGetQueryParameters{
+		Select: []string{"onPremisesSamAccountName"},
+	}
+
+	options := users.UserItemRequestBuilderGetRequestConfiguration{
+		QueryParameters: &query,
+	}
+	result, _ := graphClient.Users().ByUserId(ownerEmail).Get(context.Background(), &options)
+	onPremAccountName := result.GetOnPremisesSamAccountName()
+
+	// Now that we have onPremAccountName we can create an S3
 
 }
 
@@ -93,7 +110,6 @@ func secretExists(client *kubernetes.Clientset) bool {
 		klog.Infof("Found the secret")
 		return true
 	}
-
 	// Not found
 	return false
 }
@@ -156,7 +172,7 @@ var ontapcvoCmd = &cobra.Command{
 						if !secretExists(kubeClient) {
 							// if the secret does not exist, then do API call to create user
 							klog.Infof("Secret for " + profile.Name + " not found. Creating User")
-							createUser(profile.Spec.Owner.Name, profile.Name)
+							createUser(profile.Spec.Owner.Name, profile.Name, kubeClient)
 						}
 						// Secret does exist do nothing, or for future iteration can check for expiration date
 						if checkExpired(v) {
