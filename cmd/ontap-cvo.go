@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -16,6 +19,7 @@ import (
 	msgraphsdk "github.com/microsoftgraph/msgraph-sdk-go"
 	users "github.com/microsoftgraph/msgraph-sdk-go/users"
 	"github.com/spf13/cobra"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -34,7 +38,11 @@ For mounting there are a lot of helpful useful functions in `blob-csi.go` that w
 
 const ontapLabel = "ontap-cvo"
 
-//const automountLabel = "blob.aaw.statcan.gc.ca/automount"
+// const automountLabel = "blob.aaw.statcan.gc.ca/automount"
+type s3keys struct {
+	AccessKey string `json:"access_key"`
+	SecretKey string `json:"secret_key"`
+}
 
 // helper for logging errors
 // remnant of blob-csi keeping in case useful (this one i think for sure)
@@ -66,7 +74,7 @@ In addition to creating a user, this may also need to create the secret from the
 */
 func createUser(ownerEmail string, namespaceStr string, client *kubernetes.Clientset) {
 	// Step 0 Get the App Registration Info
-	secret, _ := client.CoreV1().Secrets("namespacehere").Get(context.Background(), "secretName", metav1.GetOptions{})
+	secret, _ := client.CoreV1().Secrets("appnamespacehere").Get(context.Background(), "secretName", metav1.GetOptions{})
 	TENANT_ID, _ := base64.StdEncoding.DecodeString(string(secret.Data["TENANT_ID"]))
 	CLIENT_ID, _ := base64.StdEncoding.DecodeString(string(secret.Data["CLIENT_ID"]))
 	CLIENT_SECRET, _ := base64.StdEncoding.DecodeString(string(secret.Data["CLIENT_SECRET"]))
@@ -92,8 +100,42 @@ func createUser(ownerEmail string, namespaceStr string, client *kubernetes.Clien
 	result, _ := graphClient.Users().ByUserId(ownerEmail).Get(context.Background(), &options)
 	onPremAccountName := result.GetOnPremisesSamAccountName()
 
-	// Now that we have onPremAccountName we can create an S3
+	// Now that we have onPremAccountName we can create an S3 using POST
+	//Encode the data
+	postBody, _ := json.Marshal(map[string]string{
+		"name": *onPremAccountName,
+	})
+	//Leverage Go's HTTP Post function to make request
+	EARL := "https://<mgmt-ip>/api/protocols/s3/services/{svm.uuid}/users"
+	resp, err := http.Post(EARL, "application/json", bytes.NewBuffer(postBody))
+	//Handle Error
+	if err != nil {
+		log.Fatalf("An Error Occured %v", err)
+	}
+	defer resp.Body.Close()
 
+	post := &s3keys{}
+	derr := json.NewDecoder(resp.Body).Decode(post)
+	if derr != nil {
+		panic(derr)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		panic(resp.Status)
+	}
+	// Now that we have the values for the keys put it into a secret in the namespace
+	usersecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "netAppSecret", // change to be a const later or something
+			Namespace: namespaceStr,
+		},
+		Data: map[string][]byte{
+			"S3_ACCESS": []byte(post.AccessKey),
+			"S3_SECRET": []byte(post.SecretKey),
+		},
+	}
+
+	client.CoreV1().Secrets(namespaceStr).Create(context.Background(), usersecret, metav1.CreateOptions{})
+	//fmt.Println(res["json"])
 }
 
 /*
