@@ -3,7 +3,6 @@ package cmd
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -16,7 +15,7 @@ import (
 	kubeflowinformers "github.com/StatCan/profiles-controller/pkg/generated/informers/externalversions"
 	"github.com/StatCan/profiles-controller/pkg/signals"
 	msgraphsdk "github.com/microsoftgraph/msgraph-sdk-go"
-	users "github.com/microsoftgraph/msgraph-sdk-go/users"
+	"github.com/microsoftgraph/msgraph-sdk-go/users"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -51,22 +50,29 @@ In addition to creating a user, this may also need to create the secret from the
 */
 func createUser(ownerEmail string, namespaceStr string, client *kubernetes.Clientset) bool {
 	// Step 0 Get the App Registration Info
-	secret, _ := client.CoreV1().Secrets("jose-matsuda").Get(context.Background(), "netapp-regi-secret", metav1.GetOptions{})
-	TENANT_ID, _ := base64.StdEncoding.DecodeString(string(secret.Data["TENANT_ID"]))
-	CLIENT_ID, _ := base64.StdEncoding.DecodeString(string(secret.Data["CLIENT_ID"]))
-	CLIENT_SECRET, _ := base64.StdEncoding.DecodeString(string(secret.Data["CLIENT_SECRET"]))
+	secret, err := client.CoreV1().Secrets("jose-matsuda").Get(context.Background(), "netapp-regi-secret", metav1.GetOptions{})
+	if err != nil {
+		log.Fatalf("An Error Occured while getting new regi %v", err)
+	}
+	klog.Info(secret.Data)
+	klog.Info(string(secret.Data["TENANT_ID"]))
+	TENANT_ID := string(secret.Data["TENANT_ID"])
+	CLIENT_ID := string(secret.Data["CLIENT_ID"])
+	CLIENT_SECRET := string(secret.Data["CLIENT_SECRET"])
 
-	klog.Infof("TENANT ID DECODED:" + string(TENANT_ID))
 	// Step 1 is authenticating with Azure to get the `onPremisesSamAccountName` to be used as an S3 user
 	cred, _ := azidentity.NewClientSecretCredential( // fill this out with values later
-		string(TENANT_ID),
-		string(CLIENT_ID),
-		string(CLIENT_SECRET),
+		TENANT_ID,
+		CLIENT_ID,
+		CLIENT_SECRET,
 		nil,
 	)
 
-	graphClient, _ := msgraphsdk.NewGraphServiceClientWithCredentials(
+	graphClient, err := msgraphsdk.NewGraphServiceClientWithCredentials(
 		cred, []string{"https://graph.microsoft.com/.default"})
+	if err != nil {
+		klog.Infof("graph client error: %v", err)
+	}
 
 	query := users.UserItemRequestBuilderGetQueryParameters{
 		Select: []string{"onPremisesSamAccountName"},
@@ -75,10 +81,16 @@ func createUser(ownerEmail string, namespaceStr string, client *kubernetes.Clien
 	options := users.UserItemRequestBuilderGetRequestConfiguration{
 		QueryParameters: &query,
 	}
-	result, _ := graphClient.Users().ByUserId(ownerEmail).Get(context.Background(), &options)
+	klog.Info("Before using graph client, owner email is: " + ownerEmail)
+	result, err := graphClient.Users().ByUserId(ownerEmail).Get(context.Background(), &options) //dies here
+	if err != nil {
+		klog.Fatalf("An Error Occured while trying to retrieve on prem name: %v", err)
+	}
+	klog.Info("Got a result atttempting to print:")
 	onPremAccountName := result.GetOnPremisesSamAccountName()
 
-	klog.Infof("On Prem account name retrieved:" + *onPremAccountName)
+	klog.Infof("On Prem account name retrieved:")
+	klog.Infof(*onPremAccountName)
 
 	// Now that we have onPremAccountName we can create an S3 using POST
 	//Encode the data
