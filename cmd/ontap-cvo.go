@@ -132,11 +132,12 @@ func secretExists(client *kubernetes.Clientset, profileName string) bool {
 	_, err := client.CoreV1().Secrets(profileName).Get(context.Background(), "netapp-connect-secret", metav1.GetOptions{})
 	if err != nil {
 		// Then we found it? Confirm this
-		klog.Infof("Found the secret")
-		return true
+		klog.Infof("Error found, possbily secret not found")
+		return false
 	}
 	// Not found
-	return false
+	klog.Infof("Found the secret")
+	return true
 }
 
 /*
@@ -198,7 +199,7 @@ var ontapcvoCmd = &cobra.Command{
 						// Secret does exist do nothing, or for future iteration can check for expiration date
 						if checkExpired(v) {
 							// Do things, but for first iteration may not care.
-							klog.Infof("Expired, but not going to do anything yet")
+							//klog.Infof("Expired, but not going to do anything yet")
 						}
 					}
 				} // End iterating through labels on profile
