@@ -49,13 +49,14 @@ This will be called with the information of the Cloud AD to create a good S3 Use
 https://docs.netapp.com/us-en/ontap-restapi/ontap/protocols_s3_services_svm.uuid_users_endpoint_overview.html#creating-an-s3-user-configuration
 In addition to creating a user, this may also need to create the secret from the response given.
 */
-func createUser(ownerEmail string, namespaceStr string, client *kubernetes.Clientset) {
+func createUser(ownerEmail string, namespaceStr string, client *kubernetes.Clientset) bool {
 	// Step 0 Get the App Registration Info
-	secret, _ := client.CoreV1().Secrets("appnamespacehere").Get(context.Background(), "secretName", metav1.GetOptions{})
+	secret, _ := client.CoreV1().Secrets("jose-matsuda").Get(context.Background(), "netapp-regi-secret", metav1.GetOptions{})
 	TENANT_ID, _ := base64.StdEncoding.DecodeString(string(secret.Data["TENANT_ID"]))
 	CLIENT_ID, _ := base64.StdEncoding.DecodeString(string(secret.Data["CLIENT_ID"]))
 	CLIENT_SECRET, _ := base64.StdEncoding.DecodeString(string(secret.Data["CLIENT_SECRET"]))
 
+	klog.Infof("TENANT ID DECODED:" + string(TENANT_ID))
 	// Step 1 is authenticating with Azure to get the `onPremisesSamAccountName` to be used as an S3 user
 	cred, _ := azidentity.NewClientSecretCredential( // fill this out with values later
 		string(TENANT_ID),
@@ -77,12 +78,15 @@ func createUser(ownerEmail string, namespaceStr string, client *kubernetes.Clien
 	result, _ := graphClient.Users().ByUserId(ownerEmail).Get(context.Background(), &options)
 	onPremAccountName := result.GetOnPremisesSamAccountName()
 
+	klog.Infof("On Prem account name retrieved:" + *onPremAccountName)
+
 	// Now that we have onPremAccountName we can create an S3 using POST
 	//Encode the data
 	postBody, _ := json.Marshal(map[string]string{
 		"name": *onPremAccountName,
 	})
 	//Leverage Go's HTTP Post function to make request
+	return false
 	EARL := "https://<mgmt-ip>/api/protocols/s3/services/{svm.uuid}/users"
 	resp, err := http.Post(EARL, "application/json", bytes.NewBuffer(postBody))
 	//Handle Error
@@ -102,7 +106,7 @@ func createUser(ownerEmail string, namespaceStr string, client *kubernetes.Clien
 	// Now that we have the values for the keys put it into a secret in the namespace
 	usersecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "netAppSecret", // change to be a const later or something
+			Name:      "netapp-connect-secret", // change to be a const later or something
 			Namespace: namespaceStr,
 		},
 		Data: map[string][]byte{
@@ -113,17 +117,19 @@ func createUser(ownerEmail string, namespaceStr string, client *kubernetes.Clien
 
 	client.CoreV1().Secrets(namespaceStr).Create(context.Background(), usersecret, metav1.CreateOptions{})
 	//fmt.Println(res["json"])
+	return true
 }
 
 /*
 This will check for a specific secret, and if found return true
 Needs to take in profile information and then look for our specific secret
 */
-func secretExists(client *kubernetes.Clientset) bool {
+func secretExists(client *kubernetes.Clientset, profileName string) bool {
 	// We don't actually need secret informers, since informers look at changes in state
 	// https://www.macias.info/entry/202109081800_k8s_informers.md
 	// We only care about err, so no need for secret, err
-	_, err := client.CoreV1().Secrets("namespacehere").Get(context.Background(), "secretName", metav1.GetOptions{})
+	klog.Infof("Searching for secret")
+	_, err := client.CoreV1().Secrets(profileName).Get(context.Background(), "netapp-connect-secret", metav1.GetOptions{})
 	if err != nil {
 		// Then we found it? Confirm this
 		klog.Infof("Found the secret")
@@ -151,7 +157,7 @@ var ontapcvoCmd = &cobra.Command{
 		// Setup signals so we can shutdown cleanly
 		stopCh := signals.SetupSignalHandler()
 
-		// Create Kubernetes c onfig
+		// Create Kubernetes config
 		cfg, err := clientcmd.BuildConfigFromFlags(apiserver, kubeconfig)
 		if err != nil {
 			klog.Fatalf("error building kubeconfig: %v", err)
@@ -177,21 +183,17 @@ var ontapcvoCmd = &cobra.Command{
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
 			func(profile *kubeflowv1.Profile) error {
-				/*
-					Now that we have the profile what is our order of business?
-					List labels and check for a label, if it has the label then check if there is a secret.
-					check secret go here, if they have one then can assume they have everything set up.
-					implementation below...
-				*/
-
 				// Get all the Labels and iterate trying to find label
 				allLabels := profile.Labels
 				for k, v := range allLabels {
 					if k == ontapLabel {
-						if !secretExists(kubeClient) {
+						if !secretExists(kubeClient, profile.Name) {
 							// if the secret does not exist, then do API call to create user
 							klog.Infof("Secret for " + profile.Name + " not found. Creating User")
-							createUser(profile.Spec.Owner.Name, profile.Name, kubeClient)
+							wasSuccessful := createUser(profile.Spec.Owner.Name, profile.Name, kubeClient)
+							if !wasSuccessful {
+								klog.Info("Was unable to create S3 user")
+							}
 						}
 						// Secret does exist do nothing, or for future iteration can check for expiration date
 						if checkExpired(v) {
