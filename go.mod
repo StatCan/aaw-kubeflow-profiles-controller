@@ -5,9 +5,11 @@ module github.com/StatCan/profiles-controller
 go 1.19
 
 require (
+	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.5.1
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.1.0
 	github.com/argoproj/argo-cd/v2 v2.8.4
 	github.com/lib/pq v1.10.5
+	github.com/microsoftgraph/msgraph-sdk-go v1.34.0
 	github.com/spf13/cobra v1.7.0
 	istio.io/api v0.0.0-20220127171628-dd6bd11b8b31
 	istio.io/client-go v1.12.2
@@ -22,7 +24,6 @@ require (
 	cloud.google.com/go/compute v1.19.1 // indirect
 	cloud.google.com/go/compute/metadata v0.2.3 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.9.2 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.5.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.5.2 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20210617225240-d185dfc1b5a1 // indirect
 	github.com/Azure/go-autorest v14.2.0+incompatible // indirect
@@ -99,7 +100,6 @@ require (
 	github.com/microsoft/kiota-serialization-json-go v1.0.6 // indirect
 	github.com/microsoft/kiota-serialization-multipart-go v1.0.0 // indirect
 	github.com/microsoft/kiota-serialization-text-go v1.0.0 // indirect
-	github.com/microsoftgraph/msgraph-sdk-go v1.34.0 // indirect
 	github.com/microsoftgraph/msgraph-sdk-go-core v1.0.2 // indirect
 	github.com/mitchellh/go-wordwrap v1.0.0 // indirect
 	github.com/moby/spdystream v0.2.0 // indirect
