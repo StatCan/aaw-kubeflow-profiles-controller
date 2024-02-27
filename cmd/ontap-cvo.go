@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	azidentity "github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -42,28 +41,6 @@ const ontapLabel = "ontap-cvo"
 type s3keys struct {
 	AccessKey string `json:"access_key"`
 	SecretKey string `json:"secret_key"`
-}
-
-// helper for logging errors
-// remnant of blob-csi keeping in case useful (this one i think for sure)
-func handleError(err error) {
-	if err != nil {
-		log.Panic(err)
-	}
-}
-
-// remnant of blob-csi keeping in case useful
-// name/namespace -> (name, namespace)
-func parseSecret(name string) (string, string) {
-	// <name>/<namespace> or <name> => <name>/default
-	secretName := name
-	secretNamespace := "ontapns"
-	if strings.Contains(name, "/") {
-		split := strings.Split(name, "/")
-		secretName = split[0]
-		secretNamespace = split[1]
-	}
-	return secretName, secretNamespace
 }
 
 /*
