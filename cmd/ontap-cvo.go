@@ -36,7 +36,18 @@ For mounting there are a lot of helpful useful functions in `blob-csi.go` that w
 const ontapLabel = "ontap-cvo"
 
 // const automountLabel = "blob.aaw.statcan.gc.ca/automount"
-type s3keys struct {
+type s3keys struct { // i doubt this works
+	AccessKey string `json:"access_key"`
+	SecretKey string `json:"secret_key"`
+}
+
+type createUserResponse struct {
+	numRecords int         `json:"num_records"`
+	records    []s3KeysObj `json:"records"`
+}
+
+type s3KeysObj struct {
+	name      string `json:"name"`
 	AccessKey string `json:"access_key"`
 	SecretKey string `json:"secret_key"`
 }
@@ -68,7 +79,8 @@ func createUser(onPremName string, namespaceStr string, client *kubernetes.Clien
 	}
 	defer resp.Body.Close()
 
-	post := &s3keys{}
+	//post := &s3keys{}
+	post := &createUserResponse{}
 	derr := json.NewDecoder(resp.Body).Decode(post)
 	if derr != nil {
 		panic(derr)
@@ -83,8 +95,8 @@ func createUser(onPremName string, namespaceStr string, client *kubernetes.Clien
 			Namespace: namespaceStr,
 		},
 		Data: map[string][]byte{
-			"S3_ACCESS": []byte(post.AccessKey),
-			"S3_SECRET": []byte(post.SecretKey),
+			"S3_ACCESS": []byte(post.records[0].AccessKey),
+			"S3_SECRET": []byte(post.records[0].SecretKey),
 		},
 	}
 
