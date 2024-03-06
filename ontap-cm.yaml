@@ -2,12 +2,13 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ontap-filer-connection-info
+  name: netapp-filer-connection-info
   namespace: netapp
 data:
   # In this configmap we will have the management IPs listed as well as the various filers and their uuids
-  management_ip: "..."
-  fld9filersvm: "..."
+  management_ip: "uid"
+  fld9filersvm: "uid"
+  SASFilerssvm: "uid" # this will fail 
 
 ---
 ### Sample Configmap
@@ -22,3 +23,17 @@ metadata:
   namespace: test-user
 data:
   fld9filer: "..."
+
+---
+# Sample profile to apply on dev to trigger
+apiVersion: kubeflow.org/v1
+kind: Profile
+metadata:
+  labels:
+    ontap-cvo: "doesnt-matter"
+  name: jose-test-w-mathis
+spec:
+  owner:
+    kind: User
+    name: mathis.marcotte@statcan.gc.ca
+  resourceQuotaSpec: {}

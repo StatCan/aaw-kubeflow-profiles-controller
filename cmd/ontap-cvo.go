@@ -47,67 +47,20 @@ This will be called with the information of the Cloud AD to create a good S3 Use
 https://docs.netapp.com/us-en/ontap-restapi/ontap/protocols_s3_services_svm.uuid_users_endpoint_overview.html#creating-an-s3-user-configuration
 In addition to creating a user, this may also need to create the secret from the response given.
 */
-func createUser(ownerEmail string, namespaceStr string, client *kubernetes.Clientset) bool {
-	// Step 0 Get the App Registration Info
-	secret, err := client.CoreV1().Secrets(namespaceStr).Get(context.Background(), "netapp-regi-secret", metav1.GetOptions{})
-	if err != nil {
-		klog.Infof("An Error Occured while getting registration secret %v", err)
-		return false
-	}
-
-	TENANT_ID := string(secret.Data["TENANT_ID"])
-	CLIENT_ID := string(secret.Data["CLIENT_ID"])
-	CLIENT_SECRET := string(secret.Data["CLIENT_SECRET"])
-
-	// Step 1 is authenticating with Azure to get the `onPremisesSamAccountName` to be used as an S3 user
-	cred, err := azidentity.NewClientSecretCredential( // fill this out with values later
-		TENANT_ID,
-		CLIENT_ID,
-		CLIENT_SECRET,
-		nil,
-	)
-	if err != nil {
-		klog.Infof("client credential error: %v", err)
-		return false
-	}
-
-	graphClient, err := msgraphsdk.NewGraphServiceClientWithCredentials(
-		cred, []string{"https://graph.microsoft.com/.default"})
-	if err != nil {
-		klog.Infof("graph client error: %v", err)
-		return false
-	}
-
-	query := users.UserItemRequestBuilderGetQueryParameters{
-		Select: []string{"onPremisesSamAccountName"},
-	}
-
-	options := users.UserItemRequestBuilderGetRequestConfiguration{
-		QueryParameters: &query,
-	}
-
-	result, err := graphClient.Users().ByUserId(ownerEmail).Get(context.Background(), &options)
-	if err != nil {
-		klog.Infof("An Error Occured while trying to retrieve on prem name: %v", err)
-		return false
-	}
-
-	onPremAccountName := result.GetOnPremisesSamAccountName()
-	if onPremAccountName == nil {
-		klog.Infof("No on prem name found for user: %s", ownerEmail)
-		return false
-	}
-
-	// Now that we have onPremAccountName we can create an S3 using POST
+func createUser(onPremName string, namespaceStr string, client *kubernetes.Clientset, filerStr string) bool {
 	//Encode the data
 	postBody, _ := json.Marshal(map[string]string{
-		"name": *onPremAccountName,
+		"name": onPremName,
 	})
 	//Leverage Go's HTTP Post function to make request
-	return false
 
-	// The other part to this is needing to have manage different IPs from a main CM as well as svm uuid
-	url := "https://<mgmt-ip>/api/protocols/s3/services/{svm.uuid}/users"
+	// Need to look at the configmap that contains the main source of data for SVM uuids and match
+	netappCm, _ := client.CoreV1().ConfigMaps("netapp").Get(context.Background(), "netapp-filer-connection-info", metav1.GetOptions{})
+	// Retrieve managementIP, question is does it matter which one is used
+	managementIP := netappCm.Data["management_ip"]
+	filerUUID := netappCm.Data[filerStr+"svm"]
+	// ^ this will fail if it doesnt follow the filerStr+svm, which is the case for some SAS filers.
+	url := "https://" + managementIP + "/api/protocols/s3/services/" + filerUUID + "/users"
 	resp, err := http.Post(url, "application/json", bytes.NewBuffer(postBody))
 	//Handle Error
 	if err != nil {
@@ -126,7 +79,7 @@ func createUser(ownerEmail string, namespaceStr string, client *kubernetes.Clien
 	// Now that we have the values for the keys put it into a secret in the namespace
 	usersecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "netapp-connect-secret", // change to be a const later or something
+			Name:      filerStr + "-conn-secret", // change to be a const later or something
 			Namespace: namespaceStr,
 		},
 		Data: map[string][]byte{
@@ -145,28 +98,86 @@ func createUser(ownerEmail string, namespaceStr string, client *kubernetes.Clien
 }
 
 /*
+This will get the onPremName given the owner email
+*/
+func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, bool) {
+	// Step 0 Get the App Registration Info
+	// Don't forget to create a secret in the namespace for authentication with azure in the namespace
+	// for me in aaw-dev its under jose-matsuda
+	secret, err := client.CoreV1().Secrets("netapp").Get(context.Background(), "netapp-regi-secret", metav1.GetOptions{})
+	if err != nil {
+		klog.Infof("An Error Occured while getting registration secret %v", err)
+		return "haha", false
+	}
+
+	TENANT_ID := string(secret.Data["TENANT_ID"])
+	CLIENT_ID := string(secret.Data["CLIENT_ID"])
+	CLIENT_SECRET := string(secret.Data["CLIENT_SECRET"])
+
+	// Step 1 is authenticating with Azure to get the `onPremisesSamAccountName` to be used as an S3 user
+	cred, err := azidentity.NewClientSecretCredential( // fill this out with values later
+		TENANT_ID,
+		CLIENT_ID,
+		CLIENT_SECRET,
+		nil,
+	)
+	if err != nil {
+		klog.Infof("client credential error: %v", err)
+		return "haha", false
+	}
+
+	graphClient, err := msgraphsdk.NewGraphServiceClientWithCredentials(
+		cred, []string{"https://graph.microsoft.com/.default"})
+	if err != nil {
+		klog.Infof("graph client error: %v", err)
+		return "haha", false
+	}
+
+	query := users.UserItemRequestBuilderGetQueryParameters{
+		Select: []string{"onPremisesSamAccountName"},
+	}
+
+	options := users.UserItemRequestBuilderGetRequestConfiguration{
+		QueryParameters: &query,
+	}
+
+	result, err := graphClient.Users().ByUserId(ownerEmail).Get(context.Background(), &options)
+	if err != nil {
+		klog.Infof("An Error Occured while trying to retrieve on prem name: %v", err)
+		return "haha", false
+	}
+
+	onPremAccountName := result.GetOnPremisesSamAccountName()
+	if onPremAccountName == nil {
+		klog.Infof("No on prem name found for user: %s", ownerEmail)
+		return "haha", false
+	}
+	return *onPremAccountName, true
+}
+
+/*
 This will check for a specific secret, and if found return true
 Needs to take in profile information and then look for our specific secret
 The user will have multiple secrets for S3 in their namespace, and we need to check for all of them.
 */
-func secretExists(client *kubernetes.Clientset, profileName string) bool {
+func secretExists(client *kubernetes.Clientset, profileName string, profileEmail string) bool {
 	// We don't actually need secret informers, since informers look at changes in state
 	// https://www.macias.info/entry/202109081800_k8s_informers.md
 	// Get a list of secrets the user namespace should have accounts for using the configmap
 	klog.Infof("Searching for secrets for " + profileName)
-	filers, err := client.CoreV1().ConfigMaps(profileName).Get(context.Background(), "user-filers-cm", metav1.GetOptions{})
+	filers, _ := client.CoreV1().ConfigMaps(profileName).Get(context.Background(), "user-filers-cm", metav1.GetOptions{})
 	for k, _ := range filers.Data {
 		// have to iterate and check secrets
 		klog.Infof("Searching for: " + k + "-conn-secret")
 		_, err := client.CoreV1().Secrets(profileName).Get(context.Background(), k+"-conn-secret", metav1.GetOptions{})
-	}
-
-	// We only care about err, so no need for secret, err
-	_, err := client.CoreV1().Secrets(profileName).Get(context.Background(), "netapp-connect-secret", metav1.GetOptions{})
-	if err != nil {
-		// Then we found it? Confirm this
-		klog.Infof("Error found, possbily secret not found")
-		return false
+		klog.Infof("Error found, possbily secret not found:" + err.Error())
+		// Get the OnPremName
+		onPremName, _ := getOnPrem(profileEmail, client)
+		// Create the user
+		wasSuccessful := createUser(onPremName, profileName, client, k)
+		if !wasSuccessful {
+			klog.Info("Unable to create S3 user")
+		}
 	}
 	// Not found
 	klog.Infof("Found the secret")
@@ -227,14 +238,9 @@ var ontapcvoCmd = &cobra.Command{
 				allLabels := profile.Labels
 				for k, v := range allLabels {
 					if k == ontapLabel {
-						if !secretExists(kubeClient, profile.Name) {
-							// if the secret does not exist, then do API call to create user
-							klog.Infof("Secret for " + profile.Name + " not found. Creating User")
-							wasSuccessful := createUser(profile.Spec.Owner.Name, profile.Name, kubeClient)
-							if !wasSuccessful {
-								klog.Info("Was unable to create S3 user")
-							}
-						}
+						secretExists(kubeClient, profile.Name, profile.Spec.Owner.Name)
+						// if the secret does not exist, then do API call to create user
+						//klog.Infof("Secret for " + profile.Name + " not found. Creating User")
 						// Secret does exist do nothing, or for future iteration can check for expiration date
 						if checkExpired(v) {
 							// Do things, but for first iteration may not care.
