@@ -49,7 +49,7 @@ In addition to creating a user, this may also need to create the secret from the
 */
 func createUser(ownerEmail string, namespaceStr string, client *kubernetes.Clientset) bool {
 	// Step 0 Get the App Registration Info
-	secret, err := client.CoreV1().Secrets("jose-matsuda").Get(context.Background(), "netapp-regi-secret", metav1.GetOptions{})
+	secret, err := client.CoreV1().Secrets(namespaceStr).Get(context.Background(), "netapp-regi-secret", metav1.GetOptions{})
 	if err != nil {
 		klog.Infof("An Error Occured while getting registration secret %v", err)
 		return false
@@ -105,6 +105,8 @@ func createUser(ownerEmail string, namespaceStr string, client *kubernetes.Clien
 	})
 	//Leverage Go's HTTP Post function to make request
 	return false
+
+	// The other part to this is needing to have manage different IPs from a main CM as well as svm uuid
 	url := "https://<mgmt-ip>/api/protocols/s3/services/{svm.uuid}/users"
 	resp, err := http.Post(url, "application/json", bytes.NewBuffer(postBody))
 	//Handle Error
@@ -145,12 +147,21 @@ func createUser(ownerEmail string, namespaceStr string, client *kubernetes.Clien
 /*
 This will check for a specific secret, and if found return true
 Needs to take in profile information and then look for our specific secret
+The user will have multiple secrets for S3 in their namespace, and we need to check for all of them.
 */
 func secretExists(client *kubernetes.Clientset, profileName string) bool {
 	// We don't actually need secret informers, since informers look at changes in state
 	// https://www.macias.info/entry/202109081800_k8s_informers.md
+	// Get a list of secrets the user namespace should have accounts for using the configmap
+	klog.Infof("Searching for secrets for " + profileName)
+	filers, err := client.CoreV1().ConfigMaps(profileName).Get(context.Background(), "user-filers-cm", metav1.GetOptions{})
+	for k, _ := range filers.Data {
+		// have to iterate and check secrets
+		klog.Infof("Searching for: " + k + "-conn-secret")
+		_, err := client.CoreV1().Secrets(profileName).Get(context.Background(), k+"-conn-secret", metav1.GetOptions{})
+	}
+
 	// We only care about err, so no need for secret, err
-	klog.Infof("Searching for secret")
 	_, err := client.CoreV1().Secrets(profileName).Get(context.Background(), "netapp-connect-secret", metav1.GetOptions{})
 	if err != nil {
 		// Then we found it? Confirm this
@@ -201,6 +212,12 @@ var ontapcvoCmd = &cobra.Command{
 		// kubeflow informer is necessary for watching profile updates
 		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*(time.Duration(requeue_time)))
 		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*(time.Duration(requeue_time)))
+
+		// Retrieve Information from configmaps
+		// I don't think I need informers, im not watching for updates, this thing watches on profiles anyways and can just
+		// get the information when I need it
+		//configMapInformer := kubeInformerFactory.Core().V1().ConfigMaps()
+		//configMapLister := configMapInformer.Lister()
 
 		// Setup controller
 		controller := profiles.NewController(
