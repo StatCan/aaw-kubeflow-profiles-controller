@@ -95,6 +95,8 @@ func createUser(onPremName string, namespaceStr string, client *kubernetes.Clien
 			Namespace: namespaceStr,
 		},
 		Data: map[string][]byte{
+			// this [0] seems a bit suspect but we will see how it works for now I don't know
+			// I don't think the S3 account will be used multiple times or anything
 			"S3_ACCESS": []byte(post.records[0].AccessKey),
 			"S3_SECRET": []byte(post.records[0].SecretKey),
 		},
