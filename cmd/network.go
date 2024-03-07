@@ -210,14 +210,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 						{
 							NamespaceSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{
-									"namespace.statcan.gc.ca/purpose": "system",
-								},
-							},
-						},
-						{
-							NamespaceSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{
-									"namespace.statcan.gc.ca/purpose": "daaas",
+									"namespace.statcan.gc.ca/purpose": "solution",
 								},
 							},
 						},
@@ -982,6 +975,33 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 				},
 			},
 		},
+	})
+
+	// allow ingress from kubeflow
+	policies = append(policies, &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "allow-ingress-kubeflow-gateway",
+			Namespace: profile.Name,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+			},
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: *&metav1.LabelSelector{},
+			Ingress: []networkingv1.NetworkPolicyIngressRule{
+				{
+					From: []networkingv1.NetworkPolicyPeer{
+						{
+							NamespaceSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"kubernetes.io/metadata.name": "ingress-kubeflow",
+								},
+							},
+						}
+					},
+				}
+			},
+		}
 	})
 
 	return policies
