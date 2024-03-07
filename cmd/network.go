@@ -169,7 +169,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 	protocolTCP := corev1.ProtocolTCP
 	portNotebook := intstr.FromString("notebook-port")
 
-	// Allow ingress from the ingress gateway
+	// Allow kubeflow to notebooks
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "notebooks-allow-system-to-notebook",
@@ -210,43 +210,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		},
 	})
 
-	// Allow ingress from knative-serving
-	policies = append(policies, &networkingv1.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "allow-ingress-from-knative-serving",
-			Namespace: profile.Name,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
-			},
-		},
-		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "serving.knative.dev/service",
-						Operator: metav1.LabelSelectorOpExists,
-					},
-				},
-			},
-			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
-			Ingress: []networkingv1.NetworkPolicyIngressRule{
-				{
-					From: []networkingv1.NetworkPolicyPeer{
-						{
-							NamespaceSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{
-									"app.kubernetes.io/component": "knative-serving-install",
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	})
-
-	// Allow egress to 443 from protected-b workloads
-	// This is need for Azure authentication
+	// Allow egress to 443 from notebooks
 	portHTTPS := intstr.FromInt(443)
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -278,7 +242,6 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 						{
 							IPBlock: &networkingv1.IPBlock{
 								CIDR:   "0.0.0.0/0",
-								Except: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 							},
 						},
 					},
@@ -287,8 +250,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		},
 	})
 
-
-	// allow ingress from kubeflow
+	// Allow ingress from kubeflow gateway
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "allow-ingress-kubeflow-gateway",
