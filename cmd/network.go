@@ -210,7 +210,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 						{
 							NamespaceSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{
-									"namespace.statcan.gc.ca/purpose": "solution",
+									"namespace.statcan.gc.ca/purpose": "das",
 								},
 							},
 						},
