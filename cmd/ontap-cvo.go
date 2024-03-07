@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -63,19 +64,42 @@ func createUser(onPremName string, namespaceStr string, client *kubernetes.Clien
 	})
 	//Leverage Go's HTTP Post function to make request
 
-	// Need to look at the configmap that contains the main source of data for SVM uuids and match
-	netappCm, _ := client.CoreV1().ConfigMaps("netapp").Get(context.Background(), "netapp-filer-connection-info", metav1.GetOptions{})
-	// Retrieve managementIP, question is does it matter which one is used
-	managementIP := netappCm.Data["management_ip"]
+	// Retrieve cm containting SVM uuids and IPs
+	netappCm, err := client.CoreV1().ConfigMaps("netapp").Get(context.Background(), "netapp-filer-connection-info", metav1.GetOptions{})
+	if err != nil {
+		klog.Infof("An Error Occured while getting netapp filer connection info %v", err)
+		return false
+	}
 	filerUUID := netappCm.Data[filerStr+"svm"]
 	// ^ this will fail if it doesnt follow the filerStr+svm, which is the case for some SAS filers.
-	url := "https://" + managementIP + "/api/protocols/s3/services/" + filerUUID + "/users"
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(postBody))
-	//Handle Error
+	// Retrieve the management IP and user login information to authenticate with netapp API
+	secret, err := client.CoreV1().Secrets("netapp").Get(context.Background(), "netapp-management-information", metav1.GetOptions{})
 	if err != nil {
-		klog.Infof("An Error Occured while calling s3 services %v", err)
+		klog.Infof("An Error Occured while getting netapp management information secret %v", err)
+		return false
 	}
-	defer resp.Body.Close()
+
+	managementIP := string(secret.Data["management_ip"])
+	netappUser := string(secret.Data[filerStr+"_user"])
+	// netappUserAccess := string(secret.Data[filerStr+"_access"])
+	netappUserSecret := string(secret.Data[filerStr+"_secret"])
+
+	url := "https://" + managementIP + "/api/protocols/s3/services/" + filerUUID + "/users"
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(postBody))
+	req.Header.Set("Content-Type", "application/json")
+	// req.Header. // need to set other information
+	authorization := base64.StdEncoding.EncodeToString([]byte(netappUser + ":" + netappUserSecret)) // this must be confirmed)
+	req.Header.Set("Authorization", "Basic "+authorization)
+	// resp, err := http.Post(url, "application/json", bytes.NewBuffer(postBody)) // cant use this because http.post does not allow for additional headers
+	//Handle Error
+	/*if err != nil {
+		klog.Infof("An Error Occured while calling s3 services %v", err)
+	}*/
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		klog.Fatalf("error sending and returning HTTP response  : %v", err)
+	}
+	// defer resp.Body.Close() // unsure if needed?
 
 	//post := &s3keys{}
 	post := &createUserResponse{}
