@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"reflect"
-	"strconv"
 	"time"
 
 	kubeflowv1 "github.com/StatCan/profiles-controller/pkg/apis/kubeflow/v1"
@@ -105,7 +104,6 @@ var networkCmd = &cobra.Command{
 						}
 					}
 				}
-
 
 				for _, policy := range policies {
 					currentPolicy, err := networkPolicyLister.NetworkPolicies(policy.Namespace).Get(policy.Name)
@@ -241,7 +239,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 					To: []networkingv1.NetworkPolicyPeer{
 						{
 							IPBlock: &networkingv1.IPBlock{
-								CIDR:   "0.0.0.0/0",
+								CIDR: "0.0.0.0/0",
 							},
 						},
 					},
@@ -250,10 +248,10 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		},
 	})
 
-	// Allow ingress from kubeflow gateway
+	// allow ingress from kubeflow
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "allow-ingress-kubeflow-gateway",
+			Name:      "allow-ingress-kubeflow-gateway",
 			Namespace: profile.Name,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
@@ -270,11 +268,11 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 									"kubernetes.io/metadata.name": "ingress-kubeflow",
 								},
 							},
-						}
+						},
 					},
-				}
+				},
 			},
-		}
+		},
 	})
 
 	return policies
