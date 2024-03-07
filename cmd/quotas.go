@@ -25,12 +25,12 @@ import (
 
 var quotaPrefixLabel = "quotas.statcan.gc.ca/"
 var defaultResources = corev1.ResourceList{
-	"requests.cpu": *resource.NewQuantity(70, resource.DecimalSI),
-	"limits.cpu":   *resource.NewQuantity(70, resource.DecimalSI),
+	"requests.cpu": *resource.NewQuantity(8, resource.DecimalSI),
+	"limits.cpu":   *resource.NewQuantity(8, resource.DecimalSI),
 
 	// Memory
-	"requests.memory": *resource.NewScaledQuantity(368, resource.Giga),
-	"limits.memory":   *resource.NewScaledQuantity(368, resource.Giga),
+	"requests.memory": *resource.NewScaledQuantity(32, resource.Giga),
+	"limits.memory":   *resource.NewScaledQuantity(32, resource.Giga),
 
 	// Storage
 	"requests.storage": *resource.NewScaledQuantity(100, resource.Tera),
