@@ -25,15 +25,6 @@ import (
 	"k8s.io/klog"
 )
 
-/** Implementation Notes
-Currently strongly based on the blob-csi
-We will look for a label on the profile, and if it exists we will do the account creation via api call.
-That is step 1, eventually may also want the mounting to happen here but scoping to just account creation.
-
-For mounting there are a lot of helpful useful functions in `blob-csi.go` that we can re-use
-  like the building of the pv / pvc spec, the creation and deletion of them etc.
-*/
-
 const ontapLabel = "ontap-cvo"
 
 // const automountLabel = "blob.aaw.statcan.gc.ca/automount"
@@ -110,6 +101,7 @@ func createUser(onPremName string, namespaceStr string, client *kubernetes.Clien
 	if resp.StatusCode != http.StatusCreated {
 		panic(resp.Status)
 	}
+	// Still need the ADDRESS of the bucket
 	// Now that we have the values for the keys put it into a secret in the namespace
 	usersecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -119,6 +111,7 @@ func createUser(onPremName string, namespaceStr string, client *kubernetes.Clien
 		Data: map[string][]byte{
 			// this [0] seems a bit suspect but we will see how it works for now I don't know
 			// I don't think the S3 account will be used multiple times or anything
+			"S3_URL":    []byte("Asd"),
 			"S3_ACCESS": []byte(post.records[0].AccessKey),
 			"S3_SECRET": []byte(post.records[0].SecretKey),
 		},
