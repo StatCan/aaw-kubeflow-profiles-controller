@@ -89,10 +89,8 @@ func createArtifactorySecret(client *kubernetes.Clientset, ns string) {
 					Namespace: ns,
 				},
 				Data: map[string][]byte{
-					// this [0] seems a bit suspect but we will see how it works for now I don't know
-					// I don't think the S3 account will be used multiple times or anything
-					"Username": []byte(secret.Data["Username"]),
-					"Token":    []byte(secret.Data["Token"]),
+					"Username": (secret.Data["Username"]),
+					"Token":    (secret.Data["Token"]),
 				},
 			}
 
