@@ -53,7 +53,7 @@ var secretCmd = &cobra.Command{
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
 			func(profile *kubeflowv1.Profile) error {
-				createArtifactorySecret(kubeClient, profile.Spec.Owner.Name)
+				createArtifactorySecret(kubeClient, profile.Name)
 				return nil
 			},
 		)
@@ -79,7 +79,7 @@ func createArtifactorySecret(client *kubernetes.Clientset, ns string) {
 	_, err := client.CoreV1().Secrets(ns).Get(context.Background(), "artifactory-creds", metav1.GetOptions{})
 	if err != nil {
 		//Create the secret
-		klog.Infof("Creating artifactory-secret")
+		klog.Infof("Creating artifactory-secret in namespace %s", ns)
 		secret, err := client.CoreV1().Secrets("kubeflow").Get(context.Background(), "artifactory-creds", metav1.GetOptions{})
 		if err != nil {
 			// Now that we have the values for the keys put it into a secret in the namespace
@@ -97,6 +97,8 @@ func createArtifactorySecret(client *kubernetes.Clientset, ns string) {
 			_, err = client.CoreV1().Secrets(ns).Create(context.Background(), usersecret, metav1.CreateOptions{})
 			if err != nil {
 				klog.Infof("An Error Occured while creating the secret %v", err)
+			} else {
+				klog.Infof("Successfully created in %s", ns)
 			}
 		}
 	}
