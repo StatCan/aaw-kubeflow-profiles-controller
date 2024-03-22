@@ -111,7 +111,7 @@ func createUser(onPremName string, namespaceStr string, client *kubernetes.Clien
 		Data: map[string][]byte{
 			// this [0] seems a bit suspect but we will see how it works for now I don't know
 			// I don't think the S3 account will be used multiple times or anything
-			"S3_URL":    []byte(netappCm.Data[filerStr+"svm_ip"]), // note that this may need to be different fqdn?
+			"S3_URL":    []byte(netappCm.Data[filerStr+"_ip"]), // note that this may need to be different fqdn?
 			"S3_ACCESS": []byte(post.records[0].AccessKey),
 			"S3_SECRET": []byte(post.records[0].SecretKey),
 		},
@@ -195,9 +195,11 @@ func checkSecrets(client *kubernetes.Clientset, profileName string, profileEmail
 	// https://www.macias.info/entry/202109081800_k8s_informers.md
 	// Get a list of secrets the user namespace should have accounts for using the configmap
 	klog.Infof("Searching for secrets for " + profileName)
-	filers, _ := client.CoreV1().ConfigMaps(profileName).Get(context.Background(), "user-filers-cm", metav1.GetOptions{})
-	for k, _ := range filers.Data {
+	filers, _ := client.CoreV1().ConfigMaps(profileName).Get(context.Background(), "user-filers", metav1.GetOptions{})
+	for k := range filers.Data {
 		// have to iterate and check secrets
+		// The "key" that is populated into the user-filers is the exact name of the "vserver" from CLOUD-22166
+		// ex) fld6filersvm, stdcflr_sasfs10svm etc
 		klog.Infof("Searching for: " + k + "-conn-secret")
 		_, err := client.CoreV1().Secrets(profileName).Get(context.Background(), k+"-conn-secret", metav1.GetOptions{})
 		if err != nil {
