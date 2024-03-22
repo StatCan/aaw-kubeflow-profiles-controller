@@ -53,7 +53,7 @@ var secretCmd = &cobra.Command{
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
 			func(profile *kubeflowv1.Profile) error {
-				createArtifactorySecret(kubeClient, profile.Name)
+				createArtifactorySecret(kubeClient, profile.Name, profile)
 				return nil
 			},
 		)
@@ -75,10 +75,11 @@ var secretCmd = &cobra.Command{
 	},
 }
 
-func createArtifactorySecret(client *kubernetes.Clientset, ns string) {
+func createArtifactorySecret(client *kubernetes.Clientset, ns string, profile *kubeflowv1.Profile) {
 	_, err := client.CoreV1().Secrets(ns).Get(context.Background(), "artifactory-creds", metav1.GetOptions{})
+	// check if the secret already exists, if yes skip
 	if err != nil {
-		//Create the secret
+		// create the secret
 		klog.Infof("Creating artifactory-secret in namespace %s", ns)
 		secret, err := client.CoreV1().Secrets("das").Get(context.Background(), "artifactory-creds", metav1.GetOptions{})
 		if err != nil {
@@ -89,6 +90,9 @@ func createArtifactorySecret(client *kubernetes.Clientset, ns string) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "artifactory-creds",
 					Namespace: ns,
+					OwnerReferences: []metav1.OwnerReference{
+						*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+					},
 				},
 				Data: map[string][]byte{
 					"Username": (secret.Data["Username"]),
