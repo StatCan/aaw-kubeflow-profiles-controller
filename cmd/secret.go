@@ -108,7 +108,7 @@ func createArtifactorySecret(client *kubernetes.Clientset, ns string, profile *k
 			}
 		}
 	} else {
-		klog.Infof("failed to retrieve secrets in %s: %v", ns, err)
+		klog.Infof("Secret already exists in %s", ns)
 	}
 }
 
