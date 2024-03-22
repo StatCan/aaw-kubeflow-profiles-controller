@@ -80,7 +80,7 @@ func createArtifactorySecret(client *kubernetes.Clientset, ns string) {
 	if err != nil {
 		//Create the secret
 		klog.Infof("Creating artifactory-secret in namespace %s", ns)
-		secret, err := client.CoreV1().Secrets("kubeflow").Get(context.Background(), "artifactory-creds", metav1.GetOptions{})
+		secret, err := client.CoreV1().Secrets("kubeflow").Get(context.TODO(), "artifactory-creds", metav1.GetOptions{})
 		if err != nil {
 			// Now that we have the values for the keys put it into a secret in the namespace
 			usersecret := &corev1.Secret{
@@ -96,10 +96,12 @@ func createArtifactorySecret(client *kubernetes.Clientset, ns string) {
 
 			_, err = client.CoreV1().Secrets(ns).Create(context.Background(), usersecret, metav1.CreateOptions{})
 			if err != nil {
-				klog.Infof("An Error Occured while creating the secret %v", err)
+				klog.Infof("An Error Occured while creating the secret %v: ", err)
 			} else {
 				klog.Infof("Successfully created in %s", ns)
 			}
+		} else {
+			klog.Infof("An Error occured while retriving secret artifactory-secret %v: ", err)
 		}
 	}
 }
