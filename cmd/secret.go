@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	kubeflowv1 "github.com/StatCan/profiles-controller/pkg/apis/kubeflow/v1"
@@ -82,8 +81,9 @@ func createArtifactorySecret(client *kubernetes.Clientset, ns string) {
 		//Create the secret
 		klog.Infof("Creating artifactory-secret in namespace %s", ns)
 		secret, err := client.CoreV1().Secrets("das").Get(context.Background(), "artifactory-creds", metav1.GetOptions{})
-		fmt.Printf("secret: %v\n", secret)
-		if err == nil {
+		if err != nil {
+			klog.Infof("An Error occured while retriving secret artifactory-secret: %v", err)
+		} else {
 			// Now that we have the values for the keys put it into a secret in the namespace
 			usersecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
@@ -95,15 +95,13 @@ func createArtifactorySecret(client *kubernetes.Clientset, ns string) {
 					"Token":    (secret.Data["Token"]),
 				},
 			}
-
+			// Create secret copy
 			_, err = client.CoreV1().Secrets(ns).Create(context.Background(), usersecret, metav1.CreateOptions{})
 			if err != nil {
 				klog.Infof("An Error Occured while creating the secret: %v", err)
 			} else {
 				klog.Infof("Successfully created in %s", ns)
 			}
-		} else {
-			klog.Infof("An Error occured while retriving secret artifactory-secret: %v", err)
 		}
 	} else {
 		klog.Infof("failed to retrieve secrets in %s: %v", ns, err)
