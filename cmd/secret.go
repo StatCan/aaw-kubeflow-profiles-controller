@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	kubeflowv1 "github.com/StatCan/profiles-controller/pkg/apis/kubeflow/v1"
@@ -81,6 +82,7 @@ func createArtifactorySecret(client *kubernetes.Clientset, ns string) {
 		//Create the secret
 		klog.Infof("Creating artifactory-secret in namespace %s", ns)
 		secret, err := client.CoreV1().Secrets("das").Get(context.Background(), "artifactory-creds", metav1.GetOptions{})
+		fmt.Printf("secret: %v\n", secret)
 		if secret == nil && err == nil {
 			// Now that we have the values for the keys put it into a secret in the namespace
 			usersecret := &corev1.Secret{
