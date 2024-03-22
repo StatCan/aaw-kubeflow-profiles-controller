@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
 )
@@ -46,7 +47,7 @@ var secretCmd = &cobra.Command{
 		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*(time.Duration(requeue_time)))
 		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*(time.Duration(requeue_time)))
 
-		// secretInformer := kubeInformerFactory.Core().V1().Secrets()
+		secretInformer := kubeInformerFactory.Core().V1().Secrets()
 		// secretLister := secretInformer.Lister()
 
 		// Setup controller
@@ -58,15 +59,29 @@ var secretCmd = &cobra.Command{
 			},
 		)
 
+		secretInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+			UpdateFunc: func(old, new interface{}) {
+				newNP := new.(*corev1.Secret)
+				oldNP := old.(*corev1.Secret)
+
+				if newNP.ResourceVersion == oldNP.ResourceVersion {
+					return
+				}
+
+				controller.HandleObject(new)
+			},
+			DeleteFunc: controller.HandleObject,
+		})
+
 		// Start informers
 		kubeInformerFactory.Start(stopCh)
 		kubeflowInformerFactory.Start(stopCh)
 
 		// Wait for caches
-		// klog.Info("Waiting for informer caches to sync")
-		// if ok := cache.WaitForCacheSync(stopCh, secretInformer.Informer().HasSynced); !ok {
-		// 	klog.Fatalf("failed to wait for caches to sync")
-		// }
+		klog.Info("Waiting for informer caches to sync")
+		if ok := cache.WaitForCacheSync(stopCh, secretInformer.Informer().HasSynced); !ok {
+			klog.Fatalf("failed to wait for caches to sync")
+		}
 
 		// Run the controller
 		if err = controller.Run(2, stopCh); err != nil {
