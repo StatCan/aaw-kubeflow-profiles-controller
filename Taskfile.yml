@@ -203,47 +203,12 @@ tasks:
   env:create:
     prefix: env > create
     desc: |
-      Creates a .env file if it does not already exist, and adds unsensitive values to it, with 
+      Creates a .env file if it does not already exist, and adds unsensitive values to it, with
       instructions for values that are sensitive.
     cmds:
       - touch .env
       - echo "REQUEUE_TIME=500" >> .env
-      - echo "GITEA_PSQL_ADMIN_PASSWD=" >> .env
-      - echo "GITEA_PSQL_ADMIN_UNAME=" >> .env
-      - echo "GITEA_PSQL_HOSTNAME=" >> .env
-      - echo "GITEA_PSQL_MAINTENANCE_DB=" >> .env
-      - echo "GITEA_PSQL_PORT=" >> .env
-      - echo "BLOB_CSI_FDI_OPA_DAEMON_TICKER_MILLIS=2000" .env
-      - echo "BLOB_CSI_FDI_OPA_UNCLASS_ENDPOINT=http://localhost:8181/v1/data" >> .env
-      - echo "BLOB_CSI_FDI_UNCLASS_SPN_SECRET_NAME=" >> .env
-      - echo "BLOB_CSI_FDI_UNCLASS_SPN_SECRET_NAMESPACE=" >> .env
-      - echo "BLOB_CSI_FDI_UNCLASS_PV_STORAGE_CAP=100Gi" >> .env
-      - echo "BLOB_CSI_FDI_UNCLASS_STORAGE_ACCOUNT=" >> .env
-      - echo "BLOB_CSI_FDI_UNCLASS_RESOURCE_GROUP=" >> .env
-      - echo "BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_AUTH_TYPE=" >> .env
-      - echo "BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_SPN_CLIENTID=" >> .env
-      - echo "BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_SPN_TENANTID=" >> .env
-      - echo "BLOB_CSI_FDI_UNCLASS_AZURE_STORAGE_AAD_ENDPOINT=" >> .env
-      - echo "BLOB_CSI_FDI_OPA_PROTECTED_B_ENDPOINT=http://localhost:8182/v1/data" >> .env
-      - echo "BLOB_CSI_FDI_PROTECTED_B_SPN_SECRET_NAME=" >> .env
-      - echo "BLOB_CSI_FDI_PROTECTED_B_SPN_SECRET_NAMESPACE=" >> .env
-      - echo "BLOB_CSI_FDI_PROTECTED_B_PV_STORAGE_CAP=100Gi"
-      - echo "BLOB_CSI_FDI_PROTECTED_B_STORAGE_ACCOUNT=" >> .env
-      - echo "BLOB_CSI_FDI_PROTECTED_B_RESOURCE_GROUP=" >> .env
-      - echo "BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AUTH_TYPE=" >> .env
-      - echo "BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_SPN_CLIENTID=" >> .env
-      - echo "BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_SPN_TENANTID=" >> .env
-      - echo "BLOB_CSI_FDI_PROTECTED_B_AZURE_STORAGE_AAD_ENDPOINT=" >> .env
       - echo "I have created a .env file template for you. Should any values be missing, contact an \
         aaw developer for help."
     status:
       - test -f ./.env
-    
-  blobcsi:dev:
-    prefix: blobcsi:dev
-    desc: setup local environment for development.
-    cmds:
-      - echo "To enable local testing for blobcsi, you need to be able to query the OPA gateways locally!"
-      - echo "Run the below commands in separate terminals"
-      - echo "Run the vscode debugger for blob-csi!"
-    deps: [env:create]
