@@ -66,14 +66,12 @@ var namespaceCmd = &cobra.Command{
 					klog.Infof("An Error occured while retrieving associated namespace info %v", err)
 				}
 
-				// If the value exsists at all then we good
-				if _, ok := currentNs.Labels[namespaceCreatedByProfileLabel]; ok {
-					setNamespaceLabels(currentNs, newLabels)
-					_, errUpdate := kubeClient.CoreV1().Namespaces().Update(context.Background(), currentNs, metav1.UpdateOptions{}) // something like this
-					if errUpdate != nil {
-						klog.Infof("An Error occured while setting new namespace %v", err)
-					}
+				setNamespaceLabels(currentNs, newLabels)
+				_, errUpdate := kubeClient.CoreV1().Namespaces().Update(context.Background(), currentNs, metav1.UpdateOptions{}) // something like this
+				if errUpdate != nil {
+					klog.Infof("An Error occured while setting new namespace %v", err)
 				}
+
 				return nil
 			}, // end controller setup
 		)
