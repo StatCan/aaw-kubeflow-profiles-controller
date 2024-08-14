@@ -166,8 +166,10 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 
 	protocolTCP := corev1.ProtocolTCP
 	portNotebook := intstr.FromString("notebook-port")
+	portSQL := intstr.FromInt(1433)
+	portOracle := intstr.FromInt(1522)
 
-	// Allow kubeflow to notebooks
+	// Allow Kubeflow system to access notebooks
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "notebooks-allow-system-to-notebook",
@@ -248,7 +250,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		},
 	})
 
-	// allow ingress from kubeflow
+	// Allow ingress from Kubeflow gateway
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "allow-ingress-kubeflow-gateway",
@@ -257,8 +259,8 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
 			},
 		},
-		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: *&metav1.LabelSelector{},
+		Spec: networkingv1.NetworkPolicySpec{	
+			PodSelector: metav1.LabelSelector{}, // Apply to all pods in the namespace		
 			Ingress: []networkingv1.NetworkPolicyIngressRule{
 				{
 					From: []networkingv1.NetworkPolicyPeer{
@@ -275,8 +277,67 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		},
 	})
 
+	// Allow ingress to SQL Server from all namespaces
+	policies = append(policies, &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "allow-sql-ingress",
+			Namespace: profile.Name,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+			},
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{}, // Apply to all pods in the namespace
+			Ingress: []networkingv1.NetworkPolicyIngressRule{
+				{
+					Ports: []networkingv1.NetworkPolicyPort{
+						{
+							Protocol: &protocolTCP,
+							Port:     &portSQL,
+						},
+					},
+					From: []networkingv1.NetworkPolicyPeer{
+						{
+							NamespaceSelector: &metav1.LabelSelector{}, // Allow from all namespaces
+						},
+					},
+				},
+			},
+		},
+	})
+
+	// Allow ingress to Oracle from all namespaces
+	policies = append(policies, &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "allow-oracle-ingress",
+			Namespace: profile.Name,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+			},
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{}, // Apply to all pods in the namespace
+			Ingress: []networkingv1.NetworkPolicyIngressRule{
+				{
+					Ports: []networkingv1.NetworkPolicyPort{
+						{
+							Protocol: &protocolTCP,
+							Port:     &portOracle,
+						},
+					},
+					From: []networkingv1.NetworkPolicyPeer{
+						{
+							NamespaceSelector: &metav1.LabelSelector{}, // Allow from all namespaces
+						},
+					},
+				},
+			},
+		},
+	})
+
 	return policies
 }
+
 
 func init() {
 	rootCmd.AddCommand(networkCmd)
