@@ -168,6 +168,17 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 	portNotebook := intstr.FromString("notebook-port")
 	portSQL := intstr.FromInt(1433)
 	portOracle := intstr.FromInt(1522)
+	portHTTPS := intstr.FromInt(443)
+
+	// Define the notebook PodSelector
+	notebookPodSelector := metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      "notebook-name",
+				Operator: metav1.LabelSelectorOpExists,
+			},
+		},
+	}
 
 	// Allow Kubeflow system to access notebooks
 	policies = append(policies, &networkingv1.NetworkPolicy{
@@ -179,14 +190,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 			},
 		},
 		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "notebook-name",
-						Operator: metav1.LabelSelectorOpExists,
-					},
-				},
-			},
+			PodSelector: notebookPodSelector,
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
 			Ingress: []networkingv1.NetworkPolicyIngressRule{
 				{
@@ -211,7 +215,6 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 	})
 
 	// Allow egress to 443 from notebooks
-	portHTTPS := intstr.FromInt(443)
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "notebooks-allow-https-egress",
@@ -221,14 +224,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 			},
 		},
 		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "notebook-name",
-						Operator: metav1.LabelSelectorOpExists,
-					},
-				},
-			},
+			PodSelector: notebookPodSelector,
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
 			Egress: []networkingv1.NetworkPolicyEgressRule{
 				{
@@ -259,8 +255,8 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
 			},
 		},
-		Spec: networkingv1.NetworkPolicySpec{	
-			PodSelector: metav1.LabelSelector{}, // Apply to all pods in the namespace		
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: notebookPodSelector,
 			Ingress: []networkingv1.NetworkPolicyIngressRule{
 				{
 					From: []networkingv1.NetworkPolicyPeer{
@@ -287,7 +283,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 			},
 		},
 		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{}, // Apply to all pods in the namespace
+			PodSelector: notebookPodSelector,
 			Ingress: []networkingv1.NetworkPolicyIngressRule{
 				{
 					Ports: []networkingv1.NetworkPolicyPort{
@@ -316,7 +312,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 			},
 		},
 		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{}, // Apply to all pods in the namespace
+			PodSelector: notebookPodSelector,
 			Ingress: []networkingv1.NetworkPolicyIngressRule{
 				{
 					Ports: []networkingv1.NetworkPolicyPort{
@@ -337,7 +333,6 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 
 	return policies
 }
-
 
 func init() {
 	rootCmd.AddCommand(networkCmd)
