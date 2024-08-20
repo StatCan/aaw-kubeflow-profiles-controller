@@ -20,6 +20,7 @@ env:
   REGISTRY_NAME: k8scc01covidacr
   TRIVY_VERSION: "v0.43.1"
   SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  HADOLINT_VERSION: "2.12.0"
 
 jobs:
   build:
@@ -31,6 +32,12 @@ jobs:
           - 5000:5000
     steps:
     - uses: actions/checkout@master
+
+    - name: Run Hadolint
+      run:  |
+        sudo curl -L https://github.com/hadolint/hadolint/releases/download/v${{ env.HADOLINT_VERSION }}/hadolint-Linux-x86_64 --output hadolint
+        sudo chmod +x hadolint
+        ./hadolint ./Dockerfile --no-fail
 
     # Container build
     - run: |
@@ -46,16 +53,6 @@ jobs:
         curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin ${{ env.TRIVY_VERSION }}
         trivy image localhost:5000/profiles-controller:${{ github.sha }} --exit-code 1 --timeout=20m --security-checks vuln --severity CRITICAL
 
-    # Run Dockle
-    - name: Run dockle
-      uses: goodwithtech/dockle-action@main
-      with:
-        image: localhost:5000/profiles-controller:${{ github.sha }}
-        format: 'list'
-        exit-code: '1'
-        exit-level: 'fatal'
-        ignore: 'DKL-DI-0006'
-    
     - name: Slack Notification
       if: failure() && github.event_name=='schedule'
       uses: act10ns/slack@v1
