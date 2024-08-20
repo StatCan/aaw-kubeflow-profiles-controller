@@ -272,123 +272,111 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		},
 	})
 
-	// Allow ingress to SQL Server from all namespaces
-	policies = append(policies, &networkingv1.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "allow-sql-ingress",
-			Namespace: profile.Name,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
-			},
-		},
-		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: notebookPodSelector,
-			Ingress: []networkingv1.NetworkPolicyIngressRule{
-				{
-					Ports: []networkingv1.NetworkPolicyPort{
-						{
-							Protocol: &protocolTCP,
-							Port:     &portSQL,
-						},
-					},
-					From: []networkingv1.NetworkPolicyPeer{
-						{
-							NamespaceSelector: &metav1.LabelSelector{}, // Allow from all namespaces
-						},
-					},
-				},
-			},
-		},
-	})
+// Allow ingress to SQL Server from all namespaces
+policies = append(policies, &networkingv1.NetworkPolicy{
+    ObjectMeta: metav1.ObjectMeta{
+        Name:      "allow-sql-ingress",
+        Namespace: profile.Name,
+    },
+    Spec: networkingv1.NetworkPolicySpec{
+        PodSelector: notebookPodSelector,
+        Ingress: []networkingv1.NetworkPolicyIngressRule{
+            {
+                Ports: []networkingv1.NetworkPolicyPort{
+                    {
+                        Protocol: &protocolTCP,
+                        Port:     &portSQL,
+                    },
+                },
+                From: []networkingv1.NetworkPolicyPeer{
+                    {
+                        NamespaceSelector: &metav1.LabelSelector{}, // Allow from all namespaces
+                    },
+                },
+            },
+        },
+    },
+})
 
-	// Allow ingress to Oracle from all namespaces
-	policies = append(policies, &networkingv1.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "allow-oracle-ingress",
-			Namespace: profile.Name,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
-			},
-		},
-		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: notebookPodSelector,
-			Ingress: []networkingv1.NetworkPolicyIngressRule{
-				{
-					Ports: []networkingv1.NetworkPolicyPort{
-						{
-							Protocol: &protocolTCP,
-							Port:     &portOracle,
-						},
-					},
-					From: []networkingv1.NetworkPolicyPeer{
-						{
-							NamespaceSelector: &metav1.LabelSelector{}, // Allow from all namespaces
-						},
-					},
-				},
-			},
-		},
-	})
+// Allow ingress to Oracle from all namespaces
+policies = append(policies, &networkingv1.NetworkPolicy{
+    ObjectMeta: metav1.ObjectMeta{
+        Name:      "allow-oracle-ingress",
+        Namespace: profile.Name,
+    },
+    Spec: networkingv1.NetworkPolicySpec{
+        PodSelector: notebookPodSelector,
+        Ingress: []networkingv1.NetworkPolicyIngressRule{
+            {
+                Ports: []networkingv1.NetworkPolicyPort{
+                    {
+                        Protocol: &protocolTCP,
+                        Port:     &portOracle,
+                    },
+                },
+                From: []networkingv1.NetworkPolicyPeer{
+                    {
+                        NamespaceSelector: &metav1.LabelSelector{}, // Allow from all namespaces
+                    },
+                },
+            },
+        },
+    },
+})
 
-	// Allow egress to SQL Server from notebooks
-	policies = append(policies, &networkingv1.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "allow-sql-egress",
-			Namespace: profile.Name,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
-			},
-		},
-		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: notebookPodSelector,
-			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
-			Egress: []networkingv1.NetworkPolicyEgressRule{
-				{
-					Ports: []networkingv1.NetworkPolicyPort{
-						{
-							Protocol: &protocolTCP,
-							Port:     &portSQL,
-						},
-					},
-					To: []networkingv1.NetworkPolicyPeer{
-						{
-							NamespaceSelector: &metav1.LabelSelector{}, // Allow to all namespaces
-						},
-					},
-				},
-			},
-		},
-	})
+// Allow egress to SQL Server from notebooks
+policies = append(policies, &networkingv1.NetworkPolicy{
+    ObjectMeta: metav1.ObjectMeta{
+        Name:      "allow-sql-egress",
+        Namespace: profile.Name,
+    },
+    Spec: networkingv1.NetworkPolicySpec{
+        PodSelector: notebookPodSelector,
+        PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+        Egress: []networkingv1.NetworkPolicyEgressRule{
+            {
+                Ports: []networkingv1.NetworkPolicyPort{
+                    {
+                        Protocol: &protocolTCP,
+                        Port:     &portSQL,
+                    },
+                },
+                To: []networkingv1.NetworkPolicyPeer{
+                    {
+                        NamespaceSelector: &metav1.LabelSelector{}, // Allow to all namespaces
+                    },
+                },
+            },
+        },
+    },
+})
 
-	// Allow egress to Oracle from notebooks
-	policies = append(policies, &networkingv1.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "allow-oracle-egress",
-			Namespace: profile.Name,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
-			},
-		},
-		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: notebookPodSelector,
-			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
-			Egress: []networkingv1.NetworkPolicyEgressRule{
-				{
-					Ports: []networkingv1.NetworkPolicyPort{
-						{
-							Protocol: &protocolTCP,
-							Port:     &portOracle,
-						},
-					},
-					To: []networkingv1.NetworkPolicyPeer{
-						{
-							NamespaceSelector: &metav1.LabelSelector{}, // Allow to all namespaces
-						},
-					},
-				},
-			},
-		},
-	})
+// Allow egress to Oracle from notebooks
+policies = append(policies, &networkingv1.NetworkPolicy{
+    ObjectMeta: metav1.ObjectMeta{
+        Name:      "allow-oracle-egress",
+        Namespace: profile.Name,
+    },
+    Spec: networkingv1.NetworkPolicySpec{
+        PodSelector: notebookPodSelector,
+        PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+        Egress: []networkingv1.NetworkPolicyEgressRule{
+            {
+                Ports: []networkingv1.NetworkPolicyPort{
+                    {
+                        Protocol: &protocolTCP,
+                        Port:     &portOracle,
+                    },
+                },
+                To: []networkingv1.NetworkPolicyPeer{
+                    {
+                        NamespaceSelector: &metav1.LabelSelector{}, // Allow to all namespaces
+                    },
+                },
+            },
+        },
+    },
+})
 
 	return policies
 }
