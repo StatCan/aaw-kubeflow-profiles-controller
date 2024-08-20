@@ -255,7 +255,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 			},
 		},
 		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: notebookPodSelector,
+			PodSelector: *&metav1.LabelSelector{},
 			Ingress: []networkingv1.NetworkPolicyIngressRule{
 				{
 					From: []networkingv1.NetworkPolicyPeer{
