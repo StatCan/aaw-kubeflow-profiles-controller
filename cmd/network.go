@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"time"
+
 	kubeflowv1 "github.com/StatCan/profiles-controller/pkg/apis/kubeflow/v1"
 	"github.com/StatCan/profiles-controller/pkg/controllers/profiles"
 	kubeflowclientset "github.com/StatCan/profiles-controller/pkg/generated/clientset/versioned"
@@ -271,58 +272,6 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 			},
 		},
 	})
-
-// Allow ingress to SQL Server from all namespaces
-policies = append(policies, &networkingv1.NetworkPolicy{
-    ObjectMeta: metav1.ObjectMeta{
-        Name:      "allow-sql-ingress",
-        Namespace: profile.Name,
-    },
-    Spec: networkingv1.NetworkPolicySpec{
-        PodSelector: notebookPodSelector,
-        Ingress: []networkingv1.NetworkPolicyIngressRule{
-            {
-                Ports: []networkingv1.NetworkPolicyPort{
-                    {
-                        Protocol: &protocolTCP,
-                        Port:     &portSQL,
-                    },
-                },
-                From: []networkingv1.NetworkPolicyPeer{
-                    {
-                        NamespaceSelector: &metav1.LabelSelector{}, // Allow from all namespaces
-                    },
-                },
-            },
-        },
-    },
-})
-
-// Allow ingress to Oracle from all namespaces
-policies = append(policies, &networkingv1.NetworkPolicy{
-    ObjectMeta: metav1.ObjectMeta{
-        Name:      "allow-oracle-ingress",
-        Namespace: profile.Name,
-    },
-    Spec: networkingv1.NetworkPolicySpec{
-        PodSelector: notebookPodSelector,
-        Ingress: []networkingv1.NetworkPolicyIngressRule{
-            {
-                Ports: []networkingv1.NetworkPolicyPort{
-                    {
-                        Protocol: &protocolTCP,
-                        Port:     &portOracle,
-                    },
-                },
-                From: []networkingv1.NetworkPolicyPeer{
-                    {
-                        NamespaceSelector: &metav1.LabelSelector{}, // Allow from all namespaces
-                    },
-                },
-            },
-        },
-    },
-})
 
 // Allow egress to SQL Server from notebooks
 policies = append(policies, &networkingv1.NetworkPolicy{
