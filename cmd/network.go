@@ -166,8 +166,21 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 
 	protocolTCP := corev1.ProtocolTCP
 	portNotebook := intstr.FromString("notebook-port")
+	portSQL := intstr.FromInt(1433)
+	portOracle := intstr.FromInt(1522)
+	portHTTPS := intstr.FromInt(443)
 
-	// Allow kubeflow to notebooks
+	// Define the notebook PodSelector
+	notebookPodSelector := metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      "notebook-name",
+				Operator: metav1.LabelSelectorOpExists,
+			},
+		},
+	}
+
+	// Allow Kubeflow system to access notebooks
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "notebooks-allow-system-to-notebook",
@@ -177,14 +190,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 			},
 		},
 		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "notebook-name",
-						Operator: metav1.LabelSelectorOpExists,
-					},
-				},
-			},
+			PodSelector: notebookPodSelector,
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
 			Ingress: []networkingv1.NetworkPolicyIngressRule{
 				{
@@ -209,7 +215,6 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 	})
 
 	// Allow egress to 443 from notebooks
-	portHTTPS := intstr.FromInt(443)
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "notebooks-allow-https-egress",
@@ -219,14 +224,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 			},
 		},
 		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{
-				MatchExpressions: []metav1.LabelSelectorRequirement{
-					{
-						Key:      "notebook-name",
-						Operator: metav1.LabelSelectorOpExists,
-					},
-				},
-			},
+			PodSelector: notebookPodSelector,
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
 			Egress: []networkingv1.NetworkPolicyEgressRule{
 				{
@@ -248,7 +246,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		},
 	})
 
-	// allow ingress from kubeflow
+	// Allow ingress from Kubeflow gateway
 	policies = append(policies, &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "allow-ingress-kubeflow-gateway",
@@ -275,8 +273,63 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		},
 	})
 
+// Allow egress to SQL Server from notebooks
+policies = append(policies, &networkingv1.NetworkPolicy{
+    ObjectMeta: metav1.ObjectMeta{
+        Name:      "allow-sql-egress",
+        Namespace: profile.Name,
+    },
+    Spec: networkingv1.NetworkPolicySpec{
+        PodSelector: notebookPodSelector,
+        PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+        Egress: []networkingv1.NetworkPolicyEgressRule{
+            {
+                Ports: []networkingv1.NetworkPolicyPort{
+                    {
+                        Protocol: &protocolTCP,
+                        Port:     &portSQL,
+                    },
+                },
+                To: []networkingv1.NetworkPolicyPeer{
+                    {
+                        NamespaceSelector: &metav1.LabelSelector{}, // Allow to all namespaces
+                    },
+                },
+            },
+        },
+    },
+})
+
+// Allow egress to Oracle from notebooks
+policies = append(policies, &networkingv1.NetworkPolicy{
+    ObjectMeta: metav1.ObjectMeta{
+        Name:      "allow-oracle-egress",
+        Namespace: profile.Name,
+    },
+    Spec: networkingv1.NetworkPolicySpec{
+        PodSelector: notebookPodSelector,
+        PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+        Egress: []networkingv1.NetworkPolicyEgressRule{
+            {
+                Ports: []networkingv1.NetworkPolicyPort{
+                    {
+                        Protocol: &protocolTCP,
+                        Port:     &portOracle,
+                    },
+                },
+                To: []networkingv1.NetworkPolicyPeer{
+                    {
+                        NamespaceSelector: &metav1.LabelSelector{}, // Allow to all namespaces
+                    },
+                },
+            },
+        },
+    },
+})
+
 	return policies
 }
+
 
 func init() {
 	rootCmd.AddCommand(networkCmd)

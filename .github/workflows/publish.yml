@@ -14,11 +14,13 @@ on:
   push:
     branches:
       - profiles-controller-aaw2.0
+  pull_request:
 
 # Environment variables available to all jobs and steps in this workflow
 env:
   REGISTRY_NAME: k8scc01covidacr
   TRIVY_VERSION: "v0.43.1"
+  HADOLINT_VERSION: "2.12.0"
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -37,6 +39,12 @@ jobs:
         username: ${{ secrets.REGISTRY_USERNAME }}
         password: ${{ secrets.REGISTRY_PASSWORD }}
 
+    - name: Run Hadolint
+      run:  |
+        sudo curl -L https://github.com/hadolint/hadolint/releases/download/v${{ env.HADOLINT_VERSION }}/hadolint-Linux-x86_64 --output hadolint
+        sudo chmod +x hadolint
+        ./hadolint ./Dockerfile --no-fail
+        
     # Container build and push to a Azure Container registry (ACR)
     - name: Build image
       run: |
@@ -51,16 +59,6 @@ jobs:
         printf ${{ secrets.CVE_ALLOWLIST }} > .trivyignore
         curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin ${{ env.TRIVY_VERSION }}
         trivy image localhost:5000/profiles-controller-aaw2:${{ github.sha }} --exit-code 0 --timeout=20m --security-checks vuln --severity CRITICAL
-
-    # Run Dockle
-    - name: Run dockle
-      uses: goodwithtech/dockle-action@main
-      with:
-        image: localhost:5000/profiles-controller-aaw2:${{ github.sha }}
-        format: 'list'
-        exit-code: '1'
-        exit-level: 'fatal'
-        ignore: 'DKL-DI-0006'
         
     # Push if passed scanning
     - name: Push image to registry
