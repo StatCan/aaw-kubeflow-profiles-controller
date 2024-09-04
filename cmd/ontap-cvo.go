@@ -278,7 +278,7 @@ func performHttpGet(username string, password string, url string) (statusCode in
 	if err != nil {
 		klog.Fatalf("error sending and returning HTTP response  : %v", err)
 	}
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err = io.ReadAll(resp.Body)
 	if err != nil {
 		klog.Fatalf("error sending and returning HTTP response  : %v", err)
 	}
