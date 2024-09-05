@@ -56,8 +56,61 @@ type s3KeysObj struct {
 }
 
 /*
+This will become the good function
+Requires the onPremname, the namespace to create the secret in, the current k8s client, the svmName, the svmUuId
+and the username and password for the management
+Returns true if successful
+*/
+func createS3User(onPremName string, namespaceStr string, client *kubernetes.Clientset, svmName string, svmUuId string, username string, password string) bool {
+	// performHttpPost(username string, password string, url string, requestBody []byte) (statusCode int, responseBody []byte) {
+	postBody, _ := json.Marshal(map[string]interface{}{
+		"name": onPremName,
+		"svm": map[string]interface{}{
+			"uuid": svmUuId,
+		},
+	})
+	url := ""
+	statusCode, response := performHttpPost(username, password, url, postBody)
+
+	if statusCode == 201 {
+		klog.Infof("The S3 user was created. Proceeding to store SVM credentials")
+		// right now this is the only place we will create the secret, so I will just have it in here
+		postResponseFormatted := &createUserResponse{} // must decode the []byte response into something i can mess with
+		// need to determine if this unmarshals / converts to the struct correctly
+		err := json.Unmarshal(response, &postResponseFormatted)
+		if err != nil {
+			fmt.Println("Error in JSON unmarshalling from json marshalled object:", err)
+			return false
+		}
+		// Create the secret
+		usersecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      svmName + "-conn-secret", // change to be a const later or something
+				Namespace: namespaceStr,
+			},
+			Data: map[string][]byte{
+				// this [0] seems a bit suspect but we will see how it works for now I don't know
+				// I don't think the S3 account will be used multiple times or anything
+				"S3_ACCESS": []byte(postResponseFormatted.records[0].AccessKey),
+				"S3_SECRET": []byte(postResponseFormatted.records[0].SecretKey),
+			},
+		}
+		_, err = client.CoreV1().Secrets(namespaceStr).Create(context.Background(), usersecret, metav1.CreateOptions{})
+		if err != nil {
+			klog.Infof("An Error Occured while creating the secret %v", err)
+			return false
+		}
+		return true
+	} else {
+		klog.Infof("An Error Occured while creating the S3 User")
+		return false
+	}
+}
+
+/*
 Send a request to the NetApp API to create an S3 User and store the result in a k8s secret
 Uses the onPremName, the namespace, and filer to create and specify the secret.
+DELETE IN FAVOUR OF CREATES3USER!!!! Just keep until pr is ready
 */
 func createUser(onPremName string, namespaceStr string, client *kubernetes.Clientset, filerStr string) bool {
 	//Encode the data
@@ -215,7 +268,7 @@ func checkSecrets(client *kubernetes.Clientset, profileName string, profileEmail
 			onPremName, foundOnPrem := getOnPrem(profileEmail, client)
 			if foundOnPrem {
 				// Create the user
-				wasSuccessful := createUser(onPremName, profileName, client, k)
+				wasSuccessful := createUser(onPremName, profileName, client, k) // eventually change to createS3User
 				if !wasSuccessful {
 					klog.Info("Unable to create S3 user")
 					return false
@@ -270,7 +323,7 @@ apiPath should probably be /apiPath/
 */
 func performHttpGet(username string, password string, url string) (statusCode int, responseBody []byte) {
 	// url := "https://" + managementIP + apiPath + filerUUID + "/users"
-	req, err := http.NewRequest("GET", url, nil)
+	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Content-Type", "application/json")
 	// req.Header. // need to set other information
 	authorization := basicAuth(username, password)
@@ -290,14 +343,11 @@ func performHttpGet(username string, password string, url string) (statusCode in
 /*
 Does basic POST for requests to the API. Returns the code and a json formatted response
 Requires username, password, url, and the requestBody.
-An example requestBody assignment can look like
-
-	userData := []byte(`{"name":"` + name + `","job":"` + job + `"}`)
-	alternatively https://zetcode.com/golang/getpostrequest/
+An example requestBody assignment can look like: https://zetcode.com/golang/getpostrequest/
 */
 func performHttpPost(username string, password string, url string, requestBody []byte) (statusCode int, responseBody []byte) {
 	// url := "https://" + managementIP + apiPath + filerUUID + "/users"
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(requestBody))
+	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(requestBody))
 	req.Header.Set("Content-Type", "application/json")
 	authorization := basicAuth(username, password)
 	req.Header.Set("Authorization", "Basic "+authorization)
