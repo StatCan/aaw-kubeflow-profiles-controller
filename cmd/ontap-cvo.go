@@ -264,7 +264,7 @@ func basicAuth(username, password string) string {
 
 /*
 Does basic get for requests to the API. Returns the code and a json formatted response
-R
+Requires username, password, and url.
 https://www.makeuseof.com/go-make-http-requests/
 apiPath should probably be /apiPath/
 */
@@ -281,7 +281,33 @@ func performHttpGet(username string, password string, url string) (statusCode in
 	}
 	responseBody, err = io.ReadAll(resp.Body)
 	if err != nil {
+		klog.Fatalf("error reading HTTP response  : %v", err)
+	}
+	defer resp.Body.Close() // clean up memory
+	return resp.StatusCode, responseBody
+}
+
+/*
+Does basic POST for requests to the API. Returns the code and a json formatted response
+Requires username, password, url, and the requestBody.
+An example requestBody assignment can look like
+
+	userData := []byte(`{"name":"` + name + `","job":"` + job + `"}`)
+	alternatively https://zetcode.com/golang/getpostrequest/
+*/
+func performHttpPost(username string, password string, url string, requestBody []byte) (statusCode int, responseBody []byte) {
+	// url := "https://" + managementIP + apiPath + filerUUID + "/users"
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(requestBody))
+	req.Header.Set("Content-Type", "application/json")
+	authorization := basicAuth(username, password)
+	req.Header.Set("Authorization", "Basic "+authorization)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
 		klog.Fatalf("error sending and returning HTTP response  : %v", err)
+	}
+	responseBody, err = io.ReadAll(resp.Body)
+	if err != nil {
+		klog.Fatalf("error reading HTTP response  : %v", err)
 	}
 	defer resp.Body.Close() // clean up memory
 	return resp.StatusCode, responseBody
