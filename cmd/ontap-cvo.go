@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -232,6 +234,69 @@ func checkExpired(labelValue string) bool {
 	return true
 	// Not found
 	return false
+}
+
+/*
+This will check for the existence of an S3 user
+https://docs.netapp.com/us-en/ontap-restapi/ontap/get-protocols-s3-services-users-.html
+Requires: managementIP, svm.uuid, name, password and username for authentication
+Returns true if it does exist
+*/
+func checkIfS3UserExists(managementIP string, svmUuid string, onPremName string, username string, password string) bool {
+	// Build the request
+	//Encode the data
+	urlString := "https://" + managementIP + "/api/protocols/s3/services/" + svmUuid + "/users/" + onPremName
+	statusCode, _ := performHttpGet(username, password, urlString)
+	// if its 200
+	if statusCode == 200 {
+		return true
+	}
+	return false
+}
+
+/*
+Provides basic authentication
+*/
+func basicAuth(username, password string) string {
+	auth := username + ":" + password
+	return base64.StdEncoding.EncodeToString([]byte(auth))
+}
+
+/*
+Does basic get for requests to the API. Returns the code and a json formatted response
+R
+https://www.makeuseof.com/go-make-http-requests/
+apiPath should probably be /apiPath/
+*/
+func performHttpGet(username string, password string, url string) (statusCode int, responseBody []byte) {
+	// url := "https://" + managementIP + apiPath + filerUUID + "/users"
+	req, err := http.NewRequest("GET", url, nil)
+	req.Header.Set("Content-Type", "application/json")
+	// req.Header. // need to set other information
+	authorization := basicAuth(username, password)
+	req.Header.Set("Authorization", "Basic "+authorization)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		klog.Fatalf("error sending and returning HTTP response  : %v", err)
+	}
+	responseBody, err = io.ReadAll(resp.Body)
+	if err != nil {
+		klog.Fatalf("error sending and returning HTTP response  : %v", err)
+	}
+	defer resp.Body.Close() // clean up memory
+	return resp.StatusCode, responseBody
+}
+
+// Format JSON data helper function
+func formatJSON(data []byte) string {
+	var out bytes.Buffer
+	err := json.Indent(&out, data, "", " ")
+
+	if err != nil {
+		fmt.Println(err)
+	}
+	d := out.Bytes()
+	return string(d)
 }
 
 var ontapcvoCmd = &cobra.Command{
