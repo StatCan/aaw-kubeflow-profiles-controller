@@ -90,7 +90,7 @@ func createUser(onPremName string, namespaceStr string, client *kubernetes.Clien
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(postBody))
 	req.Header.Set("Content-Type", "application/json")
 	// req.Header. // need to set other information
-	authorization := basicAuth(netappUser, netappUserSecret) // this must be confirmed)
+	authorization := base64.StdEncoding.EncodeToString([]byte(netappUser + ":" + netappUserSecret)) // this must be confirmed)
 	req.Header.Set("Authorization", "Basic "+authorization)
 	// resp, err := http.Post(url, "application/json", bytes.NewBuffer(postBody)) // cant use this because http.post does not allow for additional headers
 	//Handle Error
