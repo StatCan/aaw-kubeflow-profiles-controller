@@ -239,7 +239,7 @@ func checkExpired(labelValue string) bool {
 /*
 This will check for the existence of an S3 user
 https://docs.netapp.com/us-en/ontap-restapi/ontap/get-protocols-s3-services-users-.html
-Requires: svm.uuid, name, password and username for authentication
+Requires: managementIP, svm.uuid, name, password and username for authentication
 Returns true if it does exist
 */
 func checkIfS3UserExists(managementIP string, svmUuid string, onPremName string, username string, password string) bool {
@@ -264,6 +264,7 @@ func basicAuth(username, password string) string {
 
 /*
 Does basic get for requests to the API. Returns the code and a json formatted response
+R
 https://www.makeuseof.com/go-make-http-requests/
 apiPath should probably be /apiPath/
 */
@@ -272,7 +273,7 @@ func performHttpGet(username string, password string, url string) (statusCode in
 	req, err := http.NewRequest("GET", url, nil)
 	req.Header.Set("Content-Type", "application/json")
 	// req.Header. // need to set other information
-	authorization := basicAuth(username, password) // this must be confirmed)
+	authorization := basicAuth(username, password)
 	req.Header.Set("Authorization", "Basic "+authorization)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
