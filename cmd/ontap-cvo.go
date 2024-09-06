@@ -61,15 +61,15 @@ Requires the onPremname, the namespace to create the secret in, the current k8s 
 and the username and password for the management
 Returns true if successful
 */
-func createS3User(onPremName string, namespaceStr string, client *kubernetes.Clientset, svmName string, svmUuId string, username string, password string) bool {
-	// performHttpPost(username string, password string, url string, requestBody []byte) (statusCode int, responseBody []byte) {
+func createS3User(managementIP string, onPremName string, namespaceStr string, client *kubernetes.Clientset,
+	svmName string, svmURL string, svmUuId string, username string, password string) bool {
 	postBody, _ := json.Marshal(map[string]interface{}{
 		"name": onPremName,
 		"svm": map[string]interface{}{
 			"uuid": svmUuId,
 		},
 	})
-	url := ""
+	url := "https://" + managementIP + "/api/protocols/s3/services/" + svmUuId + "/users"
 	statusCode, response := performHttpPost(username, password, url, postBody)
 
 	if statusCode == 201 {
@@ -89,10 +89,11 @@ func createS3User(onPremName string, namespaceStr string, client *kubernetes.Cli
 				Namespace: namespaceStr,
 			},
 			Data: map[string][]byte{
-				// this [0] seems a bit suspect but we will see how it works for now I don't know
-				// I don't think the S3 account will be used multiple times or anything
+				// Nothing else needs to be in here; as the S3_BUCKET value should be somewhere else.
+				// All S3 buckets under the same SVM use the same ACCESS and SECRET to access them
 				"S3_ACCESS": []byte(postResponseFormatted.records[0].AccessKey),
 				"S3_SECRET": []byte(postResponseFormatted.records[0].SecretKey),
+				"S3_URL":    []byte(svmURL),
 			},
 		}
 		_, err = client.CoreV1().Secrets(namespaceStr).Create(context.Background(), usersecret, metav1.CreateOptions{})
@@ -105,87 +106,6 @@ func createS3User(onPremName string, namespaceStr string, client *kubernetes.Cli
 		klog.Infof("An Error Occured while creating the S3 User")
 		return false
 	}
-}
-
-/*
-Send a request to the NetApp API to create an S3 User and store the result in a k8s secret
-Uses the onPremName, the namespace, and filer to create and specify the secret.
-DELETE IN FAVOUR OF CREATES3USER!!!! Just keep until pr is ready
-*/
-func createUser(onPremName string, namespaceStr string, client *kubernetes.Clientset, filerStr string) bool {
-	//Encode the data
-	postBody, _ := json.Marshal(map[string]string{
-		"name": onPremName,
-	})
-	//Leverage Go's HTTP Post function to make request
-
-	// Retrieve cm containting SVM uuids and IPs
-	netappCm, err := client.CoreV1().ConfigMaps("netapp").Get(context.Background(), "netapp-filer-connection-info", metav1.GetOptions{})
-	if err != nil {
-		klog.Infof("An Error Occured while getting netapp filer connection info %v", err)
-		return false
-	}
-	filerUUID := netappCm.Data[filerStr+"svm"]
-	// ^ this will fail if it doesnt follow the filerStr+svm, which is the case for some SAS filers.
-	// Retrieve the management IP and user login information to authenticate with netapp API
-	secret, err := client.CoreV1().Secrets("netapp").Get(context.Background(), "netapp-management-information", metav1.GetOptions{})
-	if err != nil {
-		klog.Infof("An Error Occured while getting netapp management information secret %v", err)
-		return false
-	}
-
-	managementIP := string(secret.Data["management_ip"])
-	netappUser := string(secret.Data[filerStr+"_user"])
-	// netappUserAccess := string(secret.Data[filerStr+"_access"])
-	netappUserSecret := string(secret.Data[filerStr+"_secret"])
-
-	url := "https://" + managementIP + "/api/protocols/s3/services/" + filerUUID + "/users"
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(postBody))
-	req.Header.Set("Content-Type", "application/json")
-	// req.Header. // need to set other information
-	authorization := base64.StdEncoding.EncodeToString([]byte(netappUser + ":" + netappUserSecret)) // this must be confirmed)
-	req.Header.Set("Authorization", "Basic "+authorization)
-	// resp, err := http.Post(url, "application/json", bytes.NewBuffer(postBody)) // cant use this because http.post does not allow for additional headers
-	//Handle Error
-	/*if err != nil {
-		klog.Infof("An Error Occured while calling s3 services %v", err)
-	}*/
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		klog.Fatalf("error sending and returning HTTP response  : %v", err)
-	}
-	// defer resp.Body.Close() // unsure if needed?
-
-	//post := &s3keys{}
-	post := &createUserResponse{}
-	derr := json.NewDecoder(resp.Body).Decode(post)
-	if derr != nil {
-		panic(derr)
-	}
-	if resp.StatusCode != http.StatusCreated {
-		panic(resp.Status)
-	}
-	// Now that we have the values for the keys put it into a secret in the namespace
-	usersecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      filerStr + "-conn-secret", // change to be a const later or something
-			Namespace: namespaceStr,
-		},
-		Data: map[string][]byte{
-			// this [0] seems a bit suspect but we will see how it works for now I don't know
-			// I don't think the S3 account will be used multiple times or anything
-			"S3_ACCESS": []byte(post.records[0].AccessKey),
-			"S3_SECRET": []byte(post.records[0].SecretKey),
-		},
-	}
-
-	_, err = client.CoreV1().Secrets(namespaceStr).Create(context.Background(), usersecret, metav1.CreateOptions{})
-	if err != nil {
-		klog.Infof("An Error Occured while creating the secret %v", err)
-		return false
-	}
-
-	return true
 }
 
 /*
@@ -268,9 +188,10 @@ func checkSecrets(client *kubernetes.Clientset, profileName string, profileEmail
 			onPremName, foundOnPrem := getOnPrem(profileEmail, client)
 			if foundOnPrem {
 				// Create the user
-				wasSuccessful := createUser(onPremName, profileName, client, k) // eventually change to createS3User
+				//wasSuccessful := createS3User(onPremName, profileName, client, k) // eventually change to createS3User
+				wasSuccessful := true
 				if !wasSuccessful {
-					klog.Info("Unable to create S3 user")
+					klog.Info("Unable to create S3 user:" + onPremName)
 					return false
 				}
 			}
@@ -349,6 +270,7 @@ func performHttpPost(username string, password string, url string, requestBody [
 	// url := "https://" + managementIP + apiPath + filerUUID + "/users"
 	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(requestBody))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("accept", "application/json")
 	authorization := basicAuth(username, password)
 	req.Header.Set("Authorization", "Basic "+authorization)
 	resp, err := http.DefaultClient.Do(req)
