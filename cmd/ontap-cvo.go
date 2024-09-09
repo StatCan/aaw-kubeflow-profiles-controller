@@ -61,6 +61,7 @@ type svmInfo struct {
 	svmUUID string
 }
 
+// TODOO create datatype to support the entire list of svms
 // type svmInfoList struct {
 // 	svmInfos []svmInfo
 // }
@@ -199,6 +200,7 @@ func checkSecrets(client *kubernetes.Clientset, profileName string, profileEmail
 			// Get the OnPremName
 			onPremName, foundOnPrem := getOnPrem(profileEmail, client)
 			if foundOnPrem {
+				// TODO, get and set the actual SVM info, since at this point we will have a map or list of svms and not the actual one yet
 				// Create the user
 				wasSuccessful := createS3User(onPremName, profileName, client, svmInfo, mgmInfo)
 				if !wasSuccessful {
@@ -222,17 +224,15 @@ func checkExpired(labelValue string) bool {
 }
 
 /*
-This will check for the existence of an S3 user
+This will check for the existence of an S3 user. TODO must be called
 https://docs.netapp.com/us-en/ontap-restapi/ontap/get-protocols-s3-services-users-.html
 Requires: managementIP, svm.uuid, name, password and username for authentication
 Returns true if it does exist
 */
-func checkIfS3UserExists(managementIP string, svmUuid string, onPremName string, username string, password string) bool {
+func checkIfS3UserExists(mgmInfo managementInfo, svmUuid string, onPremName string) bool {
 	// Build the request
-	//Encode the data
-	urlString := "https://" + managementIP + "/api/protocols/s3/services/" + svmUuid + "/users/" + onPremName
-	statusCode, _ := performHttpGet(username, password, urlString)
-	// if its 200
+	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmUuid + "/users/" + onPremName
+	statusCode, _ := performHttpGet(mgmInfo.username, mgmInfo.password, urlString)
 	if statusCode == 200 {
 		return true
 	}
@@ -298,9 +298,8 @@ func performHttpPost(username string, password string, url string, requestBody [
 
 // TODO: Retrieve the svmInfo this must query the master configmap that exists in the DAS namespace.
 // This configmap COULD change, so could put this elsewhere and have it be one call.
-// How the mapping here works with naming will need to be settled on
+// How the mapping here works with naming will need to be settled on right now this will fail
 func getSvmInfo(client *kubernetes.Clientset, whichSVM string) svmInfo {
-
 	svmName := ""
 	svmUUID := ""
 	svmURL := ""
@@ -360,8 +359,11 @@ var ontapcvoCmd = &cobra.Command{
 		//configMapInformer := kubeInformerFactory.Core().V1().ConfigMaps()
 		//configMapLister := configMapInformer.Lister()
 
-		// Obtain Management Info, as this does not change.
+		// Obtain Management Info and svm Info, as this will not change often
 		var mgmInfo = managementInfo{"", "", ""}
+
+		// TODO: Change to load entire thing into memory
+		//var svmInfo = getAllSvmInfo(kubeClient, )
 		var svmInfo = svmInfo{"", "", ""}
 		// Setup controller
 		controller := profiles.NewController(
