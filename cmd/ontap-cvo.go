@@ -110,7 +110,6 @@ func createS3User(onPremName string, namespaceStr string, client *kubernetes.Cli
 			// All S3 buckets under the same SVM use the same ACCESS and SECRET to access them
 			"S3_ACCESS": []byte(postResponseFormatted.records[0].AccessKey),
 			"S3_SECRET": []byte(postResponseFormatted.records[0].SecretKey),
-			"S3_URL":    []byte(svmInfo.svmUrl),
 		},
 	}
 	_, err = client.CoreV1().Secrets(namespaceStr).Create(context.Background(), usersecret, metav1.CreateOptions{})
