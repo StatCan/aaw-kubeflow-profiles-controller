@@ -121,6 +121,35 @@ func createS3User(onPremName string, namespaceStr string, client *kubernetes.Cli
 }
 
 /*
+This will create the S3 bucket. Requires the hashedName
+NOTE: THERE ARE A LOT OF ADDITIONAL SETTINGS
+https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#recommended-optional-properties
+that we should investigate and determine what to use.
+*/
+func createS3Bucket(svmInfo svmInfo, mgmInfo managementInfo, bucketName string, nasPath string) bool {
+	// As stated in the URL above, we need to build out our JSON post with all the necessary details
+	// Once we know the format and what to put in it should be easy.
+	hashedName := bucketName + "TODO- IMPLEMENT THIS"
+	postBody, _ := json.Marshal(map[string]interface{}{
+		"name": hashedName,
+		"svm": map[string]string{
+			"uuid": svmInfo.svmUUID,
+		},
+	})
+	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmInfo.svmUUID + "/buckets"
+	statusCode, _ := performHttpPost(mgmInfo.username, mgmInfo.password, urlString, postBody)
+	if statusCode == 202 {
+		klog.Infof("S3 Bucket job has been created: https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#response")
+		return true
+	} else if statusCode == 201 {
+		klog.Infof("S3 Bucket has been created: https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#response")
+		return true
+	}
+	klog.Errorf("Error when submitting the request to create a bucket") // TODO add error string
+	return false
+}
+
+/*
 This will get the onPremName given the owner email
 */
 func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, bool) {
@@ -180,6 +209,7 @@ func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, bool) {
 }
 
 /*
+TODO CHANGE
 Using the profile namespace, will use the configmap to retrieve a list of filers attached to the profile
 It will then iterate over the list and search for a constructed secret and if that secret is not found then we create
 the S3 user (and as a result the secret)
@@ -232,10 +262,36 @@ func checkIfS3UserExists(mgmInfo managementInfo, svmUuid string, onPremName stri
 	// Build the request
 	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmUuid + "/users/" + onPremName
 	statusCode, _ := performHttpGet(mgmInfo.username, mgmInfo.password, urlString)
-	if statusCode == 200 {
+	if statusCode != 200 {
+		klog.Errorf("Error when checking if user exists:") // TODO add error message
+		return false
+	}
+	return true
+}
+
+/*
+This will check for the existence of an S3 bucket
+https://docs.netapp.com/us-en/ontap-restapi/ontap/get-protocols-s3-services-buckets-.html
+Requires: managementInfo, svm.uuid and the bucketName
+https://docs.netapp.com/us-en/ontap-restapi/ontap/protocols_s3_services_svm.uuid_buckets_endpoint_overview.html#retrieving-all-fields-for-all-s3-buckets-of-an-svm
+^ is the best we can do, given that we cannot search a bucket by its name (can search by UUID though)
+We'd need to re-use that hash function here when looking too.
+Returns true if it does exist
+*/
+func checkIfS3BucketExists(mgmInfo managementInfo, svmUuid string, requestedBucket string) bool {
+	// Build the request
+	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmUuid + "/buckets"
+	statusCode, _ := performHttpGet(mgmInfo.username, mgmInfo.password, urlString)
+	// statusCode, response := performHttpGet(mgmInfo.username, mgmInfo.password, urlString)
+	if statusCode != 200 {
+		klog.Errorf("Error interacting with Netapp API for checking if S3 bucket exists:") // TODO add error message
+		// thing is we dont want to return false here because this response indicates a failed API call
+		// or perhaps a reference to a svm that doesnt exist, but that shouldnt be handled here
 		return true
 	}
-	return false
+	// Check the response and go through it.
+	//
+	return true
 }
 
 /*
