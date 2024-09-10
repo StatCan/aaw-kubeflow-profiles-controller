@@ -55,83 +55,68 @@ type s3KeysObj struct {
 	SecretKey string `json:"secret_key"`
 }
 
+type svmInfo struct {
+	svmName string
+	svmUrl  string
+	svmUUID string
+}
+
+// TODOO create datatype to support the entire list of svms
+// type svmInfoList struct {
+// 	svmInfos []svmInfo
+// }
+
+type managementInfo struct {
+	managementIP string
+	username     string
+	password     string
+}
+
 /*
-Send a request to the NetApp API to create an S3 User and store the result in a k8s secret
-Uses the onPremName, the namespace, and filer to create and specify the secret.
+Requires the onPremname, the namespace to create the secret in, the current k8s client, the svmInfo and the managementInfo
+Returns true if successful
 */
-func createUser(onPremName string, namespaceStr string, client *kubernetes.Clientset, filerStr string) bool {
-	//Encode the data
-	postBody, _ := json.Marshal(map[string]string{
+func createS3User(onPremName string, namespaceStr string, client *kubernetes.Clientset, svmInfo svmInfo, mgmInfo managementInfo) bool {
+	postBody, _ := json.Marshal(map[string]interface{}{
 		"name": onPremName,
+		"svm": map[string]string{
+			"uuid": svmInfo.svmUUID,
+		},
 	})
-	//Leverage Go's HTTP Post function to make request
+	url := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmInfo.svmUUID + "/users"
+	statusCode, response := performHttpPost(mgmInfo.username, mgmInfo.password, url, postBody)
 
-	// Retrieve cm containting SVM uuids and IPs
-	netappCm, err := client.CoreV1().ConfigMaps("netapp").Get(context.Background(), "netapp-filer-connection-info", metav1.GetOptions{})
-	if err != nil {
-		klog.Infof("An Error Occured while getting netapp filer connection info %v", err)
+	if statusCode != 201 {
+		klog.Infof("An Error Occured while creating the S3 User")
 		return false
 	}
-	filerUUID := netappCm.Data[filerStr+"svm"]
-	// ^ this will fail if it doesnt follow the filerStr+svm, which is the case for some SAS filers.
-	// Retrieve the management IP and user login information to authenticate with netapp API
-	secret, err := client.CoreV1().Secrets("netapp").Get(context.Background(), "netapp-management-information", metav1.GetOptions{})
+	klog.Infof("The S3 user was created. Proceeding to store SVM credentials")
+	// right now this is the only place we will create the secret, so I will just have it in here
+	postResponseFormatted := &createUserResponse{} // must decode the []byte response into something i can mess with
+	// need to determine if this unmarshals / converts to the struct correctly
+	err := json.Unmarshal(response, &postResponseFormatted)
 	if err != nil {
-		klog.Infof("An Error Occured while getting netapp management information secret %v", err)
+		fmt.Println("Error in JSON unmarshalling from json marshalled object:", err)
 		return false
 	}
-
-	managementIP := string(secret.Data["management_ip"])
-	netappUser := string(secret.Data[filerStr+"_user"])
-	// netappUserAccess := string(secret.Data[filerStr+"_access"])
-	netappUserSecret := string(secret.Data[filerStr+"_secret"])
-
-	url := "https://" + managementIP + "/api/protocols/s3/services/" + filerUUID + "/users"
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(postBody))
-	req.Header.Set("Content-Type", "application/json")
-	// req.Header. // need to set other information
-	authorization := base64.StdEncoding.EncodeToString([]byte(netappUser + ":" + netappUserSecret)) // this must be confirmed)
-	req.Header.Set("Authorization", "Basic "+authorization)
-	// resp, err := http.Post(url, "application/json", bytes.NewBuffer(postBody)) // cant use this because http.post does not allow for additional headers
-	//Handle Error
-	/*if err != nil {
-		klog.Infof("An Error Occured while calling s3 services %v", err)
-	}*/
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		klog.Fatalf("error sending and returning HTTP response  : %v", err)
-	}
-	// defer resp.Body.Close() // unsure if needed?
-
-	//post := &s3keys{}
-	post := &createUserResponse{}
-	derr := json.NewDecoder(resp.Body).Decode(post)
-	if derr != nil {
-		panic(derr)
-	}
-	if resp.StatusCode != http.StatusCreated {
-		panic(resp.Status)
-	}
-	// Now that we have the values for the keys put it into a secret in the namespace
+	// Create the secret
 	usersecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      filerStr + "-conn-secret", // change to be a const later or something
+			Name:      svmInfo.svmName + "-conn-secret", // change to be a const later or something
 			Namespace: namespaceStr,
 		},
 		Data: map[string][]byte{
-			// this [0] seems a bit suspect but we will see how it works for now I don't know
-			// I don't think the S3 account will be used multiple times or anything
-			"S3_ACCESS": []byte(post.records[0].AccessKey),
-			"S3_SECRET": []byte(post.records[0].SecretKey),
+			// Nothing else needs to be in here; as the S3_BUCKET value should be somewhere else.
+			// All S3 buckets under the same SVM use the same ACCESS and SECRET to access them
+			"S3_ACCESS": []byte(postResponseFormatted.records[0].AccessKey),
+			"S3_SECRET": []byte(postResponseFormatted.records[0].SecretKey),
 		},
 	}
-
 	_, err = client.CoreV1().Secrets(namespaceStr).Create(context.Background(), usersecret, metav1.CreateOptions{})
 	if err != nil {
 		klog.Infof("An Error Occured while creating the secret %v", err)
 		return false
 	}
-
 	return true
 }
 
@@ -199,7 +184,7 @@ Using the profile namespace, will use the configmap to retrieve a list of filers
 It will then iterate over the list and search for a constructed secret and if that secret is not found then we create
 the S3 user (and as a result the secret)
 */
-func checkSecrets(client *kubernetes.Clientset, profileName string, profileEmail string) bool {
+func checkSecrets(client *kubernetes.Clientset, profileName string, profileEmail string, mgmInfo managementInfo, svmInfo svmInfo) bool {
 	// We don't actually need secret informers, since informers look at changes in state
 	// https://www.macias.info/entry/202109081800_k8s_informers.md
 	// Get a list of secrets the user namespace should have accounts for using the configmap
@@ -214,10 +199,11 @@ func checkSecrets(client *kubernetes.Clientset, profileName string, profileEmail
 			// Get the OnPremName
 			onPremName, foundOnPrem := getOnPrem(profileEmail, client)
 			if foundOnPrem {
+				// TODO, get and set the actual SVM info, since at this point we will have a map or list of svms and not the actual one yet
 				// Create the user
-				wasSuccessful := createUser(onPremName, profileName, client, k)
+				wasSuccessful := createS3User(onPremName, profileName, client, svmInfo, mgmInfo)
 				if !wasSuccessful {
-					klog.Info("Unable to create S3 user")
+					klog.Info("Unable to create S3 user:" + onPremName)
 					return false
 				}
 			}
@@ -237,17 +223,15 @@ func checkExpired(labelValue string) bool {
 }
 
 /*
-This will check for the existence of an S3 user
+This will check for the existence of an S3 user. TODO must be called
 https://docs.netapp.com/us-en/ontap-restapi/ontap/get-protocols-s3-services-users-.html
 Requires: managementIP, svm.uuid, name, password and username for authentication
 Returns true if it does exist
 */
-func checkIfS3UserExists(managementIP string, svmUuid string, onPremName string, username string, password string) bool {
+func checkIfS3UserExists(mgmInfo managementInfo, svmUuid string, onPremName string) bool {
 	// Build the request
-	//Encode the data
-	urlString := "https://" + managementIP + "/api/protocols/s3/services/" + svmUuid + "/users/" + onPremName
-	statusCode, _ := performHttpGet(username, password, urlString)
-	// if its 200
+	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmUuid + "/users/" + onPremName
+	statusCode, _ := performHttpGet(mgmInfo.username, mgmInfo.password, urlString)
 	if statusCode == 200 {
 		return true
 	}
@@ -264,13 +248,13 @@ func basicAuth(username, password string) string {
 
 /*
 Does basic get for requests to the API. Returns the code and a json formatted response
-R
+Requires username, password, and url.
 https://www.makeuseof.com/go-make-http-requests/
 apiPath should probably be /apiPath/
 */
 func performHttpGet(username string, password string, url string) (statusCode int, responseBody []byte) {
 	// url := "https://" + managementIP + apiPath + filerUUID + "/users"
-	req, err := http.NewRequest("GET", url, nil)
+	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Content-Type", "application/json")
 	// req.Header. // need to set other information
 	authorization := basicAuth(username, password)
@@ -281,10 +265,49 @@ func performHttpGet(username string, password string, url string) (statusCode in
 	}
 	responseBody, err = io.ReadAll(resp.Body)
 	if err != nil {
-		klog.Fatalf("error sending and returning HTTP response  : %v", err)
+		klog.Fatalf("error reading HTTP response  : %v", err)
 	}
 	defer resp.Body.Close() // clean up memory
 	return resp.StatusCode, responseBody
+}
+
+/*
+Does basic POST for requests to the API. Returns the code and a json formatted response
+Requires username, password, url, and the requestBody.
+An example requestBody assignment can look like: https://zetcode.com/golang/getpostrequest/
+*/
+func performHttpPost(username string, password string, url string, requestBody []byte) (statusCode int, responseBody []byte) {
+	// url := "https://" + managementIP + apiPath + filerUUID + "/users"
+	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(requestBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("accept", "application/json")
+	authorization := basicAuth(username, password)
+	req.Header.Set("Authorization", "Basic "+authorization)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		klog.Fatalf("error sending and returning HTTP response  : %v", err)
+	}
+	responseBody, err = io.ReadAll(resp.Body)
+	if err != nil {
+		klog.Fatalf("error reading HTTP response  : %v", err)
+	}
+	defer resp.Body.Close() // clean up memory
+	return resp.StatusCode, responseBody
+}
+
+// TODO: Retrieve the svmInfo this must query the master configmap that exists in the DAS namespace.
+// This configmap COULD change, so could put this elsewhere and have it be one call.
+// How the mapping here works with naming will need to be settled on right now this will fail
+func getSvmInfo(client *kubernetes.Clientset, whichSVM string) svmInfo {
+	svmName := ""
+	svmUUID := ""
+	svmURL := ""
+	svmInformation := svmInfo{
+		svmName: svmName,
+		svmUUID: svmUUID,
+		svmUrl:  svmURL,
+	}
+	return svmInformation
 }
 
 // Format JSON data helper function
@@ -335,6 +358,12 @@ var ontapcvoCmd = &cobra.Command{
 		//configMapInformer := kubeInformerFactory.Core().V1().ConfigMaps()
 		//configMapLister := configMapInformer.Lister()
 
+		// Obtain Management Info and svm Info, as this will not change often
+		var mgmInfo = managementInfo{"", "", ""}
+
+		// TODO: Change to load entire thing into memory
+		//var svmInfo = getAllSvmInfo(kubeClient, )
+		var svmInfo = svmInfo{"", "", ""}
 		// Setup controller
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
@@ -343,7 +372,7 @@ var ontapcvoCmd = &cobra.Command{
 				for k, v := range allLabels {
 					// If the label we specify exists then look for the secret
 					if k == ontapLabel {
-						checkSecrets(kubeClient, profile.Name, profile.Spec.Owner.Name)
+						checkSecrets(kubeClient, profile.Name, profile.Spec.Owner.Name, mgmInfo, svmInfo)
 						if checkExpired(v) {
 							// Do things, but for first iteration may not care.
 							//klog.Infof("Expired, but not going to do anything yet")
