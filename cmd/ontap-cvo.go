@@ -72,6 +72,24 @@ type managementInfo struct {
 	password     string
 }
 
+type createBucketStruct struct {
+	Comment string
+	Name    string
+	NasPath string
+	Type    string
+	Policy  struct {
+		Statements []Statements
+	}
+}
+
+type Statements struct {
+	Effect     string
+	Actions    []string
+	Principals []interface{}
+	Resources  []string
+	Sid        string
+}
+
 /*
 Requires the onPremname, the namespace to create the secret in, the current k8s client, the svmInfo and the managementInfo
 Returns true if successful
@@ -129,15 +147,16 @@ that we should investigate and determine what to use.
 func createS3Bucket(svmInfo svmInfo, mgmInfo managementInfo, bucketName string, nasPath string) bool {
 	// As stated in the URL above, we need to build out our JSON post with all the necessary details
 	// Once we know the format and what to put in it should be easy.
-	hashedName := bucketName + "TODO- IMPLEMENT THIS"
-	postBody, _ := json.Marshal(map[string]interface{}{
-		"name": hashedName,
-		"svm": map[string]string{
-			"uuid": svmInfo.svmUUID,
-		},
-	})
+	hashedName := bucketName + "todo-implement-this"
+	//postBody := "{hello: hello}"
+	//postBody, _ := json.Marshal(object)
+	// Create a string that is valid json, as thats the simplest way of working with this request
+	// https://go.dev/play/p/sdBFnqDLIqS
+	jsonString := fmt.Sprintf(
+		`{"http":"%s"}`,
+		hashedName)
 	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmInfo.svmUUID + "/buckets"
-	statusCode, _ := performHttpPost(mgmInfo.username, mgmInfo.password, urlString, postBody)
+	statusCode, _ := performHttpPost(mgmInfo.username, mgmInfo.password, urlString, []byte(jsonString))
 	if statusCode == 202 {
 		klog.Infof("S3 Bucket job has been created: https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#response")
 		return true
