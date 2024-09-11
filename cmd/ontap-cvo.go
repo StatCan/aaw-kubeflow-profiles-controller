@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"time"
 
 	azidentity "github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -236,6 +237,101 @@ func checkIfS3UserExists(mgmInfo managementInfo, svmUuid string, onPremName stri
 		return true
 	}
 	return false
+}
+
+func FilersMapConcat(sourceMap map[string][]string, modifierMap map[string][]string) map[string][]string {
+	result := map[string][]string{}
+	for k := range modifierMap {
+		val1 := sourceMap[k]
+		val2 := modifierMap[k]
+		result[k] = slices.Concat(val1, val2)
+	}
+	return result
+}
+
+// formats the filers data to be compliant with a config map data's datatype
+func formatFilersMap(filers map[string][]string) map[string]string {
+	var result map[string]string
+	for k := range filers {
+		val, err := json.Marshal(filers[k])
+		if err != nil {
+			klog.Infof("Failed to format filers data")
+		}
+		result[k] = string(val)
+	}
+	return result
+}
+
+/*
+Updates the filers ConfigMaps for a given namespace
+- newFilers is the map of filers that are have been processed(meaning the s3bucket got created)
+and that need to be both removed from the requesting filers CM and added to the user filer CM
+- failedFilers is the map of filers that failed being processed, for whatever reason,
+and that will stay in the requesting filers CM
+*/
+func updateUserFilerConfigMaps(client *kubernetes.Clientset, namespace string, newFilers map[string][]string, failedFilers map[string][]string) {
+	userFilersCM, err := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), "user-filers", metav1.GetOptions{})
+	// if it can't find the configmap, it errors
+	// TODO: look into if we can differenciate between a missing CM and a real error
+	if err != nil {
+		klog.Infof("Unable to get user filers in %s. Reason: %v", namespace, err)
+		klog.Infof("Creating user filers config map")
+
+		newUserFilers := corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "user-filers",
+				Namespace: namespace,
+			},
+			Data: formatFilersMap(newFilers),
+		}
+
+		_, err := client.CoreV1().ConfigMaps(namespace).Create(context.Background(), &newUserFilers, metav1.CreateOptions{})
+		if err != nil {
+			klog.Infof("Error creating new user filers config map in %s. Reason: %v", namespace, err)
+		}
+	} else {
+		// format the CM data
+		var userFilersData map[string][]string
+		for k := range userFilersCM.Data {
+			var val []string
+			err := json.Unmarshal([]byte(userFilersCM.Data[k]), &val)
+			if err != nil {
+				klog.Infof("Error creating new user filers config map in %s. Reason: %v", namespace, err)
+			}
+			userFilersData[k] = val
+		}
+
+		// update the user-filers CM
+		newUserFilers := corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "user-filers",
+				Namespace: namespace,
+			},
+			Data: formatFilersMap(FilersMapConcat(userFilersData, newFilers)),
+		}
+		_, err = client.CoreV1().ConfigMaps(namespace).Update(context.Background(), &newUserFilers, metav1.UpdateOptions{})
+	}
+
+	if len(failedFilers) == 0 {
+		// delete the requesting CM
+		err := client.CoreV1().ConfigMaps(namespace).Delete(context.Background(), "requesting-filers", metav1.DeleteOptions{})
+		if err != nil {
+			klog.Infof("Failed to delete the requesting filers configmap in %s. Reason: %v", namespace, err)
+		}
+	} else {
+		// update the requesting CM
+		newUserFilers := corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "user-requesting-filers",
+				Namespace: namespace,
+			},
+			Data: formatFilersMap(failedFilers), //TODO: fix this to be the diff between newFilers and the requestingFilersCM.data
+		}
+		_, err := client.CoreV1().ConfigMaps(namespace).Update(context.Background(), &newUserFilers, metav1.UpdateOptions{})
+		if err != nil {
+			klog.Infof("Failed to update the requesting filers configmap in %s. Reason: %v", namespace, err)
+		}
+	}
 }
 
 /*
