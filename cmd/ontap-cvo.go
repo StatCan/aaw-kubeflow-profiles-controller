@@ -72,24 +72,6 @@ type managementInfo struct {
 	password     string
 }
 
-type createBucketStruct struct {
-	Comment string
-	Name    string
-	NasPath string
-	Type    string
-	Policy  struct {
-		Statements []Statements
-	}
-}
-
-type Statements struct {
-	Effect     string
-	Actions    []string
-	Principals []interface{}
-	Resources  []string
-	Sid        string
-}
-
 /*
 Requires the onPremname, the namespace to create the secret in, the current k8s client, the svmInfo and the managementInfo
 Returns true if successful
@@ -139,22 +121,40 @@ func createS3User(onPremName string, namespaceStr string, client *kubernetes.Cli
 }
 
 /*
-This will create the S3 bucket. Requires the hashedName
-NOTE: THERE ARE A LOT OF ADDITIONAL SETTINGS
-https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#recommended-optional-properties
-that we should investigate and determine what to use.
+This will create the S3 bucket. Requires the bucketName to be hashed, the nasPath and relevant management and svm information
+https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html
 */
 func createS3Bucket(svmInfo svmInfo, mgmInfo managementInfo, bucketName string, nasPath string) bool {
-	// As stated in the URL above, we need to build out our JSON post with all the necessary details
-	// Once we know the format and what to put in it should be easy.
 	hashedName := bucketName + "todo-implement-this"
-	//postBody := "{hello: hello}"
-	//postBody, _ := json.Marshal(object)
 	// Create a string that is valid json, as thats the simplest way of working with this request
-	// https://go.dev/play/p/sdBFnqDLIqS
+	// https://go.dev/play/p/xs_B0l3HsBw
 	jsonString := fmt.Sprintf(
-		`{"http":"%s"}`,
-		hashedName)
+		`{
+			"comment": "created via the ZONE controller",
+			"name": "%s",
+			"nas_path": "%s",
+			"type": "nas",
+			"policy" : {
+				"statements": [
+					{
+						"effect": "allow",
+						"actions": [
+							"GetObject",
+							"PutObject",
+							"ListBucket",
+							"GetBucketAcl",
+							"GetObjectAcl"
+						],
+						"resources": [
+							"%s",
+							"%s/*"
+						]
+					}
+				]
+			}
+		}`,
+		hashedName, nasPath, hashedName, hashedName)
+	// https://discourse.gohugo.io/t/use-same-argument-twice-in-a-printf-clause/20398
 	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmInfo.svmUUID + "/buckets"
 	statusCode, _ := performHttpPost(mgmInfo.username, mgmInfo.password, urlString, []byte(jsonString))
 	if statusCode == 202 {
@@ -176,6 +176,7 @@ func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, bool) {
 	// Step 0 Get the App Registration Info
 	// Don't forget to create a secret in the namespace for authentication with azure in the namespace
 	// for me in aaw-dev its under jose-matsuda
+	// TODO change to das? for the location of secrets
 	secret, err := client.CoreV1().Secrets("netapp").Get(context.Background(), "netapp-regi-secret", metav1.GetOptions{})
 	if err != nil {
 		klog.Infof("An Error Occured while getting registration secret %v", err)
@@ -225,6 +226,25 @@ func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, bool) {
 		return "", false
 	}
 	return *onPremAccountName, true
+}
+
+func getManagementInfo(client *kubernetes.Clientset) managementInfo {
+	klog.Infof("Getting secret containing the management information...")
+	// TODO move to 'das'? for the namespace of the secret
+	secret, err := client.CoreV1().Secrets("netapp").Get(context.Background(), "netapp-management-information", metav1.GetOptions{})
+	if err != nil {
+		klog.Errorf("Error the secret for the management api was not found!")
+		// terminate?
+	}
+	management_ip := string(secret.Data["MANAGEMENT_IP"])
+	username := string(secret.Data["USERNAME"])
+	password := string(secret.Data["PASSWORD"])
+	mgmInfo := managementInfo{
+		managementIP: management_ip,
+		username:     username,
+		password:     password,
+	}
+	return mgmInfo
 }
 
 /*
@@ -434,7 +454,7 @@ var ontapcvoCmd = &cobra.Command{
 		//configMapLister := configMapInformer.Lister()
 
 		// Obtain Management Info and svm Info, as this will not change often
-		var mgmInfo = managementInfo{"", "", ""}
+		mgmInfo := getManagementInfo(kubeClient)
 
 		// TODO: Change to load entire thing into memory
 		//var svmInfo = getAllSvmInfo(kubeClient, )
