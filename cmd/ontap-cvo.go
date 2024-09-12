@@ -177,7 +177,7 @@ func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, bool) {
 	// Don't forget to create a secret in the namespace for authentication with azure in the namespace
 	// for me in aaw-dev its under jose-matsuda
 	// TODO change to das? for the location of secrets
-	secret, err := client.CoreV1().Secrets("netapp").Get(context.Background(), "netapp-regi-secret", metav1.GetOptions{})
+	secret, err := client.CoreV1().Secrets("netapp").Get(context.Background(), "microsoft-graph-api-secret", metav1.GetOptions{})
 	if err != nil {
 		klog.Infof("An Error Occured while getting registration secret %v", err)
 		return "", false
