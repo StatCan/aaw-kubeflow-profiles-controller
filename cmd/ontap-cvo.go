@@ -239,14 +239,11 @@ func checkIfS3UserExists(mgmInfo managementInfo, svmUuid string, onPremName stri
 	return false
 }
 
-func FilersMapConcat(sourceMap map[string][]string, modifierMap map[string][]string) map[string][]string {
-	result := map[string][]string{}
+// concats the values of modifierMap into the given sourceMap
+func filersMapConcat(sourceMap map[string][]string, modifierMap map[string][]string) {
 	for k := range modifierMap {
-		val1 := sourceMap[k]
-		val2 := modifierMap[k]
-		result[k] = slices.Concat(val1, val2)
+		sourceMap[k] = slices.Concat(sourceMap[k], modifierMap[k])
 	}
-	return result
 }
 
 // formats the filers data to be compliant with a config map data's datatype
@@ -301,13 +298,16 @@ func updateUserFilerConfigMaps(client *kubernetes.Clientset, namespace string, n
 			userFilersData[k] = val
 		}
 
+		//updates the userFilers CM data with the new filer values
+		filersMapConcat(userFilersData, newFilers)
+
 		// update the user-filers CM
 		newUserFilers := corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "user-filers",
 				Namespace: namespace,
 			},
-			Data: formatFilersMap(FilersMapConcat(userFilersData, newFilers)),
+			Data: formatFilersMap(userFilersData),
 		}
 		_, err = client.CoreV1().ConfigMaps(namespace).Update(context.Background(), &newUserFilers, metav1.UpdateOptions{})
 	}
