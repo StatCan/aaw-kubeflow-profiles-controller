@@ -157,11 +157,13 @@ func createS3Bucket(svmInfo svmInfo, mgmInfo managementInfo, bucketName string, 
 	// https://discourse.gohugo.io/t/use-same-argument-twice-in-a-printf-clause/20398
 	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmInfo.svmUUID + "/buckets"
 	statusCode, _ := performHttpPost(mgmInfo.username, mgmInfo.password, urlString, []byte(jsonString))
-	if statusCode == 202 {
-		klog.Infof("S3 Bucket job has been created: https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#response")
-		return true
-	} else if statusCode == 201 {
+	if statusCode == 201 {
 		klog.Infof("S3 Bucket has been created: https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#response")
+		return true
+	} else if statusCode == 202 {
+		klog.Infof("S3 Bucket job has been created: https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#response")
+		// In this case we may still want to check if the bucket exists after maybe 5 seconds?
+		// checkIfS3BucketExists()...
 		return true
 	}
 	klog.Errorf("Error when submitting the request to create a bucket") // TODO add error string
@@ -321,7 +323,6 @@ func checkIfS3BucketExists(mgmInfo managementInfo, svmUuid string, requestedBuck
 	// Build the request
 	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmUuid + "/buckets"
 	statusCode, _ := performHttpGet(mgmInfo.username, mgmInfo.password, urlString)
-	// statusCode, response := performHttpGet(mgmInfo.username, mgmInfo.password, urlString)
 	if statusCode != 200 {
 		klog.Errorf("Error interacting with Netapp API for checking if S3 bucket exists:") // TODO add error message
 		// thing is we dont want to return false here because this response indicates a failed API call
@@ -329,7 +330,7 @@ func checkIfS3BucketExists(mgmInfo managementInfo, svmUuid string, requestedBuck
 		return true
 	}
 	// Check the response and go through it.
-	//
+	// TODO
 	return true
 }
 
