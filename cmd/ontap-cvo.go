@@ -121,6 +121,56 @@ func createS3User(onPremName string, namespaceStr string, client *kubernetes.Cli
 }
 
 /*
+This will create the S3 bucket. Requires the bucketName to be hashed, the nasPath and relevant management and svm information
+https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html
+*/
+func createS3Bucket(svmInfo svmInfo, mgmInfo managementInfo, bucketName string, nasPath string) bool {
+	hashedName := bucketName + "todo-implement-this"
+	// Create a string that is valid json, as thats the simplest way of working with this request
+	// https://go.dev/play/p/xs_B0l3HsBw
+	jsonString := fmt.Sprintf(
+		`{
+			"comment": "created via the ZONE controller",
+			"name": "%s",
+			"nas_path": "%s",
+			"type": "nas",
+			"policy" : {
+				"statements": [
+					{
+						"effect": "allow",
+						"actions": [
+							"GetObject",
+							"PutObject",
+							"ListBucket",
+							"GetBucketAcl",
+							"GetObjectAcl"
+						],
+						"resources": [
+							"%s",
+							"%s/*"
+						]
+					}
+				]
+			}
+		}`,
+		hashedName, nasPath, hashedName, hashedName)
+	// https://discourse.gohugo.io/t/use-same-argument-twice-in-a-printf-clause/20398
+	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmInfo.svmUUID + "/buckets"
+	statusCode, _ := performHttpPost(mgmInfo.username, mgmInfo.password, urlString, []byte(jsonString))
+	if statusCode == 201 {
+		klog.Infof("S3 Bucket has been created: https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#response")
+		return true
+	} else if statusCode == 202 {
+		klog.Infof("S3 Bucket job has been created: https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#response")
+		// In this case we may still want to check if the bucket exists after maybe 5 seconds?
+		// checkIfS3BucketExists()...
+		return true
+	}
+	klog.Errorf("Error when submitting the request to create a bucket") // TODO add error string
+	return false
+}
+
+/*
 This will get the onPremName given the owner email
 */
 func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, bool) {
@@ -128,7 +178,8 @@ func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, bool) {
 	// Step 0 Get the App Registration Info
 	// Don't forget to create a secret in the namespace for authentication with azure in the namespace
 	// for me in aaw-dev its under jose-matsuda
-	secret, err := client.CoreV1().Secrets("netapp").Get(context.Background(), "netapp-regi-secret", metav1.GetOptions{})
+	// TODO change to das? for the location of secrets
+	secret, err := client.CoreV1().Secrets("netapp").Get(context.Background(), "microsoft-graph-api-secret", metav1.GetOptions{})
 	if err != nil {
 		klog.Infof("An Error Occured while getting registration secret %v", err)
 		return "", false
@@ -179,7 +230,27 @@ func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, bool) {
 	return *onPremAccountName, true
 }
 
+func getManagementInfo(client *kubernetes.Clientset) managementInfo {
+	klog.Infof("Getting secret containing the management information...")
+	// TODO move to 'das'? for the namespace of the secret
+	secret, err := client.CoreV1().Secrets("netapp").Get(context.Background(), "netapp-management-information", metav1.GetOptions{})
+	if err != nil {
+		klog.Errorf("Error the secret for the management api was not found!")
+		// terminate?
+	}
+	management_ip := string(secret.Data["MANAGEMENT_IP"])
+	username := string(secret.Data["USERNAME"])
+	password := string(secret.Data["PASSWORD"])
+	mgmInfo := managementInfo{
+		managementIP: management_ip,
+		username:     username,
+		password:     password,
+	}
+	return mgmInfo
+}
+
 /*
+TODO CHANGE
 Using the profile namespace, will use the configmap to retrieve a list of filers attached to the profile
 It will then iterate over the list and search for a constructed secret and if that secret is not found then we create
 the S3 user (and as a result the secret)
@@ -232,10 +303,35 @@ func checkIfS3UserExists(mgmInfo managementInfo, svmUuid string, onPremName stri
 	// Build the request
 	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmUuid + "/users/" + onPremName
 	statusCode, _ := performHttpGet(mgmInfo.username, mgmInfo.password, urlString)
-	if statusCode == 200 {
+	if statusCode != 200 {
+		klog.Errorf("Error when checking if user exists:") // TODO add error message
+		return false
+	}
+	return true
+}
+
+/*
+This will check for the existence of an S3 bucket
+https://docs.netapp.com/us-en/ontap-restapi/ontap/get-protocols-s3-services-buckets-.html
+Requires: managementInfo, svm.uuid and the bucketName
+https://docs.netapp.com/us-en/ontap-restapi/ontap/protocols_s3_services_svm.uuid_buckets_endpoint_overview.html#retrieving-all-fields-for-all-s3-buckets-of-an-svm
+^ is the best we can do, given that we cannot search a bucket by its name (can search by UUID though)
+We'd need to re-use that hash function here when looking too.
+Returns true if it does exist
+*/
+func checkIfS3BucketExists(mgmInfo managementInfo, svmUuid string, requestedBucket string) bool {
+	// Build the request
+	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmUuid + "/buckets"
+	statusCode, _ := performHttpGet(mgmInfo.username, mgmInfo.password, urlString)
+	if statusCode != 200 {
+		klog.Errorf("Error interacting with Netapp API for checking if S3 bucket exists:") // TODO add error message
+		// thing is we dont want to return false here because this response indicates a failed API call
+		// or perhaps a reference to a svm that doesnt exist, but that shouldnt be handled here
 		return true
 	}
-	return false
+	// Check the response and go through it.
+	// TODO
+	return true
 }
 
 /*
@@ -359,7 +455,7 @@ var ontapcvoCmd = &cobra.Command{
 		//configMapLister := configMapInformer.Lister()
 
 		// Obtain Management Info and svm Info, as this will not change often
-		var mgmInfo = managementInfo{"", "", ""}
+		mgmInfo := getManagementInfo(kubeClient)
 
 		// TODO: Change to load entire thing into memory
 		//var svmInfo = getAllSvmInfo(kubeClient, )
