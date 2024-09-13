@@ -248,7 +248,7 @@ func filersMapConcat(sourceMap map[string][]string, modifierMap map[string][]str
 
 // formats the filers data to be compliant with a config map data's datatype
 func formatFilersMap(filers map[string][]string) map[string]string {
-	var result map[string]string
+	result := map[string]string{}
 	for k := range filers {
 		val, err := json.Marshal(filers[k])
 		if err != nil {
