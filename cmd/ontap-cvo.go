@@ -288,9 +288,9 @@ func updateUserFilerConfigMaps(client *kubernetes.Clientset, namespace string, n
 		}
 	} else {
 		// format the CM data
-		var userFilersData map[string][]string
+		userFilersData := map[string][]string{}
 		for k := range userFilersCM.Data {
-			var val []string
+			val := []string{}
 			err := json.Unmarshal([]byte(userFilersCM.Data[k]), &val)
 			if err != nil {
 				klog.Infof("Error creating new user filers config map in %s. Reason: %v", namespace, err)
