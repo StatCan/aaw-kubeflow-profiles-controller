@@ -503,6 +503,7 @@ func getSvmInfo(client *kubernetes.Clientset, whichSVM string) svmInfo {
 }
 
 // Format JSON data helper function
+// TODO: is this needed or should this be removed?
 func formatJSON(data []byte) string {
 	var out bytes.Buffer
 	err := json.Indent(&out, data, "", " ")
