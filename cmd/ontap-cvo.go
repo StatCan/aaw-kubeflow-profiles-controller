@@ -56,15 +56,11 @@ type s3KeysObj struct {
 	SecretKey string `json:"secret_key"`
 }
 
-type svmInfo struct {
-	vserver string `json:"vserver"`
-	name    string `json:"name"`
-	url     string `json:"url"`
-	uuid    string `json:"uuid"`
-}
-
-type svmInfoList struct {
-	svmInfos []svmInfo `json:"filersList"`
+type SvmInfo struct {
+	Vserver string `json:"vserver"`
+	Name    string `json:"name"`
+	Uuid    string `json:"uuid"`
+	Url     string `json:"url"`
 }
 
 type managementInfo struct {
@@ -77,14 +73,14 @@ type managementInfo struct {
 Requires the onPremname, the namespace to create the secret in, the current k8s client, the svmInfo and the managementInfo
 Returns true if successful
 */
-func createS3User(onPremName string, namespaceStr string, client *kubernetes.Clientset, svmInfo svmInfo, mgmInfo managementInfo) bool {
+func createS3User(onPremName string, namespaceStr string, client *kubernetes.Clientset, svmInfo SvmInfo, mgmInfo managementInfo) bool {
 	postBody, _ := json.Marshal(map[string]interface{}{
 		"name": onPremName,
 		"svm": map[string]string{
-			"uuid": svmInfo.uuid,
+			"uuid": svmInfo.Uuid,
 		},
 	})
-	url := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmInfo.uuid + "/users"
+	url := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/users"
 	statusCode, response := performHttpPost(mgmInfo.username, mgmInfo.password, url, postBody)
 
 	if statusCode != 201 {
@@ -103,7 +99,7 @@ func createS3User(onPremName string, namespaceStr string, client *kubernetes.Cli
 	// Create the secret
 	usersecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      svmInfo.name + "-conn-secret", // change to be a const later or something
+			Name:      svmInfo.Name + "-conn-secret", // change to be a const later or something
 			Namespace: namespaceStr,
 		},
 		Data: map[string][]byte{
@@ -125,7 +121,7 @@ func createS3User(onPremName string, namespaceStr string, client *kubernetes.Cli
 This will create the S3 bucket. Requires the bucketName to be hashed, the nasPath and relevant management and svm information
 https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html
 */
-func createS3Bucket(svmInfo svmInfo, mgmInfo managementInfo, bucketName string, nasPath string) bool {
+func createS3Bucket(svmInfo SvmInfo, mgmInfo managementInfo, bucketName string, nasPath string) bool {
 	hashedName := bucketName + "todo-implement-this"
 	// Create a string that is valid json, as thats the simplest way of working with this request
 	// https://go.dev/play/p/xs_B0l3HsBw
@@ -156,7 +152,7 @@ func createS3Bucket(svmInfo svmInfo, mgmInfo managementInfo, bucketName string, 
 		}`,
 		hashedName, nasPath, hashedName, hashedName)
 	// https://discourse.gohugo.io/t/use-same-argument-twice-in-a-printf-clause/20398
-	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmInfo.uuid + "/buckets"
+	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/buckets"
 	statusCode, _ := performHttpPost(mgmInfo.username, mgmInfo.password, urlString, []byte(jsonString))
 	if statusCode == 201 {
 		klog.Infof("S3 Bucket has been created: https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#response")
@@ -256,7 +252,7 @@ Using the profile namespace, will use the configmap to retrieve a list of filers
 It will then iterate over the list and search for a constructed secret and if that secret is not found then we create
 the S3 user (and as a result the secret)
 */
-func checkSecrets(client *kubernetes.Clientset, profileName string, profileEmail string, mgmInfo managementInfo, svmInfoList map[string]svmInfo) bool {
+func checkSecrets(client *kubernetes.Clientset, profileName string, profileEmail string, mgmInfo managementInfo, svmInfoMap map[string]SvmInfo) bool {
 	// We don't actually need secret informers, since informers look at changes in state
 	// https://www.macias.info/entry/202109081800_k8s_informers.md
 	// Get a list of secrets the user namespace should have accounts for using the configmap
@@ -272,7 +268,7 @@ func checkSecrets(client *kubernetes.Clientset, profileName string, profileEmail
 			onPremName, foundOnPrem := getOnPrem(profileEmail, client)
 			if foundOnPrem {
 				// Get the svmInfo from the master list
-				svmInfo := svmInfoList[k]
+				svmInfo := svmInfoMap[k]
 				// Create the user
 				wasSuccessful := createS3User(onPremName, profileName, client, svmInfo, mgmInfo)
 				if !wasSuccessful {
@@ -488,21 +484,6 @@ func performHttpPost(username string, password string, url string, requestBody [
 	return resp.StatusCode, responseBody
 }
 
-// TODO: Retrieve the svmInfo this must query the master configmap that exists in the DAS namespace.
-// This configmap COULD change, so could put this elsewhere and have it be one call.
-// How the mapping here works with naming will need to be settled on right now this will fail
-func getSvmInfo(client *kubernetes.Clientset, whichSVM string) svmInfo {
-	name := ""
-	uuid := ""
-	url := ""
-	svmInformation := svmInfo{
-		name: name,
-		uuid: uuid,
-		url:  url,
-	}
-	return svmInformation
-}
-
 // Format JSON data helper function
 // TODO: is this needed or should this be removed?
 func formatJSON(data []byte) string {
@@ -516,7 +497,7 @@ func formatJSON(data []byte) string {
 	return string(d)
 }
 
-func getSvmInfoList(client *kubernetes.Clientset) map[string]svmInfo {
+func getSvmInfoList(client *kubernetes.Clientset) map[string]SvmInfo {
 	klog.Infof("Getting master filer list...")
 
 	filerListCM, err := client.CoreV1().ConfigMaps("das").Get(context.Background(), "filers-list", metav1.GetOptions{})
@@ -525,15 +506,16 @@ func getSvmInfoList(client *kubernetes.Clientset) map[string]svmInfo {
 		// terminate?
 	}
 
-	var svmInfoList svmInfoList
-	err = json.Unmarshal([]byte(filerListCM.Data["filersList"]), &svmInfoList)
+	var svmInfoList []SvmInfo
+	err = json.Unmarshal([]byte(filerListCM.Data["filers"]), &svmInfoList)
 	if err != nil {
 		klog.Info(err)
 	}
 
-	filerList := map[string]svmInfo{}
-	for _, svm := range svmInfoList.svmInfos {
-		filerList[svm.vserver] = svm
+	//format the data into something a bit more usable
+	filerList := map[string]SvmInfo{}
+	for _, svm := range svmInfoList {
+		filerList[svm.Vserver] = svm
 	}
 
 	return filerList
@@ -578,7 +560,7 @@ var ontapcvoCmd = &cobra.Command{
 		// Obtain Management Info and svm Info, as this will not change often
 		mgmInfo := getManagementInfo(kubeClient)
 
-		svmInfoList := getSvmInfoList(kubeClient)
+		svmInfoMap := getSvmInfoList(kubeClient)
 
 		// Setup controller
 		controller := profiles.NewController(
@@ -588,7 +570,7 @@ var ontapcvoCmd = &cobra.Command{
 				for k, v := range allLabels {
 					// If the label we specify exists then look for the secret
 					if k == ontapLabel {
-						checkSecrets(kubeClient, profile.Name, profile.Spec.Owner.Name, mgmInfo, svmInfoList)
+						checkSecrets(kubeClient, profile.Name, profile.Spec.Owner.Name, mgmInfo, svmInfoMap)
 						if checkExpired(v) {
 							// Do things, but for first iteration may not care.
 							//klog.Infof("Expired, but not going to do anything yet")
