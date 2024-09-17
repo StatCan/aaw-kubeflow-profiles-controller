@@ -64,7 +64,7 @@ type svmInfo struct {
 }
 
 type svmInfoList struct {
-	svmInfos []svmInfo
+	svmInfos []svmInfo `json:"filersList"`
 }
 
 type managementInfo struct {
@@ -525,12 +525,13 @@ func getSvmInfoList(client *kubernetes.Clientset) map[string]svmInfo {
 		// terminate?
 	}
 
-	filerList := map[string]svmInfo{}
 	var svmInfoList svmInfoList
-	if err := json.Unmarshal([]byte(filerListCM.Data["filersList"]), &svmInfoList); err != nil {
+	err = json.Unmarshal([]byte(filerListCM.Data["filersList"]), &svmInfoList)
+	if err != nil {
 		klog.Info(err)
 	}
 
+	filerList := map[string]svmInfo{}
 	for _, svm := range svmInfoList.svmInfos {
 		filerList[svm.vserver] = svm
 	}
