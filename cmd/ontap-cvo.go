@@ -57,15 +57,15 @@ type s3KeysObj struct {
 }
 
 type svmInfo struct {
-	svmName string
-	svmUrl  string
-	svmUUID string
+	vServer string `json:"vserver"`
+	name string `json:"name"`
+	url  string `json:"url"`
+	uuid string `json:"uuid"`
 }
 
-// TODOO create datatype to support the entire list of svms
-// type svmInfoList struct {
-// 	svmInfos []svmInfo
-// }
+type svmInfoList struct {
+	svmInfos map[string]svmInfo
+}
 
 type managementInfo struct {
 	managementIP string
@@ -81,10 +81,10 @@ func createS3User(onPremName string, namespaceStr string, client *kubernetes.Cli
 	postBody, _ := json.Marshal(map[string]interface{}{
 		"name": onPremName,
 		"svm": map[string]string{
-			"uuid": svmInfo.svmUUID,
+			"uuid": svmInfo.uuid,
 		},
 	})
-	url := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmInfo.svmUUID + "/users"
+	url := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmInfo.uuid + "/users"
 	statusCode, response := performHttpPost(mgmInfo.username, mgmInfo.password, url, postBody)
 
 	if statusCode != 201 {
@@ -103,7 +103,7 @@ func createS3User(onPremName string, namespaceStr string, client *kubernetes.Cli
 	// Create the secret
 	usersecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      svmInfo.svmName + "-conn-secret", // change to be a const later or something
+			Name:      svmInfo.name + "-conn-secret", // change to be a const later or something
 			Namespace: namespaceStr,
 		},
 		Data: map[string][]byte{
@@ -156,7 +156,7 @@ func createS3Bucket(svmInfo svmInfo, mgmInfo managementInfo, bucketName string, 
 		}`,
 		hashedName, nasPath, hashedName, hashedName)
 	// https://discourse.gohugo.io/t/use-same-argument-twice-in-a-printf-clause/20398
-	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmInfo.svmUUID + "/buckets"
+	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmInfo.uuid + "/buckets"
 	statusCode, _ := performHttpPost(mgmInfo.username, mgmInfo.password, urlString, []byte(jsonString))
 	if statusCode == 201 {
 		klog.Infof("S3 Bucket has been created: https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#response")
@@ -300,9 +300,9 @@ https://docs.netapp.com/us-en/ontap-restapi/ontap/get-protocols-s3-services-user
 Requires: managementIP, svm.uuid, name, password and username for authentication
 Returns true if it does exist
 */
-func checkIfS3UserExists(mgmInfo managementInfo, svmUuid string, onPremName string) bool {
+func checkIfS3UserExists(mgmInfo managementInfo, uuid string, onPremName string) bool {
 	// Build the request
-	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmUuid + "/users/" + onPremName
+	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + uuid + "/users/" + onPremName
 	statusCode, _ := performHttpGet(mgmInfo.username, mgmInfo.password, urlString)
 	if statusCode != 200 {
 		klog.Errorf("Error when checking if user exists:") // TODO add error message
@@ -320,9 +320,9 @@ https://docs.netapp.com/us-en/ontap-restapi/ontap/protocols_s3_services_svm.uuid
 We'd need to re-use that hash function here when looking too.
 Returns true if it does exist
 */
-func checkIfS3BucketExists(mgmInfo managementInfo, svmUuid string, requestedBucket string) bool {
+func checkIfS3BucketExists(mgmInfo managementInfo, uuid string, requestedBucket string) bool {
 	// Build the request
-	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmUuid + "/buckets"
+	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + uuid + "/buckets"
 	statusCode, _ := performHttpGet(mgmInfo.username, mgmInfo.password, urlString)
 	if statusCode != 200 {
 		klog.Errorf("Error interacting with Netapp API for checking if S3 bucket exists:") // TODO add error message
@@ -491,13 +491,13 @@ func performHttpPost(username string, password string, url string, requestBody [
 // This configmap COULD change, so could put this elsewhere and have it be one call.
 // How the mapping here works with naming will need to be settled on right now this will fail
 func getSvmInfo(client *kubernetes.Clientset, whichSVM string) svmInfo {
-	svmName := ""
-	svmUUID := ""
-	svmURL := ""
+	name := ""
+	uuid := ""
+	url := ""
 	svmInformation := svmInfo{
-		svmName: svmName,
-		svmUUID: svmUUID,
-		svmUrl:  svmURL,
+		name: name,
+		uuid: uuid,
+		url:  url,
 	}
 	return svmInformation
 }
@@ -513,6 +513,30 @@ func formatJSON(data []byte) string {
 	}
 	d := out.Bytes()
 	return string(d)
+}
+
+func getMasterFilerList(client *kubernetes.Clientset) svmInfoList {
+	klog.Infof("Getting master filer list...")
+	
+	filerListCM, err := client.CoreV1().ConfigMaps("das").Get(context.Background(), "filers-list", metav1.GetOptions{})
+	if err != nil {
+		klog.Errorf("Error while getting the master filer list")
+		// terminate?
+	}
+
+	filerList := svmInfoList{
+		svmInfos:= map[string]svmInfo{}
+	}
+	var svmInfoList []svmInfo
+	if err := json.Unmarshal([]byte(filerListCM.Data["filersList"]), &smvInfoList); err != nil {
+		klog.Info(err)
+	}
+
+	for i, svm := range svmInfoList {
+		filerList.svmInfos[svm.vserver] = svm
+	}
+	
+	return filerList
 }
 
 var ontapcvoCmd = &cobra.Command{
