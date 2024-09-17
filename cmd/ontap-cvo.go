@@ -57,14 +57,14 @@ type s3KeysObj struct {
 }
 
 type svmInfo struct {
-	vServer string `json:"vserver"`
-	name string `json:"name"`
-	url  string `json:"url"`
-	uuid string `json:"uuid"`
+	vserver string `json:"vserver"`
+	name    string `json:"name"`
+	url     string `json:"url"`
+	uuid    string `json:"uuid"`
 }
 
 type svmInfoList struct {
-	svmInfos map[string]svmInfo
+	svmInfos []svmInfo
 }
 
 type managementInfo struct {
@@ -256,7 +256,7 @@ Using the profile namespace, will use the configmap to retrieve a list of filers
 It will then iterate over the list and search for a constructed secret and if that secret is not found then we create
 the S3 user (and as a result the secret)
 */
-func checkSecrets(client *kubernetes.Clientset, profileName string, profileEmail string, mgmInfo managementInfo, svmInfo svmInfo) bool {
+func checkSecrets(client *kubernetes.Clientset, profileName string, profileEmail string, mgmInfo managementInfo, svmInfoList map[string]svmInfo) bool {
 	// We don't actually need secret informers, since informers look at changes in state
 	// https://www.macias.info/entry/202109081800_k8s_informers.md
 	// Get a list of secrets the user namespace should have accounts for using the configmap
@@ -271,7 +271,8 @@ func checkSecrets(client *kubernetes.Clientset, profileName string, profileEmail
 			// Get the OnPremName
 			onPremName, foundOnPrem := getOnPrem(profileEmail, client)
 			if foundOnPrem {
-				// TODO, get and set the actual SVM info, since at this point we will have a map or list of svms and not the actual one yet
+				// Get the svmInfo from the master list
+				svmInfo := svmInfoList[k]
 				// Create the user
 				wasSuccessful := createS3User(onPremName, profileName, client, svmInfo, mgmInfo)
 				if !wasSuccessful {
@@ -515,27 +516,25 @@ func formatJSON(data []byte) string {
 	return string(d)
 }
 
-func getMasterFilerList(client *kubernetes.Clientset) svmInfoList {
+func getSvmInfoList(client *kubernetes.Clientset) map[string]svmInfo {
 	klog.Infof("Getting master filer list...")
-	
+
 	filerListCM, err := client.CoreV1().ConfigMaps("das").Get(context.Background(), "filers-list", metav1.GetOptions{})
 	if err != nil {
 		klog.Errorf("Error while getting the master filer list")
 		// terminate?
 	}
 
-	filerList := svmInfoList{
-		svmInfos:= map[string]svmInfo{}
-	}
-	var svmInfoList []svmInfo
-	if err := json.Unmarshal([]byte(filerListCM.Data["filersList"]), &smvInfoList); err != nil {
+	filerList := map[string]svmInfo{}
+	var svmInfoList svmInfoList
+	if err := json.Unmarshal([]byte(filerListCM.Data["filersList"]), &svmInfoList); err != nil {
 		klog.Info(err)
 	}
 
-	for i, svm := range svmInfoList {
-		filerList.svmInfos[svm.vserver] = svm
+	for _, svm := range svmInfoList.svmInfos {
+		filerList[svm.vserver] = svm
 	}
-	
+
 	return filerList
 }
 
@@ -578,9 +577,8 @@ var ontapcvoCmd = &cobra.Command{
 		// Obtain Management Info and svm Info, as this will not change often
 		mgmInfo := getManagementInfo(kubeClient)
 
-		// TODO: Change to load entire thing into memory
-		//var svmInfo = getAllSvmInfo(kubeClient, )
-		var svmInfo = svmInfo{"", "", ""}
+		svmInfoList := getSvmInfoList(kubeClient)
+
 		// Setup controller
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
@@ -589,7 +587,7 @@ var ontapcvoCmd = &cobra.Command{
 				for k, v := range allLabels {
 					// If the label we specify exists then look for the secret
 					if k == ontapLabel {
-						checkSecrets(kubeClient, profile.Name, profile.Spec.Owner.Name, mgmInfo, svmInfo)
+						checkSecrets(kubeClient, profile.Name, profile.Spec.Owner.Name, mgmInfo, svmInfoList)
 						if checkExpired(v) {
 							// Do things, but for first iteration may not care.
 							//klog.Infof("Expired, but not going to do anything yet")
