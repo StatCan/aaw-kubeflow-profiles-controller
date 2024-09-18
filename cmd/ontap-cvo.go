@@ -484,19 +484,6 @@ func performHttpPost(username string, password string, url string, requestBody [
 	return resp.StatusCode, responseBody
 }
 
-// Format JSON data helper function
-// TODO: is this needed or should this be removed?
-func formatJSON(data []byte) string {
-	var out bytes.Buffer
-	err := json.Indent(&out, data, "", " ")
-
-	if err != nil {
-		fmt.Println(err)
-	}
-	d := out.Bytes()
-	return string(d)
-}
-
 func getSvmInfoList(client *kubernetes.Clientset) map[string]SvmInfo {
 	klog.Infof("Getting master filer list...")
 
