@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -67,6 +68,15 @@ type managementInfo struct {
 	managementIP string
 	username     string
 	password     string
+}
+
+type S3Bucket struct {
+	Name    string `json:"name"`
+	NasPath string `json:"nas_path"`
+}
+
+type getS3Buckets struct {
+	Records []S3Bucket `json:"records"`
 }
 
 /*
@@ -317,19 +327,29 @@ https://docs.netapp.com/us-en/ontap-restapi/ontap/protocols_s3_services_svm.uuid
 We'd need to re-use that hash function here when looking too.
 Returns true if it does exist
 */
-func checkIfS3BucketExists(mgmInfo managementInfo, uuid string, requestedBucket string) bool {
+func checkIfS3BucketExists(mgmInfo managementInfo, uuid string, requestedBucket string) (bool, error) {
 	// Build the request
-	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + uuid + "/buckets"
-	statusCode, _ := performHttpCall("GET", mgmInfo.username, mgmInfo.password, urlString, nil)
+	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + uuid + "/buckets?fields=**&return_records=true"
+	statusCode, responseBody := performHttpCall("GET", mgmInfo.username, mgmInfo.password, urlString, nil)
 	if statusCode != 200 {
-		klog.Errorf("Error interacting with Netapp API for checking if S3 bucket exists:") // TODO add error message
-		// thing is we dont want to return false here because this response indicates a failed API call
-		// or perhaps a reference to a svm that doesnt exist, but that shouldnt be handled here
-		return true
+		return true, errors.New("error interacting with Netapp API for checking if S3 bucket exists")
 	}
 	// Check the response and go through it.
-	// TODO
-	return true
+	data := getS3Buckets{}
+	err := json.Unmarshal(responseBody, &data)
+	if err != nil {
+		return true, err
+	}
+
+	for _, bucket := range data.Records {
+		if bucket.Name == requestedBucket {
+			// return true if the bucket is already in the svm
+			return true, nil
+		}
+	}
+
+	// returns false since the bucket with the requested name was not found
+	return false, nil
 }
 
 // concats the values of modifierMap into the given sourceMap
