@@ -81,7 +81,7 @@ func createS3User(onPremName string, namespaceStr string, client *kubernetes.Cli
 		},
 	})
 	url := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/users"
-	statusCode, response := performHttpPost(mgmInfo.username, mgmInfo.password, url, postBody)
+	statusCode, response := performHttpCall("POST", mgmInfo.username, mgmInfo.password, url, bytes.NewBuffer(postBody))
 
 	if statusCode != 201 {
 		klog.Infof("An Error Occured while creating the S3 User")
@@ -153,7 +153,7 @@ func createS3Bucket(svmInfo SvmInfo, mgmInfo managementInfo, bucketName string, 
 		hashedName, nasPath, hashedName, hashedName)
 	// https://discourse.gohugo.io/t/use-same-argument-twice-in-a-printf-clause/20398
 	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/buckets"
-	statusCode, _ := performHttpPost(mgmInfo.username, mgmInfo.password, urlString, []byte(jsonString))
+	statusCode, _ := performHttpCall("POST", mgmInfo.username, mgmInfo.password, urlString, bytes.NewBuffer([]byte(jsonString)))
 	if statusCode == 201 {
 		klog.Infof("S3 Bucket has been created: https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#response")
 		return true
@@ -300,7 +300,7 @@ Returns true if it does exist
 func checkIfS3UserExists(mgmInfo managementInfo, uuid string, onPremName string) bool {
 	// Build the request
 	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + uuid + "/users/" + onPremName
-	statusCode, _ := performHttpGet(mgmInfo.username, mgmInfo.password, urlString)
+	statusCode, _ := performHttpCall("GET", mgmInfo.username, mgmInfo.password, urlString, nil)
 	if statusCode != 200 {
 		klog.Errorf("Error when checking if user exists:") // TODO add error message
 		return false
@@ -320,7 +320,7 @@ Returns true if it does exist
 func checkIfS3BucketExists(mgmInfo managementInfo, uuid string, requestedBucket string) bool {
 	// Build the request
 	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + uuid + "/buckets"
-	statusCode, _ := performHttpGet(mgmInfo.username, mgmInfo.password, urlString)
+	statusCode, _ := performHttpCall("GET", mgmInfo.username, mgmInfo.password, urlString, nil)
 	if statusCode != 200 {
 		klog.Errorf("Error interacting with Netapp API for checking if S3 bucket exists:") // TODO add error message
 		// thing is we dont want to return false here because this response indicates a failed API call
@@ -436,38 +436,15 @@ func basicAuth(username, password string) string {
 }
 
 /*
-Does basic get for requests to the API. Returns the code and a json formatted response
-Requires username, password, and url.
-https://www.makeuseof.com/go-make-http-requests/
-apiPath should probably be /apiPath/
-*/
-func performHttpGet(username string, password string, url string) (statusCode int, responseBody []byte) {
-	// url := "https://" + managementIP + apiPath + filerUUID + "/users"
-	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("Content-Type", "application/json")
-	// req.Header. // need to set other information
-	authorization := basicAuth(username, password)
-	req.Header.Set("Authorization", "Basic "+authorization)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		klog.Fatalf("error sending and returning HTTP response  : %v", err)
-	}
-	responseBody, err = io.ReadAll(resp.Body)
-	if err != nil {
-		klog.Fatalf("error reading HTTP response  : %v", err)
-	}
-	defer resp.Body.Close() // clean up memory
-	return resp.StatusCode, responseBody
-}
-
-/*
 Does basic POST for requests to the API. Returns the code and a json formatted response
-Requires username, password, url, and the requestBody.
+Requires requestType, username, password, url, and the requestBody.
+requestType is either "GET" or "POST".
+requestBody should be nil for GET requests.
+https://www.makeuseof.com/go-make-http-requests/
 An example requestBody assignment can look like: https://zetcode.com/golang/getpostrequest/
 */
-func performHttpPost(username string, password string, url string, requestBody []byte) (statusCode int, responseBody []byte) {
-	// url := "https://" + managementIP + apiPath + filerUUID + "/users"
-	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(requestBody))
+func performHttpCall(requestType string, username string, password string, url string, requestBody io.Reader) (statusCode int, responseBody []byte) {
+	req, _ := http.NewRequest(requestType, url, requestBody)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("accept", "application/json")
 	authorization := basicAuth(username, password)
