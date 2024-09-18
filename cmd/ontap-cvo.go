@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net/http"
 	"slices"
@@ -117,12 +118,19 @@ func createS3User(onPremName string, namespaceStr string, client *kubernetes.Cli
 	return true
 }
 
+// Applies a hash function to the bucketname to make it S3 compliant
+func hashBucketName(name string) string {
+	h := fnv.New64a()
+	h.Write([]byte(name))
+	return string(h.Sum64())
+}
+
 /*
 This will create the S3 bucket. Requires the bucketName to be hashed, the nasPath and relevant management and svm information
 https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html
 */
 func createS3Bucket(svmInfo SvmInfo, mgmInfo managementInfo, bucketName string, nasPath string) bool {
-	hashedName := bucketName + "todo-implement-this"
+	hashedName := hashBucketName(bucketName)
 	// Create a string that is valid json, as thats the simplest way of working with this request
 	// https://go.dev/play/p/xs_B0l3HsBw
 	jsonString := fmt.Sprintf(
