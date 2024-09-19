@@ -548,12 +548,9 @@ var ontapcvoCmd = &cobra.Command{
 			case watch.Modified:
 				klog.Infof("Configmap modified")
 				processConfigmap(kubeClient, configmap.Namespace, configmap.Labels["email"], mgmInfo, svmInfoMap)
-			case watch.Bookmark:
-				klog.Infof("Configmap bookmark")
 			case watch.Error:
-				klog.Infof("Configmap error")
-			case watch.Deleted:
-				klog.Infof("Configmap deleted")
+				klog.Infof("Configmap for requested shares in namespace:" +
+					configmap.Namespace + " contains an error.")
 			case watch.Added:
 				klog.Infof("Configmap added")
 				processConfigmap(kubeClient, configmap.Namespace, configmap.Labels["email"], mgmInfo, svmInfoMap)
