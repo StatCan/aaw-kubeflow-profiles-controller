@@ -516,6 +516,23 @@ func getSvmInfoList(client *kubernetes.Clientset) map[string]SvmInfo {
 	return filerList
 }
 
+func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, error error) {
+	// Logs the error message for the pod logs
+	klog.Errorf("Error occured for ns %s: %s", namespace, error.Error())
+
+	errorCM := corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "shares-error",
+			Namespace: namespace,
+		},
+		Data: map[string]string{"error": error.Error()}, // TODO: Do we want this to be a list of errors instead of just one error?
+	}
+	_, err := client.CoreV1().ConfigMaps(namespace).Create(context.Background(), &errorCM, metav1.CreateOptions{})
+	if err != nil {
+		klog.Errorf("Error while creating error configmap for %s", namespace)
+	}
+}
+
 var ontapcvoCmd = &cobra.Command{
 	Use:   "ontap-cvo",
 	Short: "Configure ontap-cvo credentials",
