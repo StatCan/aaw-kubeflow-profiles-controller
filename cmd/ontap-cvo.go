@@ -388,9 +388,9 @@ func formatSharesMap(shares map[string][]string) map[string]string {
 
 /*
 Updates the filer shares ConfigMaps for a given namespace
-- newFilerShares is the map of filer shares that are have been processed(meaning the s3bucket got created)
+- newShares is the map of filer shares that are have been processed(meaning the s3bucket got created)
 and that need to be both removed from the requesting filer shares CM and added to the user's existing shares CM
-- failedFilerShares is the map of filer shares that failed being processed, for whatever reason,
+- failedShares is the map of filer shares that failed being processed, for whatever reason,
 and that will stay in the requesting shares CM
 */
 func updateUserSharesConfigMaps(client *kubernetes.Clientset, namespace string, newShares map[string][]string, failedShares map[string][]string) {
