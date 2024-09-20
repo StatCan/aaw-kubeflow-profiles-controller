@@ -23,6 +23,7 @@ import (
 	"github.com/microsoftgraph/msgraph-sdk-go/users"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -78,6 +79,11 @@ type S3Bucket struct {
 
 type getS3Buckets struct {
 	Records []S3Bucket `json:"records"`
+}
+
+type ShareError struct {
+	Share string
+	Error string
 }
 
 /*
@@ -516,20 +522,62 @@ func getSvmInfoList(client *kubernetes.Clientset) map[string]SvmInfo {
 	return filerList
 }
 
-func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, error error) {
+func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, share string, error error) {
 	// Logs the error message for the pod logs
 	klog.Errorf("Error occured for ns %s: %s", namespace, error.Error())
 
-	errorCM := corev1.ConfigMap{
+	errorCM, err := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), "shares-error", metav1.GetOptions{})
+	if k8serrors.IsNotFound(err) {
+		//If the error CM doesn't exist, we create it
+		errorData := []ShareError{{
+			Share: share,
+			Error: error.Error(),
+		}}
+		newErrors, err := json.Marshal(errorData)
+		if err != nil {
+			klog.Errorf("Error while mashalling error configmap for %s", namespace)
+		}
+
+		errorCM := corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "shares-error",
+				Namespace: namespace,
+			},
+			Data: map[string]string{"errors": string(newErrors)},
+		}
+		_, err = client.CoreV1().ConfigMaps(namespace).Create(context.Background(), &errorCM, metav1.CreateOptions{})
+		if err != nil {
+			klog.Errorf("Error while creating error configmap for %s", namespace)
+		}
+
+		return
+	} else if err != nil {
+		klog.Errorf("Error while retrieving error configmap for %s", namespace)
+	}
+	//If the error CM does exist, we update it
+	errorData := []ShareError{}
+	json.Unmarshal([]byte(errorCM.Data["errors"]), &errorData)
+
+	errorData = append(errorData, ShareError{
+		Share: share,
+		Error: error.Error(),
+	})
+
+	newErrors, err := json.Marshal(errorData)
+	if err != nil {
+		klog.Errorf("Error while mashalling error configmap for %s", namespace)
+	}
+
+	newErrorCM := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "shares-error",
 			Namespace: namespace,
 		},
-		Data: map[string]string{"error": error.Error()}, // TODO: Do we want this to be a list of errors instead of just one error?
+		Data: map[string]string{"errors": string(newErrors)},
 	}
-	_, err := client.CoreV1().ConfigMaps(namespace).Create(context.Background(), &errorCM, metav1.CreateOptions{})
+	_, err = client.CoreV1().ConfigMaps(namespace).Update(context.Background(), &newErrorCM, metav1.UpdateOptions{})
 	if err != nil {
-		klog.Errorf("Error while creating error configmap for %s", namespace)
+		klog.Errorf("Error while updating error configmap for %s", namespace)
 	}
 }
 
