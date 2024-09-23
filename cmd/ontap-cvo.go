@@ -36,7 +36,6 @@ For mounting there are a lot of helpful useful functions in `blob-csi.go` that w
   like the building of the pv / pvc spec, the creation and deletion of them etc.
 */
 
-const ontapLabel = "ontap-cvo"
 const requestConfigMapName = "share-requests"
 
 // const automountLabel = "blob.aaw.statcan.gc.ca/automount"
