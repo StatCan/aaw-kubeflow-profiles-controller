@@ -248,14 +248,15 @@ func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, bool) {
 	return *onPremAccountName, true
 }
 
-func getManagementInfo(client *kubernetes.Clientset) managementInfo {
+func getManagementInfo(client *kubernetes.Clientset) (managementInfo, error) {
 	klog.Infof("Getting secret containing the management information...")
-	// TODO move to 'das'? for the namespace of the secret
-	secret, err := client.CoreV1().Secrets("netapp").Get(context.Background(), "netapp-management-information", metav1.GetOptions{})
+
+	secret, err := client.CoreV1().Secrets("das").Get(context.Background(), "netapp-management-information", metav1.GetOptions{})
 	if err != nil {
-		klog.Errorf("Error the secret for the management api was not found!")
-		// terminate?
+		klog.Errorf("Error occured while getting the management api secret: %v", err)
+		return managementInfo{}, err
 	}
+
 	management_ip := string(secret.Data["MANAGEMENT_IP"])
 	username := string(secret.Data["USERNAME"])
 	password := string(secret.Data["PASSWORD"])
@@ -264,7 +265,7 @@ func getManagementInfo(client *kubernetes.Clientset) managementInfo {
 		username:     username,
 		password:     password,
 	}
-	return mgmInfo
+	return mgmInfo, nil
 }
 
 /*
@@ -495,19 +496,20 @@ func performHttpCall(requestType string, username string, password string, url s
 	return resp.StatusCode, responseBody
 }
 
-func getSvmInfoList(client *kubernetes.Clientset) map[string]SvmInfo {
-	klog.Infof("Getting master filer list...")
+func getSvmInfoList(client *kubernetes.Clientset) (map[string]SvmInfo, error) {
+	klog.Infof("Getting filers list...")
 
 	filerListCM, err := client.CoreV1().ConfigMaps("das").Get(context.Background(), "filers-list", metav1.GetOptions{})
 	if err != nil {
-		klog.Errorf("Error while getting the master filer list")
-		// terminate?
+		klog.Errorf("Error occured while getting the filers list: %v", err)
+		return nil, err
 	}
 
 	var svmInfoList []SvmInfo
 	err = json.Unmarshal([]byte(filerListCM.Data["filers"]), &svmInfoList)
 	if err != nil {
-		klog.Info(err)
+		klog.Errorf("Error occured while unmarshalling the filers list: %v", err)
+		return nil, err
 	}
 
 	//format the data into something a bit more usable
@@ -516,7 +518,7 @@ func getSvmInfoList(client *kubernetes.Clientset) map[string]SvmInfo {
 		filerList[svm.Vserver] = svm
 	}
 
-	return filerList
+	return filerList, nil
 }
 
 func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, share string, error error) {
@@ -597,11 +599,18 @@ var ontapcvoCmd = &cobra.Command{
 		}
 
 		// Obtain Management Info and svm Info, as this will not change often
-		mgmInfo := getManagementInfo(kubeClient)
-		svmInfoMap := getSvmInfoList(kubeClient)
+		mgmInfo, err := getManagementInfo(kubeClient)
+		if err != nil {
+			klog.Fatalf("Error retrieving management info: %s", err.Error())
+		}
+		svmInfoMap, err := getSvmInfoList(kubeClient)
+		if err != nil {
+			klog.Fatalf("Error retrieving SVM map: %s", err.Error())
+		}
 
 		watchFunc := func(options metav1.ListOptions) (watch.Interface, error) {
 			timeOut := int64(60)
+			// Watches all namespaces, hence the ConfigMaps("")
 			return kubeClient.CoreV1().ConfigMaps("").Watch(context.Background(), metav1.ListOptions{TimeoutSeconds: &timeOut,
 				LabelSelector: requestConfigMapName})
 		}
@@ -609,15 +618,11 @@ var ontapcvoCmd = &cobra.Command{
 		for event := range watcher.ResultChan() {
 			configmap := event.Object.(*corev1.ConfigMap)
 			switch event.Type {
-			case watch.Modified:
-				klog.Infof("Configmap modified")
+			case watch.Modified, watch.Added:
+				klog.Infof("Configmap %s", event.Type)
 				processConfigmap(kubeClient, configmap.Namespace, configmap.Labels["email"], mgmInfo, svmInfoMap)
 			case watch.Error:
-				klog.Infof("Configmap for requested shares in namespace:" +
-					configmap.Namespace + " contains an error.")
-			case watch.Added:
-				klog.Infof("Configmap added")
-				processConfigmap(kubeClient, configmap.Namespace, configmap.Labels["email"], mgmInfo, svmInfoMap)
+				klog.Errorf("Configmap for requested shares in namespace:%s contains an error.", configmap.Namespace)
 			}
 		}
 		wg.Add(1)
