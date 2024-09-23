@@ -18,6 +18,7 @@ import (
 	"github.com/microsoftgraph/msgraph-sdk-go/users"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
@@ -75,6 +76,11 @@ type S3Bucket struct {
 
 type getS3Buckets struct {
 	Records []S3Bucket `json:"records"`
+}
+
+type ShareError struct {
+	Share string
+	Error string
 }
 
 /*
@@ -263,7 +269,7 @@ func getManagementInfo(client *kubernetes.Clientset) managementInfo {
 
 /*
 TODO CHANGE
-Using the profile namespace, will use the configmap to retrieve a list of filers attached to the profile
+Using the profile namespace, will use the configmap to retrieve a list of filer shares attached to the profile
 It will then iterate over the list and search for a constructed secret and if that secret is not found then we create
 the S3 user (and as a result the secret)
 */
@@ -271,12 +277,9 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 	// We don't actually need secret informers, since informers look at changes in state
 	// https://www.macias.info/entry/202109081800_k8s_informers.md
 	// Get a list of secrets the user namespace should have accounts for using the configmap
-
-	// We need to get the profile's spec.owner.name now.
-
 	klog.Infof("Searching for secrets for " + namespace)
-	filers, _ := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), "user-filers-cm", metav1.GetOptions{})
-	for k, _ := range filers.Data {
+	shares, _ := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), "requesting-shares", metav1.GetOptions{})
+	for k, _ := range shares.Data {
 		// have to iterate and check secrets
 		klog.Infof("Searching for: " + k + "-conn-secret")
 		_, err := client.CoreV1().Secrets(namespace).Get(context.Background(), k+"-conn-secret", metav1.GetOptions{})
@@ -361,19 +364,19 @@ func checkIfS3BucketExists(mgmInfo managementInfo, uuid string, requestedBucket 
 }
 
 // concats the values of modifierMap into the given sourceMap
-func filersMapConcat(sourceMap map[string][]string, modifierMap map[string][]string) {
+func sharesMapConcat(sourceMap map[string][]string, modifierMap map[string][]string) {
 	for k := range modifierMap {
 		sourceMap[k] = slices.Concat(sourceMap[k], modifierMap[k])
 	}
 }
 
-// formats the filers data to be compliant with a config map data's datatype
-func formatFilersMap(filers map[string][]string) map[string]string {
+// formats the shares data to be compliant with a config map data's datatype
+func formatSharesMap(shares map[string][]string) map[string]string {
 	result := map[string]string{}
-	for k := range filers {
-		val, err := json.Marshal(filers[k])
+	for k := range shares {
+		val, err := json.Marshal(shares[k])
 		if err != nil {
-			klog.Infof("Failed to format filers data")
+			klog.Infof("Failed to format filer shares data")
 		}
 		result[k] = string(val)
 	}
@@ -381,76 +384,79 @@ func formatFilersMap(filers map[string][]string) map[string]string {
 }
 
 /*
-Updates the filers ConfigMaps for a given namespace
-- newFilers is the map of filers that are have been processed(meaning the s3bucket got created)
-and that need to be both removed from the requesting filers CM and added to the user filer CM
-- failedFilers is the map of filers that failed being processed, for whatever reason,
-and that will stay in the requesting filers CM
+Updates the filer shares ConfigMaps for a given namespace
+- newShares is the map of filer shares that are have been processed(meaning the s3bucket got created)
+and that need to be both removed from the requesting filer shares CM and added to the user's existing shares CM
+- failedShares is the map of filer shares that failed being processed, for whatever reason,
+and that will stay in the requesting shares CM
 */
-func updateUserFilerConfigMaps(client *kubernetes.Clientset, namespace string, newFilers map[string][]string, failedFilers map[string][]string) {
-	userFilersCM, err := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), "user-filers", metav1.GetOptions{})
+func updateUserSharesConfigMaps(client *kubernetes.Clientset, namespace string, newShares map[string][]string, failedShares map[string][]string) {
+	existingSharesCM, err := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), "existing-shares", metav1.GetOptions{})
 	// if it can't find the configmap, it errors
 	// TODO: look into if we can differenciate between a missing CM and a real error
 	if err != nil {
-		klog.Infof("Unable to get user filers in %s. Reason: %v", namespace, err)
-		klog.Infof("Creating user filers config map")
+		klog.Infof("Unable to get user existing share in %s. Reason: %v", namespace, err)
+		klog.Infof("Creating user existing share config map")
 
-		newUserFilers := corev1.ConfigMap{
+		newUserShares := corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "user-filers",
+				Name:      "existing-shares",
 				Namespace: namespace,
 			},
-			Data: formatFilersMap(newFilers),
+			Data: formatSharesMap(newShares),
 		}
 
-		_, err := client.CoreV1().ConfigMaps(namespace).Create(context.Background(), &newUserFilers, metav1.CreateOptions{})
+		_, err := client.CoreV1().ConfigMaps(namespace).Create(context.Background(), &newUserShares, metav1.CreateOptions{})
 		if err != nil {
-			klog.Infof("Error creating new user filers config map in %s. Reason: %v", namespace, err)
+			klog.Infof("Error creating new user existing shares config map in %s. Reason: %v", namespace, err)
 		}
 	} else {
 		// format the CM data
-		userFilersData := map[string][]string{}
-		for k := range userFilersCM.Data {
+		userSharesData := map[string][]string{}
+		for k := range existingSharesCM.Data {
 			val := []string{}
-			err := json.Unmarshal([]byte(userFilersCM.Data[k]), &val)
+			err := json.Unmarshal([]byte(existingSharesCM.Data[k]), &val)
 			if err != nil {
-				klog.Infof("Error creating new user filers config map in %s. Reason: %v", namespace, err)
+				klog.Infof("Error creating new existing shares config map in %s. Reason: %v", namespace, err)
 			}
-			userFilersData[k] = val
+			userSharesData[k] = val
 		}
 
-		//updates the userFilers CM data with the new filer values
-		filersMapConcat(userFilersData, newFilers)
+		// updates the userSharesData CM data with the new shares values
+		sharesMapConcat(userSharesData, newShares)
 
-		// update the user-filers CM
-		newUserFilers := corev1.ConfigMap{
+		// update the existing-shares CM
+		newUserShares := corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "user-filers",
+				Name:      "existing-shares",
 				Namespace: namespace,
 			},
-			Data: formatFilersMap(userFilersData),
+			Data: formatSharesMap(userSharesData),
 		}
-		_, err = client.CoreV1().ConfigMaps(namespace).Update(context.Background(), &newUserFilers, metav1.UpdateOptions{})
+		_, err = client.CoreV1().ConfigMaps(namespace).Update(context.Background(), &newUserShares, metav1.UpdateOptions{})
+		if err != nil {
+			klog.Infof("Failed to update the existing shares configmap in %s. Reason: %v", namespace, err)
+		}
 	}
 
-	if len(failedFilers) == 0 {
+	if len(failedShares) == 0 {
 		// delete the requesting CM
-		err := client.CoreV1().ConfigMaps(namespace).Delete(context.Background(), "requesting-filers", metav1.DeleteOptions{})
+		err := client.CoreV1().ConfigMaps(namespace).Delete(context.Background(), "requesting-shares", metav1.DeleteOptions{})
 		if err != nil {
-			klog.Infof("Failed to delete the requesting filers configmap in %s. Reason: %v", namespace, err)
+			klog.Infof("Failed to delete the requesting shares configmap in %s. Reason: %v", namespace, err)
 		}
 	} else {
 		// update the requesting CM
-		newUserFilers := corev1.ConfigMap{
+		newUserShares := corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "user-requesting-filers",
+				Name:      "requesting-shares",
 				Namespace: namespace,
 			},
-			Data: formatFilersMap(failedFilers), //TODO: fix this to be the diff between newFilers and the requestingFilersCM.data
+			Data: formatSharesMap(failedShares), //TODO: fix this to be the diff between newShares and the requestingSharesCM.data
 		}
-		_, err := client.CoreV1().ConfigMaps(namespace).Update(context.Background(), &newUserFilers, metav1.UpdateOptions{})
+		_, err := client.CoreV1().ConfigMaps(namespace).Update(context.Background(), &newUserShares, metav1.UpdateOptions{})
 		if err != nil {
-			klog.Infof("Failed to update the requesting filers configmap in %s. Reason: %v", namespace, err)
+			klog.Infof("Failed to update the requesting shares configmap in %s. Reason: %v", namespace, err)
 		}
 	}
 }
@@ -511,6 +517,65 @@ func getSvmInfoList(client *kubernetes.Clientset) map[string]SvmInfo {
 	}
 
 	return filerList
+}
+
+func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, share string, error error) {
+	// Logs the error message for the pod logs
+	klog.Errorf("Error occured for ns %s: %s", namespace, error.Error())
+
+	errorCM, err := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), "shares-error", metav1.GetOptions{})
+	if k8serrors.IsNotFound(err) {
+		//If the error CM doesn't exist, we create it
+		errorData := []ShareError{{
+			Share: share,
+			Error: error.Error(),
+		}}
+		newErrors, err := json.Marshal(errorData)
+		if err != nil {
+			klog.Errorf("Error while mashalling error configmap for %s", namespace)
+		}
+
+		errorCM := corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "shares-error",
+				Namespace: namespace,
+			},
+			Data: map[string]string{"errors": string(newErrors)},
+		}
+		_, err = client.CoreV1().ConfigMaps(namespace).Create(context.Background(), &errorCM, metav1.CreateOptions{})
+		if err != nil {
+			klog.Errorf("Error while creating error configmap for %s", namespace)
+		}
+
+		return
+	} else if err != nil {
+		klog.Errorf("Error while retrieving error configmap for %s", namespace)
+	}
+	//If the error CM does exist, we update it
+	errorData := []ShareError{}
+	json.Unmarshal([]byte(errorCM.Data["errors"]), &errorData)
+
+	errorData = append(errorData, ShareError{
+		Share: share,
+		Error: error.Error(),
+	})
+
+	newErrors, err := json.Marshal(errorData)
+	if err != nil {
+		klog.Errorf("Error while mashalling error configmap for %s", namespace)
+	}
+
+	newErrorCM := corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "shares-error",
+			Namespace: namespace,
+		},
+		Data: map[string]string{"errors": string(newErrors)},
+	}
+	_, err = client.CoreV1().ConfigMaps(namespace).Update(context.Background(), &newErrorCM, metav1.UpdateOptions{})
+	if err != nil {
+		klog.Errorf("Error while updating error configmap for %s", namespace)
+	}
 }
 
 var ontapcvoCmd = &cobra.Command{
