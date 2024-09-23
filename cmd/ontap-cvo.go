@@ -562,6 +562,7 @@ func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, sh
 		newErrors, err := json.Marshal(errorData)
 		if err != nil {
 			klog.Errorf("Error while mashalling error configmap for %s", namespace)
+			// TODO: Souheil PR comment : fix type and also, maybe you should dump this error as well so you can debug? just a suggestion (recurring theme for this fn)
 		}
 
 		errorCM := corev1.ConfigMap{
