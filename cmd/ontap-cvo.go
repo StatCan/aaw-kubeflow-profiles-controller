@@ -11,23 +11,20 @@ import (
 	"io"
 	"net/http"
 	"slices"
-	"time"
+	"sync"
 
 	azidentity "github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	kubeflowv1 "github.com/StatCan/profiles-controller/pkg/apis/kubeflow/v1"
-	"github.com/StatCan/profiles-controller/pkg/controllers/profiles"
-	kubeflowclientset "github.com/StatCan/profiles-controller/pkg/generated/clientset/versioned"
-	kubeflowinformers "github.com/StatCan/profiles-controller/pkg/generated/informers/externalversions"
-	"github.com/StatCan/profiles-controller/pkg/signals"
 	msgraphsdk "github.com/microsoftgraph/msgraph-sdk-go"
 	"github.com/microsoftgraph/msgraph-sdk-go/users"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	kubeinformers "k8s.io/client-go/informers"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
+	toolsWatch "k8s.io/client-go/tools/watch"
 	"k8s.io/klog"
 )
 
@@ -40,7 +37,7 @@ For mounting there are a lot of helpful useful functions in `blob-csi.go` that w
   like the building of the pv / pvc spec, the creation and deletion of them etc.
 */
 
-const ontapLabel = "ontap-cvo"
+const requestConfigMapName = "share-requests"
 
 // const automountLabel = "blob.aaw.statcan.gc.ca/automount"
 type s3keys struct { // i doubt this works
@@ -276,25 +273,25 @@ Using the profile namespace, will use the configmap to retrieve a list of filer 
 It will then iterate over the list and search for a constructed secret and if that secret is not found then we create
 the S3 user (and as a result the secret)
 */
-func checkSecrets(client *kubernetes.Clientset, profileName string, profileEmail string, mgmInfo managementInfo, svmInfoMap map[string]SvmInfo) bool {
+func processConfigmap(client *kubernetes.Clientset, namespace string, email string, mgmInfo managementInfo, svmInfoMap map[string]SvmInfo) bool {
 	// We don't actually need secret informers, since informers look at changes in state
 	// https://www.macias.info/entry/202109081800_k8s_informers.md
 	// Get a list of secrets the user namespace should have accounts for using the configmap
-	klog.Infof("Searching for secrets for " + profileName)
-	shares, _ := client.CoreV1().ConfigMaps(profileName).Get(context.Background(), "requesting-shares", metav1.GetOptions{})
+	klog.Infof("Searching for secrets for " + namespace)
+	shares, _ := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), "requesting-shares", metav1.GetOptions{})
 	for k, _ := range shares.Data {
 		// have to iterate and check secrets
 		klog.Infof("Searching for: " + k + "-conn-secret")
-		_, err := client.CoreV1().Secrets(profileName).Get(context.Background(), k+"-conn-secret", metav1.GetOptions{})
+		_, err := client.CoreV1().Secrets(namespace).Get(context.Background(), k+"-conn-secret", metav1.GetOptions{})
 		if err != nil {
 			klog.Infof("Error found, possbily secret not found, creating secret")
 			// Get the OnPremName
-			onPremName, foundOnPrem := getOnPrem(profileEmail, client)
+			onPremName, foundOnPrem := getOnPrem(email, client)
 			if foundOnPrem {
 				// Get the svmInfo from the master list
 				svmInfo := svmInfoMap[k]
 				// Create the user
-				wasSuccessful := createS3User(onPremName, profileName, client, svmInfo, mgmInfo)
+				wasSuccessful := createS3User(onPremName, namespace, client, svmInfo, mgmInfo)
 				if !wasSuccessful {
 					klog.Info("Unable to create S3 user:" + onPremName)
 					return false
@@ -586,9 +583,7 @@ var ontapcvoCmd = &cobra.Command{
 	Short: "Configure ontap-cvo credentials",
 	Long:  `Configure ontap-cvo credentials`,
 	Run: func(cmd *cobra.Command, args []string) {
-		// Setup signals so we can shutdown cleanly
-		stopCh := signals.SetupSignalHandler()
-
+		var wg sync.WaitGroup
 		// Create Kubernetes config
 		cfg, err := clientcmd.BuildConfigFromFlags(apiserver, kubeconfig)
 		if err != nil {
@@ -601,54 +596,32 @@ var ontapcvoCmd = &cobra.Command{
 			klog.Fatalf("Error building kubernetes clientset: %s", err.Error())
 		}
 
-		kubeflowClient, err := kubeflowclientset.NewForConfig(cfg)
-		if err != nil {
-			klog.Fatalf("error building Kubeflow client: %v", err)
-		}
-
-		// Setup informers
-		// kubeflow informer is necessary for watching profile updates
-		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Minute*(time.Duration(requeue_time)))
-		kubeflowInformerFactory := kubeflowinformers.NewSharedInformerFactory(kubeflowClient, time.Minute*(time.Duration(requeue_time)))
-
-		// Retrieve Information from configmaps
-		// I don't think I need informers, im not watching for updates, this thing watches on profiles anyways and can just
-		// get the information when I need it
-		//configMapInformer := kubeInformerFactory.Core().V1().ConfigMaps()
-		//configMapLister := configMapInformer.Lister()
-
 		// Obtain Management Info and svm Info, as this will not change often
 		mgmInfo := getManagementInfo(kubeClient)
-
 		svmInfoMap := getSvmInfoList(kubeClient)
 
-		// Setup controller
-		controller := profiles.NewController(
-			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
-			func(profile *kubeflowv1.Profile) error {
-				allLabels := profile.Labels
-				for k, v := range allLabels {
-					// If the label we specify exists then look for the secret
-					if k == ontapLabel {
-						checkSecrets(kubeClient, profile.Name, profile.Spec.Owner.Name, mgmInfo, svmInfoMap)
-						if checkExpired(v) {
-							// Do things, but for first iteration may not care.
-							//klog.Infof("Expired, but not going to do anything yet")
-						}
-					}
-				} // End iterating through labels on profile
-				// Could also check for deleting S3 users + secret clean up but maybe not for first iteration.
-				return nil
-			}, // end controller setup
-		)
-
-		kubeInformerFactory.Start(stopCh)
-		kubeflowInformerFactory.Start(stopCh)
-
-		// Run the controller
-		if err = controller.Run(2, stopCh); err != nil {
-			klog.Fatalf("error running controller: %v", err)
+		watchFunc := func(options metav1.ListOptions) (watch.Interface, error) {
+			timeOut := int64(60)
+			return kubeClient.CoreV1().ConfigMaps("").Watch(context.Background(), metav1.ListOptions{TimeoutSeconds: &timeOut,
+				LabelSelector: requestConfigMapName})
 		}
+		watcher, _ := toolsWatch.NewRetryWatcher("1", &cache.ListWatch{WatchFunc: watchFunc})
+		for event := range watcher.ResultChan() {
+			configmap := event.Object.(*corev1.ConfigMap)
+			switch event.Type {
+			case watch.Modified:
+				klog.Infof("Configmap modified")
+				processConfigmap(kubeClient, configmap.Namespace, configmap.Labels["email"], mgmInfo, svmInfoMap)
+			case watch.Error:
+				klog.Infof("Configmap for requested shares in namespace:" +
+					configmap.Namespace + " contains an error.")
+			case watch.Added:
+				klog.Infof("Configmap added")
+				processConfigmap(kubeClient, configmap.Namespace, configmap.Labels["email"], mgmInfo, svmInfoMap)
+			}
+		}
+		wg.Add(1)
+		wg.Wait()
 	},
 }
 
