@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -87,7 +86,7 @@ func createS3User(onPremName string, namespace string, client *kubernetes.Client
 	statusCode, response := performHttpCall("POST", mgmInfo.username, mgmInfo.password, url, bytes.NewBuffer(postBody))
 
 	if statusCode != 201 {
-		return errors.New(fmt.Sprintf("An Error Occured while creating the S3 User for onpremname %s", onPremName))
+		return fmt.Errorf("an error cccured while creating the S3 User for onpremname %s", onPremName)
 	}
 	klog.Infof("The S3 user was created. Proceeding to store SVM credentials")
 
@@ -95,7 +94,7 @@ func createS3User(onPremName string, namespace string, client *kubernetes.Client
 
 	err := json.Unmarshal(response, &postResponseFormatted)
 	if err != nil {
-		return errors.New(fmt.Sprintf("Error in JSON unmarshalling for creating S3 user with onprem %s: %v", onPremName, err))
+		return fmt.Errorf("error in JSON unmarshalling for creating S3 user with onprem %s: %v", onPremName, err)
 	}
 	// Create the secret
 	usersecret := &corev1.Secret{
@@ -111,7 +110,7 @@ func createS3User(onPremName string, namespace string, client *kubernetes.Client
 	}
 	_, err = client.CoreV1().Secrets(namespace).Create(context.Background(), usersecret, metav1.CreateOptions{})
 	if err != nil {
-		return errors.New(fmt.Sprintf("An Error Occured while creating the s3 user secret in ns %s: %v", namespace, err))
+		return fmt.Errorf("an error cccured while creating the s3 user secret in ns %s: %v", namespace, err)
 	}
 
 	return nil
@@ -169,7 +168,7 @@ func createS3Bucket(svmInfo SvmInfo, mgmInfo managementInfo, hashedbucketName st
 		return nil
 	}
 
-	return errors.New(fmt.Sprintf("Error when submitting the request to create a bucket with nas path %s: %v", nasPath, string(responseBody)))
+	return fmt.Errorf("error when submitting the request to create a bucket with nas path %s: %v", nasPath, string(responseBody))
 }
 
 /*
@@ -180,7 +179,7 @@ func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, error) 
 	// Get the App Registration Info
 	secret, err := client.CoreV1().Secrets("das").Get(context.Background(), "microsoft-graph-api-secret", metav1.GetOptions{})
 	if err != nil {
-		klog.Errorf("An Error Occured while getting registration secret %v", err)
+		klog.Errorf("an error occured while getting registration secret %v", err)
 		return "", err
 	}
 
@@ -226,7 +225,7 @@ func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, error) 
 	onPremAccountName := result.GetOnPremisesSamAccountName()
 	// TODO How to handle users without onprem name?
 	if onPremAccountName == nil {
-		return "", errors.New(fmt.Sprintf("No on prem name found for user: %s", ownerEmail))
+		return "", fmt.Errorf("no on prem name found for user: %s", ownerEmail)
 	}
 	return *onPremAccountName, nil
 }
@@ -236,7 +235,7 @@ func getManagementInfo(client *kubernetes.Clientset) (managementInfo, error) {
 
 	secret, err := client.CoreV1().Secrets("das").Get(context.Background(), "netapp-management-information", metav1.GetOptions{})
 	if err != nil {
-		klog.Errorf("Error occured while getting the management api secret: %v", err)
+		klog.Errorf("error occured while getting the management api secret: %v", err)
 		return managementInfo{}, err
 	}
 
@@ -369,7 +368,7 @@ func checkIfS3BucketExists(mgmInfo managementInfo, uuid string, requestedBucket 
 	urlString := fmt.Sprintf("https://"+mgmInfo.managementIP+"/api/protocols/s3/services/"+uuid+"/buckets?fields=**&name=%s", requestedBucket)
 	statusCode, responseBody := performHttpCall("GET", mgmInfo.username, mgmInfo.password, urlString, nil)
 	if statusCode != 200 {
-		return false, errors.New(fmt.Sprintf("Error when checking if bucket exists. %v", responseBody))
+		return false, fmt.Errorf("error when checking if bucket exists. %v", responseBody)
 	}
 
 	// Check the response and go through it.
@@ -428,15 +427,15 @@ func updateUserSharesConfigMaps(client *kubernetes.Clientset, namespace string, 
 
 		_, err := client.CoreV1().ConfigMaps(namespace).Create(context.Background(), &newUserShares, metav1.CreateOptions{})
 		if err != nil {
-			return errors.New(fmt.Sprintf("Error creating new user existing shares config map in %s: %v", namespace, err))
+			return fmt.Errorf("error creating new user existing shares config map in %s: %v", namespace, err)
 		}
 	} else if err != nil {
-		return errors.New(fmt.Sprintf("Error while retrieving existing shares configmap in %s: %v", namespace, err))
+		return fmt.Errorf("error while retrieving existing shares configmap in %s: %v", namespace, err)
 	} else {
 		// format the CM data
 		userSharesData, err := unmarshalSharesMap(existingSharesCM.Data)
 		if err != nil {
-			return errors.New(fmt.Sprintf("Error while unmarshalling existing shares configmap in %s: %v", namespace, err))
+			return fmt.Errorf("error while unmarshalling existing shares configmap in %s: %v", namespace, err)
 		}
 
 		// updates the userSharesData CM data with the new shares values
@@ -452,14 +451,14 @@ func updateUserSharesConfigMaps(client *kubernetes.Clientset, namespace string, 
 		}
 		_, err = client.CoreV1().ConfigMaps(namespace).Update(context.Background(), &newUserShares, metav1.UpdateOptions{})
 		if err != nil {
-			return errors.New(fmt.Sprintf("Failed to update the existing shares configmap in %s: %v", namespace, err))
+			return fmt.Errorf("failed to update the existing shares configmap in %s: %v", namespace, err)
 		}
 	}
 
 	// delete the requesting CM
 	err = client.CoreV1().ConfigMaps(namespace).Delete(context.Background(), "requesting-shares", metav1.DeleteOptions{})
 	if err != nil {
-		return errors.New(fmt.Sprintf("Failed to delete the requesting shares configmap in %s. Reason: %v", namespace, err))
+		return fmt.Errorf("failed to delete the requesting shares configmap in %s. Reason: %v", namespace, err)
 	}
 
 	return nil
