@@ -27,7 +27,7 @@ import (
 	"k8s.io/klog"
 )
 
-const requestConfigMapName = "share-requests"
+const ontapEmailLabel = "ontap-email"
 const userSvmSecretSuffix = "-conn-secret"
 
 const existingSharesConfigMapName = "existing-shares"
@@ -604,7 +604,7 @@ var ontapcvoCmd = &cobra.Command{
 			timeOut := int64(60)
 			// Watches all namespaces, hence the ConfigMaps("")
 			return kubeClient.CoreV1().ConfigMaps("").Watch(context.Background(), metav1.ListOptions{TimeoutSeconds: &timeOut,
-				LabelSelector: requestConfigMapName})
+				LabelSelector: ontapEmailLabel})
 		}
 		watcher, _ := toolsWatch.NewRetryWatcher("1", &cache.ListWatch{WatchFunc: watchFunc})
 		for event := range watcher.ResultChan() {
@@ -612,7 +612,7 @@ var ontapcvoCmd = &cobra.Command{
 			switch event.Type {
 			case watch.Modified, watch.Added:
 				klog.Infof("Configmap %s", event.Type)
-				err := processConfigmap(kubeClient, configmap.Namespace, configmap.Labels["email"], mgmInfo, svmInfoMap)
+				err := processConfigmap(kubeClient, configmap.Namespace, configmap.Labels[ontapEmailLabel], mgmInfo, svmInfoMap)
 				if err != nil {
 					// klogs the error and also updates the user's error configmap
 					createErrorUserConfigMap(kubeClient, configmap.Namespace, err)
