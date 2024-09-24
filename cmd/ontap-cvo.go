@@ -72,11 +72,6 @@ type GetS3Buckets struct {
 	NumRecords int `json:"num_records"`
 }
 
-type ShareError struct {
-	Share string
-	Error string
-}
-
 /*
 Creates the S3 user using the net app API
 Requires the onPremname, the namespace to create the secret in, the current k8s client, the svmInfo and the managementInfo
@@ -276,8 +271,6 @@ generate the S3 user and S3 buckets as necessary.
 */
 func processConfigmap(client *kubernetes.Clientset, namespace string, email string, mgmInfo managementInfo, svmInfoMap map[string]SvmInfo) error {
 	// Getting the requesting shares CM for user
-	// ex: fld1filersvm: "['share1', 'share2']"
-	// ex: fld1filersvm: ['share1', 'share2']
 	shares, _ := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), "requesting-shares", metav1.GetOptions{})
 
 	sharesData, err := unmarshalSharesMap(shares.Data)
@@ -286,7 +279,7 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 		return err
 	}
 
-	for k, _ := range sharesData {
+	for k := range sharesData {
 		svmInfo := svmInfoMap[k]
 
 		// have to iterate and check secrets
@@ -346,16 +339,6 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 	}
 
 	return nil
-}
-
-/*
-This will if the secret has expired and then
-*/
-func checkExpired(labelValue string) bool {
-	// If expired
-	return true
-	// Not found
-	return false
 }
 
 /*
@@ -541,63 +524,57 @@ func getSvmInfoList(client *kubernetes.Clientset) (map[string]SvmInfo, error) {
 	return filerList, nil
 }
 
-func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, share string, error error) {
+func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, error error) {
 	// Logs the error message for the pod logs
-	klog.Errorf("Error occured for ns %s: %s", namespace, error.Error())
+	klog.Errorf("Error occured for ns %s: %v", namespace, error.Error())
 
 	errorCM, err := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), "shares-error", metav1.GetOptions{})
 	if k8serrors.IsNotFound(err) {
 		//If the error CM doesn't exist, we create it
-		errorData := []ShareError{{
-			Share: share,
-			Error: error.Error(),
-		}}
+		errorData := []string{err.Error()}
 		newErrors, err := json.Marshal(errorData)
 		if err != nil {
-			klog.Errorf("Error while mashalling error configmap for %s", namespace)
-			// TODO: Souheil PR comment : fix type and also, maybe you should dump this error as well so you can debug? just a suggestion (recurring theme for this fn)
+			klog.Errorf("Error while marshalling error configmap for %s: %v", namespace, err)
 		}
 
 		errorCM := corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "shares-error",
+				Name:      "shares-errors",
 				Namespace: namespace,
 			},
 			Data: map[string]string{"errors": string(newErrors)},
 		}
 		_, err = client.CoreV1().ConfigMaps(namespace).Create(context.Background(), &errorCM, metav1.CreateOptions{})
 		if err != nil {
-			klog.Errorf("Error while creating error configmap for %s", namespace)
+			klog.Errorf("Error while creating error configmap for %s: %v", namespace, err)
 		}
 
 		return
 	} else if err != nil {
-		klog.Errorf("Error while retrieving error configmap for %s", namespace)
+		klog.Errorf("Error while retrieving error configmap for %s: %v", namespace, err)
 	}
+
 	//If the error CM does exist, we update it
-	errorData := []ShareError{}
+	errorData := []string{}
 	json.Unmarshal([]byte(errorCM.Data["errors"]), &errorData)
 
-	errorData = append(errorData, ShareError{
-		Share: share,
-		Error: error.Error(),
-	})
+	errorData = append(errorData, err.Error())
 
 	newErrors, err := json.Marshal(errorData)
 	if err != nil {
-		klog.Errorf("Error while mashalling error configmap for %s", namespace)
+		klog.Errorf("Error while marshalling error configmap for %s: %v", namespace, err)
 	}
 
 	newErrorCM := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "shares-error",
+			Name:      "shares-errors",
 			Namespace: namespace,
 		},
 		Data: map[string]string{"errors": string(newErrors)},
 	}
 	_, err = client.CoreV1().ConfigMaps(namespace).Update(context.Background(), &newErrorCM, metav1.UpdateOptions{})
 	if err != nil {
-		klog.Errorf("Error while updating error configmap for %s", namespace)
+		klog.Errorf("Error while updating error configmap for %s: %v", namespace, err)
 	}
 }
 
@@ -643,7 +620,8 @@ var ontapcvoCmd = &cobra.Command{
 				klog.Infof("Configmap %s", event.Type)
 				err := processConfigmap(kubeClient, configmap.Namespace, configmap.Labels["email"], mgmInfo, svmInfoMap)
 				if err != nil {
-					//TODO: figure out what to do here. Do we log? (WE DONT FATAL OUT THOUGH)
+					// klogs the error and also updates the user's error configmap
+					createErrorUserConfigMap(kubeClient, configmap.Namespace, err)
 				}
 			case watch.Error:
 				klog.Errorf("Configmap for requested shares in namespace:%s contains an error.", configmap.Namespace)
