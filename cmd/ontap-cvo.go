@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 
 	azidentity "github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -52,9 +53,10 @@ type SvmInfo struct {
 }
 
 type ManagementInfo struct {
-	ManagementIP string
-	Username     string
-	Password     string
+	ManagementIPField string
+	ManagementIPSas   string
+	Username          string
+	Password          string
 }
 
 type S3Bucket struct {
@@ -234,13 +236,15 @@ func getManagementInfo(client *kubernetes.Clientset) (ManagementInfo, error) {
 		return ManagementInfo{}, err
 	}
 
-	management_ip := string(secret.Data["MANAGEMENT_IP"])
+	management_ip_field := string(secret.Data["MANAGEMENT_IP_FIELD"])
 	username := string(secret.Data["USERNAME"])
 	password := string(secret.Data["PASSWORD"])
+	management_ip_sas := string(secret.Data["MANAGEMENT_IP_SAS"])
 	mgmInfo := ManagementInfo{
-		ManagementIP: management_ip,
-		Username:     username,
-		Password:     password,
+		ManagementIPField: management_ip_field,
+		Username:          username,
+		Password:          password,
+		ManagementIPSas:   management_ip_sas,
 	}
 	return mgmInfo, nil
 }
@@ -267,6 +271,9 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 	// Getting the requesting shares CM for user
 	shares, _ := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), requestingSharesConfigMapName, metav1.GetOptions{})
 
+	// Default to field filers IP
+	managementIP := mgmInfo.ManagementIPField
+
 	sharesData, err := unmarshalSharesMap(shares.Data)
 	if err != nil {
 		klog.Errorf("Error unmarshalling requesting shares for namespace %s", namespace)
@@ -275,7 +282,6 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 
 	for k := range sharesData {
 		svmInfo := svmInfoMap[k]
-
 		// have to iterate and check secrets
 		klog.Infof("Searching for: " + k + userSvmSecretSuffix)
 		_, err := client.CoreV1().Secrets(namespace).Get(context.Background(), k+userSvmSecretSuffix, metav1.GetOptions{})
@@ -289,9 +295,13 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 				return err
 			}
 
+			// If it's a SASfs filer we need to use the sasmanagement ip
+			if strings.Contains(svmInfo.Vserver, "sasfs") {
+				managementIP = mgmInfo.ManagementIPSas
+			}
 			// Create the user
 			// Check if user exists
-			if !checkIfS3UserExists(mgmInfo, svmInfo.Uuid, onPremName) {
+			if !checkIfS3UserExists(mgmInfo, managementIP, svmInfo.Uuid, onPremName) {
 				// if user does not exist, create it
 				err = createS3User(onPremName, namespace, client, svmInfo, mgmInfo)
 				if err != nil {
@@ -308,7 +318,7 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 		s3BucketsList := sharesData[k]
 		for _, s := range s3BucketsList {
 			hashedBucketName := hashBucketName(s)
-			isBucketExists, err := checkIfS3BucketExists(mgmInfo, svmInfo.Uuid, hashedBucketName)
+			isBucketExists, err := checkIfS3BucketExists(mgmInfo, managementIP, svmInfo.Uuid, hashedBucketName)
 			if err != nil {
 				klog.Errorf("Error while checking bucket existence in namespace %s", namespace)
 				return err
@@ -341,9 +351,9 @@ https://docs.netapp.com/us-en/ontap-restapi/ontap/get-protocols-s3-services-user
 Requires: managementIP, svm.uuid, name, password and username for authentication
 Returns true if it does exist
 */
-func checkIfS3UserExists(mgmInfo ManagementInfo, uuid string, onPremName string) bool {
+func checkIfS3UserExists(mgmInfo ManagementInfo, managementIP string, uuid string, onPremName string) bool {
 	// Build the request
-	urlString := "https://" + mgmInfo.ManagementIP + "/api/protocols/s3/services/" + uuid + "/users/" + onPremName
+	urlString := "https://" + managementIP + "/api/protocols/s3/services/" + uuid + "/users/" + onPremName
 	statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
 	if statusCode != 200 {
 		klog.Errorf("Error when checking if user exists. Possibly does not exist. %v", responseBody)
@@ -358,9 +368,9 @@ https://docs.netapp.com/us-en/ontap-restapi/ontap/get-protocols-s3-services-buck
 Requires: managementInfo, svm.uuid and the hashed bucket Name
 Returns true if it does exist
 */
-func checkIfS3BucketExists(mgmInfo ManagementInfo, uuid string, requestedBucket string) (bool, error) {
+func checkIfS3BucketExists(mgmInfo ManagementInfo, managementIP string, uuid string, requestedBucket string) (bool, error) {
 	// Build the request
-	urlString := fmt.Sprintf("https://"+mgmInfo.ManagementIP+"/api/protocols/s3/services/"+uuid+"/buckets?fields=**&name=%s", requestedBucket)
+	urlString := fmt.Sprintf("https://"+managementIP+"/api/protocols/s3/services/"+uuid+"/buckets?fields=**&name=%s", requestedBucket)
 	statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
 	if statusCode != 200 {
 		return false, fmt.Errorf("error when checking if bucket exists. %v", responseBody)
