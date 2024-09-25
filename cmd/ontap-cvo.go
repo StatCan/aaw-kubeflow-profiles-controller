@@ -72,14 +72,14 @@ type GetS3Buckets struct {
 Creates the S3 user using the net app API
 Requires the onPremname, the namespace to create the secret in, the current k8s client, the svmInfo and the managementInfo
 */
-func createS3User(onPremName string, namespace string, client *kubernetes.Clientset, svmInfo SvmInfo, mgmInfo ManagementInfo) error {
+func createS3User(onPremName string, managementIP string, namespace string, client *kubernetes.Clientset, svmInfo SvmInfo, mgmInfo ManagementInfo) error {
 	postBody, _ := json.Marshal(map[string]interface{}{
 		"name": onPremName,
 		"svm": map[string]string{
 			"uuid": svmInfo.Uuid,
 		},
 	})
-	url := "https://" + mgmInfo.ManagementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/users"
+	url := "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/users"
 	statusCode, response := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, url, bytes.NewBuffer(postBody))
 
 	if statusCode != 201 {
@@ -124,7 +124,7 @@ func hashBucketName(name string) string {
 This will create the S3 bucket. Requires the bucketName to be hashed, the nasPath and relevant management and svm information
 https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html
 */
-func createS3Bucket(svmInfo SvmInfo, mgmInfo ManagementInfo, hashedbucketName string, nasPath string) error {
+func createS3Bucket(svmInfo SvmInfo, managementIP string, mgmInfo ManagementInfo, hashedbucketName string, nasPath string) error {
 	// Create a string that is valid json, as thats the simplest way of working with this request
 	// https://go.dev/play/p/xs_B0l3HsBw
 	jsonString := fmt.Sprintf(
@@ -154,7 +154,7 @@ func createS3Bucket(svmInfo SvmInfo, mgmInfo ManagementInfo, hashedbucketName st
 		}`,
 		hashedbucketName, nasPath, hashedbucketName, hashedbucketName)
 
-	urlString := "https://" + mgmInfo.ManagementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/buckets"
+	urlString := "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/buckets"
 	statusCode, responseBody := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, urlString, bytes.NewBuffer([]byte(jsonString)))
 	if statusCode == 201 {
 		// https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#response
@@ -303,7 +303,7 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 			// Check if user exists
 			if !checkIfS3UserExists(mgmInfo, managementIP, svmInfo.Uuid, onPremName) {
 				// if user does not exist, create it
-				err = createS3User(onPremName, namespace, client, svmInfo, mgmInfo)
+				err = createS3User(onPremName, managementIP, namespace, client, svmInfo, mgmInfo)
 				if err != nil {
 					klog.Errorf("Unable to create S3 user: %s", onPremName)
 					return err
@@ -326,7 +326,7 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 
 			if !isBucketExists {
 				//create the bucket
-				err := createS3Bucket(svmInfo, mgmInfo, hashedBucketName, s)
+				err := createS3Bucket(svmInfo, managementIP, mgmInfo, hashedBucketName, s)
 				if err != nil {
 					klog.Errorf("Error while creating s3 bucket in namespace %s", namespace)
 					return err
