@@ -573,7 +573,7 @@ func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, er
 	errorData := []string{}
 	json.Unmarshal([]byte(errorCM.Data["errors"]), &errorData)
 
-	errorData = append(errorData, err.Error())
+	errorData = append(errorData, error.Error())
 
 	newErrors, err := json.Marshal(errorData)
 	if err != nil {
