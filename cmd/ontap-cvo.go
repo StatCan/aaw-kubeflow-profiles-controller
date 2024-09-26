@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -486,12 +487,17 @@ https://www.makeuseof.com/go-make-http-requests/
 An example requestBody assignment can look like: https://zetcode.com/golang/getpostrequest/
 */
 func performHttpCall(requestType string, username string, password string, url string, requestBody io.Reader) (statusCode int, responseBody []byte) {
+	// Set up connecting: https://stackoverflow.com/a/59738724
+	customTransport := http.DefaultTransport.(*http.Transport).Clone()
+	customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	client := &http.Client{Transport: customTransport}
 	req, _ := http.NewRequest(requestType, url, requestBody)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("accept", "application/json")
 	authorization := basicAuth(username, password)
 	req.Header.Set("Authorization", "Basic "+authorization)
-	resp, err := http.DefaultClient.Do(req)
+	//resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		klog.Fatalf("error sending and returning HTTP response  : %v", err)
 	}
