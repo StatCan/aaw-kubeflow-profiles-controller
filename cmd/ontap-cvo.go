@@ -543,7 +543,7 @@ func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, er
 	// Logs the error message for the pod logs
 	klog.Errorf("Error occured for ns %s: %v", namespace, error.Error())
 
-	errorCM, err := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), "shares-error", metav1.GetOptions{})
+	errorCM, err := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), sharesErrorsConfigMapName, metav1.GetOptions{})
 	if k8serrors.IsNotFound(err) {
 		//If the error CM doesn't exist, we create it
 		errorData := []string{err.Error()}
