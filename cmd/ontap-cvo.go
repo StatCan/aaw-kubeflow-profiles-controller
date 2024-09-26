@@ -126,6 +126,7 @@ This will create the S3 bucket. Requires the bucketName to be hashed, the nasPat
 https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html
 */
 func createS3Bucket(svmInfo SvmInfo, managementIP string, mgmInfo ManagementInfo, hashedbucketName string, nasPath string) error {
+	klog.Infof("Creating bucket")
 	// Create a string that is valid json, as thats the simplest way of working with this request
 	// https://go.dev/play/p/xs_B0l3HsBw
 	jsonString := fmt.Sprintf(
@@ -319,6 +320,7 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 		s3BucketsList := sharesData[k]
 		for _, s := range s3BucketsList {
 			hashedBucketName := hashBucketName(s)
+			klog.Infof("Checking if the following bucket exists:" + s)
 			isBucketExists, err := checkIfS3BucketExists(mgmInfo, managementIP, svmInfo.Uuid, hashedBucketName)
 			if err != nil {
 				klog.Errorf("Error while checking bucket existence in namespace %s", namespace)
@@ -342,7 +344,7 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 		klog.Errorf("Error while updating the user shares configmaps in namespace %s: %v", namespace, err)
 		return err
 	}
-
+	klog.Infof("Finished processing configmap for:" + namespace)
 	return nil
 }
 
@@ -360,6 +362,7 @@ func checkIfS3UserExists(mgmInfo ManagementInfo, managementIP string, uuid strin
 		klog.Errorf("Error when checking if user exists. Possibly does not exist. %v", responseBody)
 		return false
 	}
+	klog.Infof("User for onPremName:" + onPremName + " already exists. Will not create a new S3 User")
 	return true
 }
 
@@ -388,7 +391,7 @@ func checkIfS3BucketExists(mgmInfo ManagementInfo, managementIP string, uuid str
 		// if no records, it means no buckets was found for that name
 		return false, nil
 	}
-
+	klog.Infof("Hashed bucket:" + requestedBucket + " already exists.")
 	return true, nil
 }
 
@@ -418,6 +421,7 @@ Updates the filer shares ConfigMaps for a given namespace
 and that need to be both removed from the requesting filer shares CM and added to the user's existing shares CM
 */
 func updateUserSharesConfigMaps(client *kubernetes.Clientset, namespace string, newShares map[string][]string) error {
+	klog.Infof("Updating user configmaps for namespace:" + namespace)
 	existingSharesCM, err := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), existingSharesConfigMapName, metav1.GetOptions{})
 
 	if k8serrors.IsNotFound(err) {
@@ -616,6 +620,7 @@ var ontapcvoCmd = &cobra.Command{
 		if err != nil {
 			klog.Fatalf("Error retrieving SVM map: %s", err.Error())
 		}
+		klog.Infof("Management Info and SVM Info have been retrieved")
 
 		watchFunc := func(options metav1.ListOptions) (watch.Interface, error) {
 			timeOut := int64(60)
