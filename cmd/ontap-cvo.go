@@ -157,7 +157,9 @@ func createS3Bucket(svmInfo SvmInfo, managementIP string, mgmInfo ManagementInfo
 		hashedbucketName, nasPath, hashedbucketName, hashedbucketName)
 
 	urlString := "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/buckets"
-	statusCode, responseBody := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, urlString, bytes.NewBuffer([]byte(jsonString)))
+	//statusCode, responseBody := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, urlString, bytes.NewBuffer([]byte(jsonString)))
+	statusCode := 400
+	responseBody := "Jose is testing printing out the values"
 	if statusCode == 201 {
 		// https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#response
 		klog.Infof("S3 Bucket for nas path %s in svm %s has been created", nasPath, svmInfo.Vserver)
@@ -166,7 +168,9 @@ func createS3Bucket(svmInfo SvmInfo, managementIP string, mgmInfo ManagementInfo
 		klog.Infof("S3 Bucket job for nas path %s in svm %s has been created", nasPath, svmInfo.Vserver)
 		return nil
 	}
-
+	// Remove the bottom when done
+	klog.Infof("URL string bucket creation:" + urlString)
+	klog.Infof("Sending the following requestBody:" + jsonString)
 	return fmt.Errorf("error when submitting the request to create a bucket with nas path %s: %v", nasPath, string(responseBody))
 }
 
@@ -359,7 +363,7 @@ func checkIfS3UserExists(mgmInfo ManagementInfo, managementIP string, uuid strin
 	urlString := "https://" + managementIP + "/api/protocols/s3/services/" + uuid + "/users/" + onPremName
 	statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
 	if statusCode != 200 {
-		klog.Errorf("Error when checking if user exists. Possibly does not exist. %v", responseBody)
+		klog.Errorf("Error when checking if user exists. Possibly does not exist. %v", string(responseBody))
 		return false
 	}
 	klog.Infof("User for onPremName:" + onPremName + " already exists. Will not create a new S3 User")
