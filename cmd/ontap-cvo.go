@@ -76,9 +76,6 @@ Requires the onPremname, the namespace to create the secret in, the current k8s 
 func createS3User(onPremName string, managementIP string, namespace string, client *kubernetes.Clientset, svmInfo SvmInfo, mgmInfo ManagementInfo) error {
 	postBody, _ := json.Marshal(map[string]interface{}{
 		"name": onPremName,
-		"svm": map[string]string{
-			"uuid": svmInfo.Uuid,
-		},
 	})
 	url := "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/users"
 	statusCode, response := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, url, bytes.NewBuffer(postBody))
@@ -324,7 +321,8 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 		s3BucketsList := sharesData[k]
 		for _, s := range s3BucketsList {
 			hashedBucketName := hashBucketName(s)
-			klog.Infof("Checking if the following bucket exists:" + s)
+			klog.Infof("Checking if the following bucket exists: %s", s)
+			klog.Infof(hashedBucketName)
 			isBucketExists, err := checkIfS3BucketExists(mgmInfo, managementIP, svmInfo.Uuid, hashedBucketName)
 			if err != nil {
 				klog.Errorf("Error while checking bucket existence in namespace %s", namespace)
