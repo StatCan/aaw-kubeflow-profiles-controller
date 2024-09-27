@@ -124,7 +124,6 @@ This will create the S3 bucket. Requires the bucketName to be hashed, the nasPat
 https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html
 */
 func createS3Bucket(svmInfo SvmInfo, managementIP string, mgmInfo ManagementInfo, hashedbucketName string, nasPath string) error {
-	klog.Infof("Creating bucket %v", hashedbucketName)
 	// Create a string that is valid json, as thats the simplest way of working with this request
 	// https://go.dev/play/p/xs_B0l3HsBw
 	jsonString := fmt.Sprintf(
@@ -155,9 +154,7 @@ func createS3Bucket(svmInfo SvmInfo, managementIP string, mgmInfo ManagementInfo
 		hashedbucketName, nasPath, hashedbucketName, hashedbucketName)
 
 	urlString := "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/buckets"
-	//statusCode, responseBody := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, urlString, bytes.NewBuffer([]byte(jsonString)))
-	statusCode := 400
-	responseBody := "Jose is testing printing out the values"
+	statusCode, responseBody := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, urlString, bytes.NewBuffer([]byte(jsonString)))
 	if statusCode == 201 {
 		// https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#response
 		klog.Infof("S3 Bucket for nas path %s in svm %s has been created", nasPath, svmInfo.Vserver)
@@ -166,8 +163,6 @@ func createS3Bucket(svmInfo SvmInfo, managementIP string, mgmInfo ManagementInfo
 		klog.Infof("S3 Bucket job for nas path %s in svm %s has been created", nasPath, svmInfo.Vserver)
 		return nil
 	}
-	// Remove the bottom when done
-	klog.Infof("URL string bucket creation:" + urlString)
 	klog.Infof("Sending the following requestBody:" + jsonString)
 	return fmt.Errorf("error when submitting the request to create a bucket with nas path %s: %v", nasPath, string(responseBody))
 }
