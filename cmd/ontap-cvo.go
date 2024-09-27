@@ -84,7 +84,7 @@ func createS3User(onPremName string, managementIP string, namespace string, clie
 	statusCode, response := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, url, bytes.NewBuffer(postBody))
 
 	if statusCode != 201 {
-		return fmt.Errorf("an error cccured while creating the S3 User for onpremname %s", onPremName)
+		return fmt.Errorf("an error cccured while creating the S3 User for onpremname %s: %v", onPremName, string(response))
 	}
 	klog.Infof("The S3 user was created. Proceeding to store SVM credentials")
 
@@ -126,7 +126,7 @@ This will create the S3 bucket. Requires the bucketName to be hashed, the nasPat
 https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html
 */
 func createS3Bucket(svmInfo SvmInfo, managementIP string, mgmInfo ManagementInfo, hashedbucketName string, nasPath string) error {
-	klog.Infof("Creating bucket")
+	klog.Infof("Creating bucket %v", hashedbucketName)
 	// Create a string that is valid json, as thats the simplest way of working with this request
 	// https://go.dev/play/p/xs_B0l3HsBw
 	jsonString := fmt.Sprintf(
