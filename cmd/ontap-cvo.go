@@ -318,7 +318,6 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 		for _, s := range s3BucketsList {
 			hashedBucketName := hashBucketName(s)
 			klog.Infof("Checking if the following bucket exists: %s", s)
-			klog.Infof(hashedBucketName)
 			isBucketExists, err := checkIfS3BucketExists(mgmInfo, managementIP, svmInfo.Uuid, hashedBucketName)
 			if err != nil {
 				klog.Errorf("Error while checking bucket existence in namespace %s", namespace)
