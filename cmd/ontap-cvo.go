@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -115,7 +116,7 @@ func createS3User(onPremName string, managementIP string, namespace string, clie
 func hashBucketName(name string) string {
 	h := fnv.New64a()
 	h.Write([]byte(name))
-	return string(h.Sum64())
+	return strconv.FormatUint(h.Sum64(), 10)
 }
 
 /*
