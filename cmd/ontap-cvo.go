@@ -70,6 +70,11 @@ type GetS3Buckets struct {
 	NumRecords int `json:"num_records"`
 }
 
+type GetCifsShare struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
 /*
 Creates the S3 user using the net app API
 Requires the onPremname, the namespace to create the secret in, the current k8s client, the svmInfo and the managementInfo
@@ -325,8 +330,15 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 			}
 
 			if !isBucketExists {
+				//Get CIFS Share path
+				path, err := getCifsShare(mgmInfo, managementIP, svmInfo.Uuid, s)
+				if err != nil {
+					klog.Errorf("Error while getting cifs share in namespace %s", namespace)
+					return err
+				}
+
 				//create the bucket
-				err := createS3Bucket(svmInfo, managementIP, mgmInfo, hashedBucketName, s)
+				err = createS3Bucket(svmInfo, managementIP, mgmInfo, hashedBucketName, path)
 				if err != nil {
 					klog.Errorf("Error while creating s3 bucket in namespace %s", namespace)
 					return err
@@ -390,6 +402,30 @@ func checkIfS3BucketExists(mgmInfo ManagementInfo, managementIP string, uuid str
 	}
 	klog.Infof("Hashed bucket:" + requestedBucket + " already exists.")
 	return true, nil
+}
+
+/*
+This will check for a CIFS share to retrieve the path for the desired bucket
+https://docs.netapp.com/us-en/ontap-restapi/ontap/protocols_cifs_shares_endpoint_overview.html#retrieving-a-specific-cifs-share-configuration-for-an-svm
+Requires: managementInfo, svm.uuid and the hashed bucket Name
+Returns true if it does exist
+*/
+func getCifsShare(mgmInfo ManagementInfo, managementIP string, uuid string, requestedBucket string) (string, error) {
+	// Build the request
+	urlString := fmt.Sprintf("https://%s/api/protocols/cifs/shares/%s/%s?fields=**", managementIP, uuid, requestedBucket)
+	statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
+	if statusCode != 200 {
+		return "", fmt.Errorf("error when retrieving cifs share: %v", responseBody)
+	}
+
+	// Check the response and go through it.
+	data := GetCifsShare{}
+	err := json.Unmarshal(responseBody, &data)
+	if err != nil {
+		return "", err
+	}
+
+	return data.Path, nil
 }
 
 // concats the values of modifierMap into the given sourceMap
