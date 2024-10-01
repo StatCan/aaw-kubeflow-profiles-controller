@@ -157,10 +157,10 @@ func createS3Bucket(svmInfo SvmInfo, managementIP string, mgmInfo ManagementInfo
 	statusCode, responseBody := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, urlString, bytes.NewBuffer([]byte(jsonString)))
 	if statusCode == 201 {
 		// https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#response
-		klog.Infof("S3 Bucket for nas path %s in svm %s has been created", nasPath, svmInfo.Vserver)
+		klog.Infof("S3 Bucket for nas path %s in svm %s has been created: %v", nasPath, svmInfo.Vserver, string(responseBody))
 		return nil
 	} else if statusCode == 202 {
-		klog.Infof("S3 Bucket job for nas path %s in svm %s has been created", nasPath, svmInfo.Vserver)
+		klog.Infof("S3 Bucket job for nas path %s in svm %s has been created: %v", nasPath, svmInfo.Vserver, string(responseBody))
 		return nil
 	}
 	klog.Infof("Sending the following requestBody:" + jsonString)
