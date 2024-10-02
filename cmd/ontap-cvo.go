@@ -386,7 +386,7 @@ func checkIfS3BucketExists(mgmInfo ManagementInfo, managementIP string, uuid str
 	urlString := fmt.Sprintf("https://"+managementIP+"/api/protocols/s3/services/"+uuid+"/buckets?fields=**&name=%s", requestedBucket)
 	statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
 	if statusCode != 200 {
-		return false, fmt.Errorf("error when checking if bucket exists. %v", responseBody)
+		return false, fmt.Errorf("error when checking if bucket exists. %v", string(responseBody))
 	}
 
 	// Check the response and go through it.
@@ -411,11 +411,14 @@ Requires: managementInfo, svm.uuid and the hashed bucket Name
 Returns true if it does exist
 */
 func getCifsShare(mgmInfo ManagementInfo, managementIP string, uuid string, requestedBucket string) (string, error) {
+	// splits the bucket name if needed
+	bucketPaths := strings.Split(requestedBucket, "/")
+	parentPath := bucketPaths[0]
 	// Build the request
-	urlString := fmt.Sprintf("https://%s/api/protocols/cifs/shares/%s/%s?fields=**", managementIP, uuid, requestedBucket)
+	urlString := fmt.Sprintf("https://%s/api/protocols/cifs/shares/%s/%s?fields=**", managementIP, uuid, parentPath)
 	statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
 	if statusCode != 200 {
-		return "", fmt.Errorf("error when retrieving cifs share: %v", responseBody)
+		return "", fmt.Errorf("error when retrieving cifs share: %v", string(responseBody))
 	}
 
 	// Check the response and go through it.
