@@ -576,6 +576,11 @@ func getSvmInfoList(client *kubernetes.Clientset) (map[string]SvmInfo, error) {
 
 // TODO: how do we clean up this error config map?
 func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, error error) {
+	// Delete the requesting configmap
+	err = client.CoreV1().ConfigMaps(namespace).Delete(context.Background(), requestingSharesConfigMapName, metav1.DeleteOptions{})
+	if err != nil {
+		klog.Errorf("failed to delete the requesting shares configmap in %s. Reason: %v", namespace, err)
+	}
 	// Logs the error message for the pod logs
 	klog.Errorf("Error occured for ns %s: %v", namespace, error.Error())
 
