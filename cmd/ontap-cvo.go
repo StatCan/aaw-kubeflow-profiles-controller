@@ -582,7 +582,7 @@ func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, er
 	errorCM, err := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), sharesErrorsConfigMapName, metav1.GetOptions{})
 	if k8serrors.IsNotFound(err) {
 		//If the error CM doesn't exist, we create it
-		errorData := []string{err.Error()}
+		errorData := []string{error.Error()}
 		newErrors, err := json.Marshal(errorData)
 		if err != nil {
 			klog.Errorf("Error while marshalling error configmap for %s: %v", namespace, err)
