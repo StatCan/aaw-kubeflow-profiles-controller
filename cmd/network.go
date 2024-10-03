@@ -290,11 +290,6 @@ policies = append(policies, &networkingv1.NetworkPolicy{
                         Port:     &portSQL,
                     },
                 },
-                To: []networkingv1.NetworkPolicyPeer{
-                    {
-                        NamespaceSelector: &metav1.LabelSelector{}, // Allow to all namespaces
-                    },
-                },
             },
         },
     },
@@ -315,11 +310,6 @@ policies = append(policies, &networkingv1.NetworkPolicy{
                     {
                         Protocol: &protocolTCP,
                         Port:     &portOracle,
-                    },
-                },
-                To: []networkingv1.NetworkPolicyPeer{
-                    {
-                        NamespaceSelector: &metav1.LabelSelector{}, // Allow to all namespaces
                     },
                 },
             },
