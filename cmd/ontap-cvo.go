@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	azidentity "github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	msgraphsdk "github.com/microsoftgraph/msgraph-sdk-go"
@@ -73,6 +75,18 @@ type GetS3Buckets struct {
 type GetCifsShare struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
+}
+
+type ShareError struct {
+	ErrorMessage string
+	Svm          string
+	Share        string
+	Timestamp    time.Time
+}
+
+// makes the customError implement the error interface
+func (e *ShareError) Error() string {
+	return e.ErrorMessage
 }
 
 /*
@@ -281,7 +295,12 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 	sharesData, err := unmarshalSharesMap(shares.Data)
 	if err != nil {
 		klog.Errorf("Error unmarshalling requesting shares for namespace %s", namespace)
-		return err
+		return &ShareError{
+			ErrorMessage: err.Error(),
+			Svm:          "",
+			Share:        "",
+			Timestamp:    time.Now(),
+		}
 	}
 
 	for k := range sharesData {
@@ -296,7 +315,12 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 			onPremName, err := getOnPrem(email, client)
 			if err != nil {
 				klog.Errorf("Error occurred while getting onprem name: %v", err)
-				return err
+				return &ShareError{
+					ErrorMessage: err.Error(),
+					Svm:          svmInfo.Vserver,
+					Share:        "",
+					Timestamp:    time.Now(),
+				}
 			}
 
 			// If it's a SASfs filer we need to use the sasmanagement ip
@@ -310,12 +334,22 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 				err = createS3User(onPremName, managementIP, namespace, client, svmInfo, mgmInfo)
 				if err != nil {
 					klog.Errorf("Unable to create S3 user: %s", onPremName)
-					return err
+					return &ShareError{
+						ErrorMessage: err.Error(),
+						Svm:          svmInfo.Vserver,
+						Share:        "",
+						Timestamp:    time.Now(),
+					}
 				}
 			}
 		} else if err != nil {
 			klog.Errorf("Error occurred while searching for %s secret in ns %s: %v", k, namespace, err)
-			return err
+			return &ShareError{
+				ErrorMessage: err.Error(),
+				Svm:          svmInfo.Vserver,
+				Share:        "",
+				Timestamp:    time.Now(),
+			}
 		}
 
 		// Create the s3 buckets
@@ -326,7 +360,12 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 			isBucketExists, err := checkIfS3BucketExists(mgmInfo, managementIP, svmInfo.Uuid, hashedBucketName)
 			if err != nil {
 				klog.Errorf("Error while checking bucket existence in namespace %s", namespace)
-				return err
+				return &ShareError{
+					ErrorMessage: err.Error(),
+					Svm:          svmInfo.Vserver,
+					Share:        s,
+					Timestamp:    time.Now(),
+				}
 			}
 
 			if !isBucketExists {
@@ -334,14 +373,24 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 				path, err := getCifsShare(mgmInfo, managementIP, svmInfo.Uuid, s)
 				if err != nil {
 					klog.Errorf("Error while getting cifs share in namespace %s", namespace)
-					return err
+					return &ShareError{
+						ErrorMessage: err.Error(),
+						Svm:          svmInfo.Vserver,
+						Share:        s,
+						Timestamp:    time.Now(),
+					}
 				}
 
 				//create the bucket
 				err = createS3Bucket(svmInfo, managementIP, mgmInfo, hashedBucketName, path)
 				if err != nil {
 					klog.Errorf("Error while creating s3 bucket in namespace %s", namespace)
-					return err
+					return &ShareError{
+						ErrorMessage: err.Error(),
+						Svm:          svmInfo.Vserver,
+						Share:        s,
+						Timestamp:    time.Now(),
+					}
 				}
 			}
 		}
@@ -351,7 +400,12 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 	err = updateUserSharesConfigMaps(client, namespace, sharesData)
 	if err != nil {
 		klog.Errorf("Error while updating the user shares configmaps in namespace %s: %v", namespace, err)
-		return err
+		return &ShareError{
+			ErrorMessage: err.Error(),
+			Svm:          "",
+			Share:        "",
+			Timestamp:    time.Now(),
+		}
 	}
 	klog.Infof("Finished processing configmap for:" + namespace)
 	return nil
@@ -575,7 +629,7 @@ func getSvmInfoList(client *kubernetes.Clientset) (map[string]SvmInfo, error) {
 }
 
 // TODO: how do we clean up this error config map?
-func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, error error) {
+func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, error ShareError) {
 	// Delete the requesting configmap
 	err = client.CoreV1().ConfigMaps(namespace).Delete(context.Background(), requestingSharesConfigMapName, metav1.DeleteOptions{})
 	if err != nil {
@@ -587,10 +641,11 @@ func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, er
 	errorCM, err := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), sharesErrorsConfigMapName, metav1.GetOptions{})
 	if k8serrors.IsNotFound(err) {
 		//If the error CM doesn't exist, we create it
-		errorData := []string{error.Error()}
+		errorData := []ShareError{error}
 		newErrors, err := json.Marshal(errorData)
 		if err != nil {
 			klog.Errorf("Error while marshalling error configmap for %s: %v", namespace, err)
+			return
 		}
 
 		errorCM := corev1.ConfigMap{
@@ -608,17 +663,19 @@ func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, er
 		return
 	} else if err != nil {
 		klog.Errorf("Error while retrieving error configmap for %s: %v", namespace, err)
+		return
 	}
 
 	//If the error CM does exist, we update it
-	errorData := []string{}
+	errorData := []ShareError{}
 	json.Unmarshal([]byte(errorCM.Data["errors"]), &errorData)
 
-	errorData = append(errorData, error.Error())
+	errorData = append(errorData, error)
 
 	newErrors, err := json.Marshal(errorData)
 	if err != nil {
 		klog.Errorf("Error while marshalling error configmap for %s: %v", namespace, err)
+		return
 	}
 
 	newErrorCM := corev1.ConfigMap{
@@ -677,8 +734,15 @@ var ontapcvoCmd = &cobra.Command{
 				klog.Infof("Configmap %s", event.Type)
 				err := processConfigmap(kubeClient, configmap.Namespace, configmap.Annotations[ontapEmailAnnotation], mgmInfo, svmInfoMap)
 				if err != nil {
-					// klogs the error and also updates the user's error configmap
-					createErrorUserConfigMap(kubeClient, configmap.Namespace, err)
+					var shareErr *ShareError
+					//if this is a custom error or not
+					if errors.As(err, &shareErr) {
+						// klogs the error and also updates the user's error configmap
+						createErrorUserConfigMap(kubeClient, configmap.Namespace, *shareErr)
+					} else {
+						//else is if this isn't our custom shareError. Generic error
+						klog.Errorf("Error occurred while processing configmap for namespace %s", configmap.Namespace)
+					}
 				}
 			case watch.Error:
 				klog.Errorf("Configmap for requested shares in namespace:%s contains an error.", configmap.Namespace)
