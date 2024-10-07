@@ -312,6 +312,12 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 					klog.Errorf("Unable to create S3 user: %s", onPremName)
 					return err
 				}
+				// Assign the user to a group. A newly created user will not have been added
+				err = manageUserGroups(onPremName, managementIP, namespace, client, svmInfo, mgmInfo)
+				if err != nil {
+					klog.Errorf("Unable to assign to a user group: %s", onPremName)
+					return err
+				}
 			}
 		} else if err != nil {
 			klog.Errorf("Error occurred while searching for %s secret in ns %s: %v", k, namespace, err)
@@ -355,6 +361,35 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 	}
 	klog.Infof("Finished processing configmap for:" + namespace)
 	return nil
+}
+
+func manageUserGroups(onPremName, managementIP, namespace string, client *kubernetes.Clientset, svmInfo SvmInfo, mgmInfo ManagementInfo) error {
+	// We will just create the user group if the user group already exists we get
+	// "message": "Group name \"test-jose-group\" already exists for SVM \"fld9filersvm\".",
+	jsonString := fmt.Sprintf(
+		`{
+			"comment": "s3access created by Zone controller",
+			"name": "s3access",
+			"policies": [
+			{ "name": "FullAccess" }
+			],
+			"users": [
+			{ "name": "%s" }
+			]
+		}`, onPremName)
+
+	urlString := "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/groups"
+	statusCode, _ := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, urlString, bytes.NewBuffer([]byte(jsonString)))
+	if statusCode == 201 {
+		// The user group was created and the current user was given to the user group
+		klog.Infof("Newly created user group s3access for svm:" + svmInfo.Name + " for the user:" + onPremName)
+		return nil
+	}
+	// If it does exist then we need to grab the full list of users and patch it with the new onPremName user
+	// Get user list for s3access in svm
+	ulString = "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/groups/?name=s3access"
+	// curl -viku  -X GET "https://172.20.62.10/api/protocols/s3/services/b1fb8f0c-dad1-11ed-aeb0-002248b01d5e/groups/?name=s3access&return_records=true" -H "accept: application/hal+json"
+
 }
 
 /*
