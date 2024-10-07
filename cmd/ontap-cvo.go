@@ -3,14 +3,16 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
 	"net/http"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 
 	azidentity "github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -28,30 +30,19 @@ import (
 	"k8s.io/klog"
 )
 
-/** Implementation Notes
-Currently strongly based on the blob-csi
-We will look for a label on the profile, and if it exists we will do the account creation via api call.
-That is step 1, eventually may also want the mounting to happen here but scoping to just account creation.
+const isForOntapLabel = "for-ontap"
+const ontapEmailAnnotation = "user-email"
+const userSvmSecretSuffix = "-conn-secret"
 
-For mounting there are a lot of helpful useful functions in `blob-csi.go` that we can re-use
-  like the building of the pv / pvc spec, the creation and deletion of them etc.
-*/
-
-const requestConfigMapName = "share-requests"
-
-// const automountLabel = "blob.aaw.statcan.gc.ca/automount"
-type s3keys struct { // i doubt this works
-	AccessKey string `json:"access_key"`
-	SecretKey string `json:"secret_key"`
-}
+const existingSharesConfigMapName = "existing-shares"
+const requestingSharesConfigMapName = "requesting-shares"
+const sharesErrorsConfigMapName = "shares-errors"
 
 type createUserResponse struct {
-	numRecords int         `json:"num_records"`
-	records    []s3KeysObj `json:"records"`
+	Records []s3KeysObj `json:"records"`
 }
 
 type s3KeysObj struct {
-	name      string `json:"name"`
 	AccessKey string `json:"access_key"`
 	SecretKey string `json:"secret_key"`
 }
@@ -63,10 +54,11 @@ type SvmInfo struct {
 	Url     string `json:"url"`
 }
 
-type managementInfo struct {
-	managementIP string
-	username     string
-	password     string
+type ManagementInfo struct {
+	ManagementIPField string
+	ManagementIPSas   string
+	Username          string
+	Password          string
 }
 
 type S3Bucket struct {
@@ -74,76 +66,69 @@ type S3Bucket struct {
 	NasPath string `json:"nas_path"`
 }
 
-type getS3Buckets struct {
-	Records []S3Bucket `json:"records"`
+type GetS3Buckets struct {
+	NumRecords int `json:"num_records"`
 }
 
-type ShareError struct {
-	Share string
-	Error string
+type GetCifsShare struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
 }
 
 /*
+Creates the S3 user using the net app API
 Requires the onPremname, the namespace to create the secret in, the current k8s client, the svmInfo and the managementInfo
-Returns true if successful
 */
-func createS3User(onPremName string, namespaceStr string, client *kubernetes.Clientset, svmInfo SvmInfo, mgmInfo managementInfo) bool {
+func createS3User(onPremName string, managementIP string, namespace string, client *kubernetes.Clientset, svmInfo SvmInfo, mgmInfo ManagementInfo) error {
 	postBody, _ := json.Marshal(map[string]interface{}{
 		"name": onPremName,
-		"svm": map[string]string{
-			"uuid": svmInfo.Uuid,
-		},
 	})
-	url := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/users"
-	statusCode, response := performHttpCall("POST", mgmInfo.username, mgmInfo.password, url, bytes.NewBuffer(postBody))
+	url := "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/users"
+	statusCode, response := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, url, bytes.NewBuffer(postBody))
 
 	if statusCode != 201 {
-		klog.Infof("An Error Occured while creating the S3 User")
-		return false
+		return fmt.Errorf("an error cccured while creating the S3 User for onpremname %s: %v", onPremName, string(response))
 	}
 	klog.Infof("The S3 user was created. Proceeding to store SVM credentials")
-	// right now this is the only place we will create the secret, so I will just have it in here
-	postResponseFormatted := &createUserResponse{} // must decode the []byte response into something i can mess with
-	// need to determine if this unmarshals / converts to the struct correctly
+
+	postResponseFormatted := createUserResponse{}
+
 	err := json.Unmarshal(response, &postResponseFormatted)
 	if err != nil {
-		fmt.Println("Error in JSON unmarshalling from json marshalled object:", err)
-		return false
+		return fmt.Errorf("error in JSON unmarshalling for creating S3 user with onprem %s: %v", onPremName, err)
 	}
 	// Create the secret
 	usersecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      svmInfo.Name + "-conn-secret", // change to be a const later or something
-			Namespace: namespaceStr,
+			Name:      svmInfo.Vserver + userSvmSecretSuffix,
+			Namespace: namespace,
 		},
 		Data: map[string][]byte{
-			// Nothing else needs to be in here; as the S3_BUCKET value should be somewhere else.
 			// All S3 buckets under the same SVM use the same ACCESS and SECRET to access them
-			"S3_ACCESS": []byte(postResponseFormatted.records[0].AccessKey),
-			"S3_SECRET": []byte(postResponseFormatted.records[0].SecretKey),
+			"S3_ACCESS": []byte(postResponseFormatted.Records[0].AccessKey),
+			"S3_SECRET": []byte(postResponseFormatted.Records[0].SecretKey),
 		},
 	}
-	_, err = client.CoreV1().Secrets(namespaceStr).Create(context.Background(), usersecret, metav1.CreateOptions{})
+	_, err = client.CoreV1().Secrets(namespace).Create(context.Background(), usersecret, metav1.CreateOptions{})
 	if err != nil {
-		klog.Infof("An Error Occured while creating the secret %v", err)
-		return false
+		return fmt.Errorf("an error cccured while creating the s3 user secret in ns %s: %v", namespace, err)
 	}
-	return true
+
+	return nil
 }
 
 // Applies a hash function to the bucketname to make it S3 compliant
 func hashBucketName(name string) string {
 	h := fnv.New64a()
 	h.Write([]byte(name))
-	return string(h.Sum64())
+	return strconv.FormatUint(h.Sum64(), 10)
 }
 
 /*
 This will create the S3 bucket. Requires the bucketName to be hashed, the nasPath and relevant management and svm information
 https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html
 */
-func createS3Bucket(svmInfo SvmInfo, mgmInfo managementInfo, bucketName string, nasPath string) bool {
-	hashedName := hashBucketName(bucketName)
+func createS3Bucket(svmInfo SvmInfo, managementIP string, mgmInfo ManagementInfo, hashedbucketName string, nasPath string) error {
 	// Create a string that is valid json, as thats the simplest way of working with this request
 	// https://go.dev/play/p/xs_B0l3HsBw
 	jsonString := fmt.Sprintf(
@@ -171,43 +156,39 @@ func createS3Bucket(svmInfo SvmInfo, mgmInfo managementInfo, bucketName string, 
 				]
 			}
 		}`,
-		hashedName, nasPath, hashedName, hashedName)
-	// https://discourse.gohugo.io/t/use-same-argument-twice-in-a-printf-clause/20398
-	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/buckets"
-	statusCode, _ := performHttpCall("POST", mgmInfo.username, mgmInfo.password, urlString, bytes.NewBuffer([]byte(jsonString)))
+		hashedbucketName, nasPath, hashedbucketName, hashedbucketName)
+
+	urlString := "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/buckets"
+	statusCode, responseBody := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, urlString, bytes.NewBuffer([]byte(jsonString)))
 	if statusCode == 201 {
-		klog.Infof("S3 Bucket has been created: https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#response")
-		return true
+		// https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#response
+		klog.Infof("S3 Bucket for nas path %s in svm %s has been created: %v", nasPath, svmInfo.Vserver, string(responseBody))
+		return nil
 	} else if statusCode == 202 {
-		klog.Infof("S3 Bucket job has been created: https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#response")
-		// In this case we may still want to check if the bucket exists after maybe 5 seconds?
-		// checkIfS3BucketExists()...
-		return true
+		klog.Infof("S3 Bucket job for nas path %s in svm %s has been created: %v", nasPath, svmInfo.Vserver, string(responseBody))
+		return nil
 	}
-	klog.Errorf("Error when submitting the request to create a bucket") // TODO add error string
-	return false
+	klog.Infof("Sending the following requestBody:" + jsonString)
+	return fmt.Errorf("error when submitting the request to create a bucket with nas path %s: %v", nasPath, string(responseBody))
 }
 
 /*
 This will get the onPremName given the owner email
 */
-func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, bool) {
-	klog.Infof("Retrieving onpremisis Name")
-	// Step 0 Get the App Registration Info
-	// Don't forget to create a secret in the namespace for authentication with azure in the namespace
-	// for me in aaw-dev its under jose-matsuda
-	// TODO change to das? for the location of secrets
-	secret, err := client.CoreV1().Secrets("netapp").Get(context.Background(), "microsoft-graph-api-secret", metav1.GetOptions{})
+func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, error) {
+	klog.Infof("Retrieving onprem Name")
+	// Get the App Registration Info
+	secret, err := client.CoreV1().Secrets("das").Get(context.Background(), "microsoft-graph-api-secret", metav1.GetOptions{})
 	if err != nil {
-		klog.Infof("An Error Occured while getting registration secret %v", err)
-		return "", false
+		klog.Errorf("an error occured while getting registration secret %v", err)
+		return "", err
 	}
 
 	TENANT_ID := string(secret.Data["TENANT_ID"])
 	CLIENT_ID := string(secret.Data["CLIENT_ID"])
 	CLIENT_SECRET := string(secret.Data["CLIENT_SECRET"])
 
-	// Step 1 is authenticating with Azure to get the `onPremisesSamAccountName` to be used as an S3 user
+	// Authenticating with Azure to get the `onPremisesSamAccountName` to be used as an S3 user
 	cred, err := azidentity.NewClientSecretCredential(
 		TENANT_ID,
 		CLIENT_ID,
@@ -215,15 +196,16 @@ func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, bool) {
 		nil,
 	)
 	if err != nil {
-		klog.Infof("client credential error: %v", err)
-		return "", false
+		klog.Errorf("client credential error: %v", err)
+		return "", err
 	}
 
+	// Creating graph client object
 	graphClient, err := msgraphsdk.NewGraphServiceClientWithCredentials(
 		cred, []string{"https://graph.microsoft.com/.default"})
 	if err != nil {
-		klog.Infof("graph client error: %v", err)
-		return "", false
+		klog.Errorf("graph client error: %v", err)
+		return "", err
 	}
 
 	query := users.UserItemRequestBuilderGetQueryParameters{
@@ -234,133 +216,219 @@ func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, bool) {
 		QueryParameters: &query,
 	}
 
+	// Calling graph api
 	result, err := graphClient.Users().ByUserId(ownerEmail).Get(context.Background(), &options)
 	if err != nil {
-		klog.Infof("An Error Occured while trying to retrieve on prem name: %v", err)
-		return "", false
+		klog.Errorf("An Error Occured while trying to retrieve on prem name: %v", err)
+		return "", err
 	}
 
 	onPremAccountName := result.GetOnPremisesSamAccountName()
+	// TODO How to handle users without onprem name?
 	if onPremAccountName == nil {
-		klog.Infof("No on prem name found for user: %s", ownerEmail)
-		return "", false
+		return "", fmt.Errorf("no on prem name found for user: %s", ownerEmail)
 	}
-	return *onPremAccountName, true
+	return *onPremAccountName, nil
 }
 
-func getManagementInfo(client *kubernetes.Clientset) managementInfo {
+func getManagementInfo(client *kubernetes.Clientset) (ManagementInfo, error) {
 	klog.Infof("Getting secret containing the management information...")
-	// TODO move to 'das'? for the namespace of the secret
-	secret, err := client.CoreV1().Secrets("netapp").Get(context.Background(), "netapp-management-information", metav1.GetOptions{})
+
+	secret, err := client.CoreV1().Secrets("das").Get(context.Background(), "netapp-management-information", metav1.GetOptions{})
 	if err != nil {
-		klog.Errorf("Error the secret for the management api was not found!")
-		// terminate?
+		klog.Errorf("error occured while getting the management api secret: %v", err)
+		return ManagementInfo{}, err
 	}
-	management_ip := string(secret.Data["MANAGEMENT_IP"])
+
+	management_ip_field := string(secret.Data["MANAGEMENT_IP_FIELD"])
 	username := string(secret.Data["USERNAME"])
 	password := string(secret.Data["PASSWORD"])
-	mgmInfo := managementInfo{
-		managementIP: management_ip,
-		username:     username,
-		password:     password,
+	management_ip_sas := string(secret.Data["MANAGEMENT_IP_SAS"])
+	mgmInfo := ManagementInfo{
+		ManagementIPField: management_ip_field,
+		Username:          username,
+		Password:          password,
+		ManagementIPSas:   management_ip_sas,
 	}
-	return mgmInfo
+	return mgmInfo, nil
+}
+
+func unmarshalSharesMap(sharesmap map[string]string) (map[string][]string, error) {
+	output := map[string][]string{}
+	for k, v := range sharesmap {
+		arrayValue := []string{}
+		err = json.Unmarshal([]byte(v), &arrayValue)
+		if err != nil {
+			return nil, err
+		}
+		output[k] = arrayValue
+	}
+
+	return output, nil
 }
 
 /*
-TODO CHANGE
-Using the profile namespace, will use the configmap to retrieve a list of filer shares attached to the profile
-It will then iterate over the list and search for a constructed secret and if that secret is not found then we create
-the S3 user (and as a result the secret)
+When a "share-requests" labbeled configmap gets generated by a user in the frontend, process that configmap to
+generate the S3 user and S3 buckets as necessary.
 */
-func processConfigmap(client *kubernetes.Clientset, namespace string, email string, mgmInfo managementInfo, svmInfoMap map[string]SvmInfo) bool {
-	// We don't actually need secret informers, since informers look at changes in state
-	// https://www.macias.info/entry/202109081800_k8s_informers.md
-	// Get a list of secrets the user namespace should have accounts for using the configmap
-	klog.Infof("Searching for secrets for " + namespace)
-	shares, _ := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), "requesting-shares", metav1.GetOptions{})
-	for k, _ := range shares.Data {
+func processConfigmap(client *kubernetes.Clientset, namespace string, email string, mgmInfo ManagementInfo, svmInfoMap map[string]SvmInfo) error {
+	// Getting the requesting shares CM for user
+	shares, _ := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), requestingSharesConfigMapName, metav1.GetOptions{})
+
+	// Default to field filers IP
+	managementIP := mgmInfo.ManagementIPField
+
+	sharesData, err := unmarshalSharesMap(shares.Data)
+	if err != nil {
+		klog.Errorf("Error unmarshalling requesting shares for namespace %s", namespace)
+		return err
+	}
+
+	for k := range sharesData {
+		svmInfo := svmInfoMap[k]
 		// have to iterate and check secrets
-		klog.Infof("Searching for: " + k + "-conn-secret")
-		_, err := client.CoreV1().Secrets(namespace).Get(context.Background(), k+"-conn-secret", metav1.GetOptions{})
-		if err != nil {
-			klog.Infof("Error found, possbily secret not found, creating secret")
+		klog.Infof("Searching for: " + k + userSvmSecretSuffix)
+		_, err := client.CoreV1().Secrets(namespace).Get(context.Background(), k+userSvmSecretSuffix, metav1.GetOptions{})
+		if k8serrors.IsNotFound(err) {
+			// Create the secret for that filer
+			klog.Infof("Secret not found for filer %s in ns: %s, creating secret", k, namespace)
 			// Get the OnPremName
-			onPremName, foundOnPrem := getOnPrem(email, client)
-			if foundOnPrem {
-				// Get the svmInfo from the master list
-				svmInfo := svmInfoMap[k]
-				// Create the user
-				wasSuccessful := createS3User(onPremName, namespace, client, svmInfo, mgmInfo)
-				if !wasSuccessful {
-					klog.Info("Unable to create S3 user:" + onPremName)
-					return false
+			onPremName, err := getOnPrem(email, client)
+			if err != nil {
+				klog.Errorf("Error occurred while getting onprem name: %v", err)
+				return err
+			}
+
+			// If it's a SASfs filer we need to use the sasmanagement ip
+			if strings.Contains(svmInfo.Vserver, "sasfs") {
+				managementIP = mgmInfo.ManagementIPSas
+			}
+			// Create the user
+			// Check if user exists
+			if !checkIfS3UserExists(mgmInfo, managementIP, svmInfo.Uuid, onPremName) {
+				// if user does not exist, create it
+				err = createS3User(onPremName, managementIP, namespace, client, svmInfo, mgmInfo)
+				if err != nil {
+					klog.Errorf("Unable to create S3 user: %s", onPremName)
+					return err
+				}
+			}
+		} else if err != nil {
+			klog.Errorf("Error occurred while searching for %s secret in ns %s: %v", k, namespace, err)
+			return err
+		}
+
+		// Create the s3 buckets
+		s3BucketsList := sharesData[k]
+		for _, s := range s3BucketsList {
+			hashedBucketName := hashBucketName(s)
+			klog.Infof("Checking if the following bucket exists: %s", s)
+			isBucketExists, err := checkIfS3BucketExists(mgmInfo, managementIP, svmInfo.Uuid, hashedBucketName)
+			if err != nil {
+				klog.Errorf("Error while checking bucket existence in namespace %s", namespace)
+				return err
+			}
+
+			if !isBucketExists {
+				//Get CIFS Share path
+				path, err := getCifsShare(mgmInfo, managementIP, svmInfo.Uuid, s)
+				if err != nil {
+					klog.Errorf("Error while getting cifs share in namespace %s", namespace)
+					return err
+				}
+
+				//create the bucket
+				err = createS3Bucket(svmInfo, managementIP, mgmInfo, hashedBucketName, path)
+				if err != nil {
+					klog.Errorf("Error while creating s3 bucket in namespace %s", namespace)
+					return err
 				}
 			}
 		}
 	}
-	return true
+
+	// updates the config maps in the user namespace
+	err = updateUserSharesConfigMaps(client, namespace, sharesData)
+	if err != nil {
+		klog.Errorf("Error while updating the user shares configmaps in namespace %s: %v", namespace, err)
+		return err
+	}
+	klog.Infof("Finished processing configmap for:" + namespace)
+	return nil
 }
 
 /*
-This will if the secret has expired and then
-*/
-func checkExpired(labelValue string) bool {
-	// If expired
-	return true
-	// Not found
-	return false
-}
-
-/*
-This will check for the existence of an S3 user. TODO must be called
+This will check for the existence of an S3 user.
 https://docs.netapp.com/us-en/ontap-restapi/ontap/get-protocols-s3-services-users-.html
 Requires: managementIP, svm.uuid, name, password and username for authentication
 Returns true if it does exist
 */
-func checkIfS3UserExists(mgmInfo managementInfo, uuid string, onPremName string) bool {
+func checkIfS3UserExists(mgmInfo ManagementInfo, managementIP string, uuid string, onPremName string) bool {
 	// Build the request
-	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + uuid + "/users/" + onPremName
-	statusCode, _ := performHttpCall("GET", mgmInfo.username, mgmInfo.password, urlString, nil)
+	urlString := "https://" + managementIP + "/api/protocols/s3/services/" + uuid + "/users/" + onPremName
+	statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
 	if statusCode != 200 {
-		klog.Errorf("Error when checking if user exists:") // TODO add error message
+		klog.Errorf("Error when checking if user exists. Possibly does not exist. %v", string(responseBody))
 		return false
 	}
+	klog.Infof("User for onPremName:" + onPremName + " already exists. Will not create a new S3 User")
 	return true
 }
 
 /*
 This will check for the existence of an S3 bucket
 https://docs.netapp.com/us-en/ontap-restapi/ontap/get-protocols-s3-services-buckets-.html
-Requires: managementInfo, svm.uuid and the bucketName
-https://docs.netapp.com/us-en/ontap-restapi/ontap/protocols_s3_services_svm.uuid_buckets_endpoint_overview.html#retrieving-all-fields-for-all-s3-buckets-of-an-svm
-^ is the best we can do, given that we cannot search a bucket by its name (can search by UUID though)
-We'd need to re-use that hash function here when looking too.
+Requires: managementInfo, svm.uuid and the hashed bucket Name
 Returns true if it does exist
 */
-func checkIfS3BucketExists(mgmInfo managementInfo, uuid string, requestedBucket string) (bool, error) {
+func checkIfS3BucketExists(mgmInfo ManagementInfo, managementIP string, uuid string, requestedBucket string) (bool, error) {
 	// Build the request
-	urlString := "https://" + mgmInfo.managementIP + "/api/protocols/s3/services/" + uuid + "/buckets?fields=**&return_records=true"
-	statusCode, responseBody := performHttpCall("GET", mgmInfo.username, mgmInfo.password, urlString, nil)
+	urlString := fmt.Sprintf("https://"+managementIP+"/api/protocols/s3/services/"+uuid+"/buckets?fields=**&name=%s", requestedBucket)
+	statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
 	if statusCode != 200 {
-		return true, errors.New("error interacting with Netapp API for checking if S3 bucket exists")
+		return false, fmt.Errorf("error when checking if bucket exists. %v", string(responseBody))
 	}
+
 	// Check the response and go through it.
-	data := getS3Buckets{}
+	data := GetS3Buckets{}
 	err := json.Unmarshal(responseBody, &data)
 	if err != nil {
-		return true, err
+		return false, err
 	}
 
-	for _, bucket := range data.Records {
-		if bucket.Name == requestedBucket {
-			// return true if the bucket is already in the svm
-			return true, nil
-		}
+	if data.NumRecords == 0 {
+		// if no records, it means no buckets was found for that name
+		return false, nil
+	}
+	klog.Infof("Hashed bucket:" + requestedBucket + " already exists.")
+	return true, nil
+}
+
+/*
+This will check for a CIFS share to retrieve the path for the desired bucket
+https://docs.netapp.com/us-en/ontap-restapi/ontap/protocols_cifs_shares_endpoint_overview.html#retrieving-a-specific-cifs-share-configuration-for-an-svm
+Requires: managementInfo, svm.uuid and the hashed bucket Name
+Returns true if it does exist
+*/
+func getCifsShare(mgmInfo ManagementInfo, managementIP string, uuid string, requestedBucket string) (string, error) {
+	// splits the bucket name if needed
+	bucketPaths := strings.Split(requestedBucket, "/")
+	parentPath := bucketPaths[0]
+	// Build the request
+	urlString := fmt.Sprintf("https://%s/api/protocols/cifs/shares/%s/%s?fields=**", managementIP, uuid, parentPath)
+	statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
+	if statusCode != 200 {
+		return "", fmt.Errorf("error when retrieving cifs share: %v", string(responseBody))
 	}
 
-	// returns false since the bucket with the requested name was not found
-	return false, nil
+	// Check the response and go through it.
+	data := GetCifsShare{}
+	err := json.Unmarshal(responseBody, &data)
+	if err != nil {
+		return "", err
+	}
+
+	return data.Path, nil
 }
 
 // concats the values of modifierMap into the given sourceMap
@@ -387,20 +455,17 @@ func formatSharesMap(shares map[string][]string) map[string]string {
 Updates the filer shares ConfigMaps for a given namespace
 - newShares is the map of filer shares that are have been processed(meaning the s3bucket got created)
 and that need to be both removed from the requesting filer shares CM and added to the user's existing shares CM
-- failedShares is the map of filer shares that failed being processed, for whatever reason,
-and that will stay in the requesting shares CM
 */
-func updateUserSharesConfigMaps(client *kubernetes.Clientset, namespace string, newShares map[string][]string, failedShares map[string][]string) {
-	existingSharesCM, err := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), "existing-shares", metav1.GetOptions{})
-	// if it can't find the configmap, it errors
-	// TODO: look into if we can differenciate between a missing CM and a real error
-	if err != nil {
-		klog.Infof("Unable to get user existing share in %s. Reason: %v", namespace, err)
+func updateUserSharesConfigMaps(client *kubernetes.Clientset, namespace string, newShares map[string][]string) error {
+	klog.Infof("Updating user configmaps for namespace:" + namespace)
+	existingSharesCM, err := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), existingSharesConfigMapName, metav1.GetOptions{})
+
+	if k8serrors.IsNotFound(err) {
 		klog.Infof("Creating user existing share config map")
 
 		newUserShares := corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "existing-shares",
+				Name:      existingSharesConfigMapName,
 				Namespace: namespace,
 			},
 			Data: formatSharesMap(newShares),
@@ -408,18 +473,15 @@ func updateUserSharesConfigMaps(client *kubernetes.Clientset, namespace string, 
 
 		_, err := client.CoreV1().ConfigMaps(namespace).Create(context.Background(), &newUserShares, metav1.CreateOptions{})
 		if err != nil {
-			klog.Infof("Error creating new user existing shares config map in %s. Reason: %v", namespace, err)
+			return fmt.Errorf("error creating new user existing shares config map in %s: %v", namespace, err)
 		}
+	} else if err != nil {
+		return fmt.Errorf("error while retrieving existing shares configmap in %s: %v", namespace, err)
 	} else {
 		// format the CM data
-		userSharesData := map[string][]string{}
-		for k := range existingSharesCM.Data {
-			val := []string{}
-			err := json.Unmarshal([]byte(existingSharesCM.Data[k]), &val)
-			if err != nil {
-				klog.Infof("Error creating new existing shares config map in %s. Reason: %v", namespace, err)
-			}
-			userSharesData[k] = val
+		userSharesData, err := unmarshalSharesMap(existingSharesCM.Data)
+		if err != nil {
+			return fmt.Errorf("error while unmarshalling existing shares configmap in %s: %v", namespace, err)
 		}
 
 		// updates the userSharesData CM data with the new shares values
@@ -428,37 +490,24 @@ func updateUserSharesConfigMaps(client *kubernetes.Clientset, namespace string, 
 		// update the existing-shares CM
 		newUserShares := corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "existing-shares",
+				Name:      existingSharesConfigMapName,
 				Namespace: namespace,
 			},
 			Data: formatSharesMap(userSharesData),
 		}
 		_, err = client.CoreV1().ConfigMaps(namespace).Update(context.Background(), &newUserShares, metav1.UpdateOptions{})
 		if err != nil {
-			klog.Infof("Failed to update the existing shares configmap in %s. Reason: %v", namespace, err)
+			return fmt.Errorf("failed to update the existing shares configmap in %s: %v", namespace, err)
 		}
 	}
 
-	if len(failedShares) == 0 {
-		// delete the requesting CM
-		err := client.CoreV1().ConfigMaps(namespace).Delete(context.Background(), "requesting-shares", metav1.DeleteOptions{})
-		if err != nil {
-			klog.Infof("Failed to delete the requesting shares configmap in %s. Reason: %v", namespace, err)
-		}
-	} else {
-		// update the requesting CM
-		newUserShares := corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "requesting-shares",
-				Namespace: namespace,
-			},
-			Data: formatSharesMap(failedShares), //TODO: fix this to be the diff between newShares and the requestingSharesCM.data
-		}
-		_, err := client.CoreV1().ConfigMaps(namespace).Update(context.Background(), &newUserShares, metav1.UpdateOptions{})
-		if err != nil {
-			klog.Infof("Failed to update the requesting shares configmap in %s. Reason: %v", namespace, err)
-		}
+	// delete the requesting CM
+	err = client.CoreV1().ConfigMaps(namespace).Delete(context.Background(), requestingSharesConfigMapName, metav1.DeleteOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to delete the requesting shares configmap in %s. Reason: %v", namespace, err)
 	}
+
+	return nil
 }
 
 /*
@@ -478,12 +527,17 @@ https://www.makeuseof.com/go-make-http-requests/
 An example requestBody assignment can look like: https://zetcode.com/golang/getpostrequest/
 */
 func performHttpCall(requestType string, username string, password string, url string, requestBody io.Reader) (statusCode int, responseBody []byte) {
+	// Set up connecting: https://stackoverflow.com/a/59738724
+	customTransport := http.DefaultTransport.(*http.Transport).Clone()
+	customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	client := &http.Client{Transport: customTransport}
 	req, _ := http.NewRequest(requestType, url, requestBody)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("accept", "application/json")
 	authorization := basicAuth(username, password)
 	req.Header.Set("Authorization", "Basic "+authorization)
-	resp, err := http.DefaultClient.Do(req)
+	//resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		klog.Fatalf("error sending and returning HTTP response  : %v", err)
 	}
@@ -495,19 +549,20 @@ func performHttpCall(requestType string, username string, password string, url s
 	return resp.StatusCode, responseBody
 }
 
-func getSvmInfoList(client *kubernetes.Clientset) map[string]SvmInfo {
-	klog.Infof("Getting master filer list...")
+func getSvmInfoList(client *kubernetes.Clientset) (map[string]SvmInfo, error) {
+	klog.Infof("Getting filers list...")
 
 	filerListCM, err := client.CoreV1().ConfigMaps("das").Get(context.Background(), "filers-list", metav1.GetOptions{})
 	if err != nil {
-		klog.Errorf("Error while getting the master filer list")
-		// terminate?
+		klog.Errorf("Error occured while getting the filers list: %v", err)
+		return nil, err
 	}
 
 	var svmInfoList []SvmInfo
 	err = json.Unmarshal([]byte(filerListCM.Data["filers"]), &svmInfoList)
 	if err != nil {
-		klog.Info(err)
+		klog.Errorf("Error occured while unmarshalling the filers list: %v", err)
+		return nil, err
 	}
 
 	//format the data into something a bit more usable
@@ -516,65 +571,66 @@ func getSvmInfoList(client *kubernetes.Clientset) map[string]SvmInfo {
 		filerList[svm.Vserver] = svm
 	}
 
-	return filerList
+	return filerList, nil
 }
 
-func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, share string, error error) {
+// TODO: how do we clean up this error config map?
+func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, error error) {
+	// Delete the requesting configmap
+	err = client.CoreV1().ConfigMaps(namespace).Delete(context.Background(), requestingSharesConfigMapName, metav1.DeleteOptions{})
+	if err != nil {
+		klog.Errorf("failed to delete the requesting shares configmap in %s. Reason: %v", namespace, err)
+	}
 	// Logs the error message for the pod logs
-	klog.Errorf("Error occured for ns %s: %s", namespace, error.Error())
+	klog.Errorf("Error occured for ns %s: %v", namespace, error.Error())
 
-	errorCM, err := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), "shares-error", metav1.GetOptions{})
+	errorCM, err := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), sharesErrorsConfigMapName, metav1.GetOptions{})
 	if k8serrors.IsNotFound(err) {
 		//If the error CM doesn't exist, we create it
-		errorData := []ShareError{{
-			Share: share,
-			Error: error.Error(),
-		}}
+		errorData := []string{error.Error()}
 		newErrors, err := json.Marshal(errorData)
 		if err != nil {
-			klog.Errorf("Error while mashalling error configmap for %s", namespace)
+			klog.Errorf("Error while marshalling error configmap for %s: %v", namespace, err)
 		}
 
 		errorCM := corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "shares-error",
+				Name:      sharesErrorsConfigMapName,
 				Namespace: namespace,
 			},
 			Data: map[string]string{"errors": string(newErrors)},
 		}
 		_, err = client.CoreV1().ConfigMaps(namespace).Create(context.Background(), &errorCM, metav1.CreateOptions{})
 		if err != nil {
-			klog.Errorf("Error while creating error configmap for %s", namespace)
+			klog.Errorf("Error while creating error configmap for %s: %v", namespace, err)
 		}
 
 		return
 	} else if err != nil {
-		klog.Errorf("Error while retrieving error configmap for %s", namespace)
+		klog.Errorf("Error while retrieving error configmap for %s: %v", namespace, err)
 	}
+
 	//If the error CM does exist, we update it
-	errorData := []ShareError{}
+	errorData := []string{}
 	json.Unmarshal([]byte(errorCM.Data["errors"]), &errorData)
 
-	errorData = append(errorData, ShareError{
-		Share: share,
-		Error: error.Error(),
-	})
+	errorData = append(errorData, error.Error())
 
 	newErrors, err := json.Marshal(errorData)
 	if err != nil {
-		klog.Errorf("Error while mashalling error configmap for %s", namespace)
+		klog.Errorf("Error while marshalling error configmap for %s: %v", namespace, err)
 	}
 
 	newErrorCM := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "shares-error",
+			Name:      sharesErrorsConfigMapName,
 			Namespace: namespace,
 		},
 		Data: map[string]string{"errors": string(newErrors)},
 	}
 	_, err = client.CoreV1().ConfigMaps(namespace).Update(context.Background(), &newErrorCM, metav1.UpdateOptions{})
 	if err != nil {
-		klog.Errorf("Error while updating error configmap for %s", namespace)
+		klog.Errorf("Error while updating error configmap for %s: %v", namespace, err)
 	}
 }
 
@@ -597,27 +653,35 @@ var ontapcvoCmd = &cobra.Command{
 		}
 
 		// Obtain Management Info and svm Info, as this will not change often
-		mgmInfo := getManagementInfo(kubeClient)
-		svmInfoMap := getSvmInfoList(kubeClient)
+		mgmInfo, err := getManagementInfo(kubeClient)
+		if err != nil {
+			klog.Fatalf("Error retrieving management info: %s", err.Error())
+		}
+		svmInfoMap, err := getSvmInfoList(kubeClient)
+		if err != nil {
+			klog.Fatalf("Error retrieving SVM map: %s", err.Error())
+		}
+		klog.Infof("Management Info and SVM Info have been retrieved")
 
 		watchFunc := func(options metav1.ListOptions) (watch.Interface, error) {
 			timeOut := int64(60)
+			// Watches all namespaces, hence the ConfigMaps("")
 			return kubeClient.CoreV1().ConfigMaps("").Watch(context.Background(), metav1.ListOptions{TimeoutSeconds: &timeOut,
-				LabelSelector: requestConfigMapName})
+				LabelSelector: isForOntapLabel})
 		}
 		watcher, _ := toolsWatch.NewRetryWatcher("1", &cache.ListWatch{WatchFunc: watchFunc})
 		for event := range watcher.ResultChan() {
 			configmap := event.Object.(*corev1.ConfigMap)
 			switch event.Type {
-			case watch.Modified:
-				klog.Infof("Configmap modified")
-				processConfigmap(kubeClient, configmap.Namespace, configmap.Labels["email"], mgmInfo, svmInfoMap)
+			case watch.Modified, watch.Added:
+				klog.Infof("Configmap %s", event.Type)
+				err := processConfigmap(kubeClient, configmap.Namespace, configmap.Annotations[ontapEmailAnnotation], mgmInfo, svmInfoMap)
+				if err != nil {
+					// klogs the error and also updates the user's error configmap
+					createErrorUserConfigMap(kubeClient, configmap.Namespace, err)
+				}
 			case watch.Error:
-				klog.Infof("Configmap for requested shares in namespace:" +
-					configmap.Namespace + " contains an error.")
-			case watch.Added:
-				klog.Infof("Configmap added")
-				processConfigmap(kubeClient, configmap.Namespace, configmap.Labels["email"], mgmInfo, svmInfoMap)
+				klog.Errorf("Configmap for requested shares in namespace:%s contains an error.", configmap.Namespace)
 			}
 		}
 		wg.Add(1)
