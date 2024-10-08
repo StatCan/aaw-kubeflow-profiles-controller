@@ -75,6 +75,14 @@ type GetCifsShare struct {
 	Path string `json:"path"`
 }
 
+type GetUserGroup struct {
+	Records []struct {
+		Users []struct {
+			Name string `json:"name"`
+		} `json:"users"`
+	} `json:"records"`
+}
+
 /*
 Creates the S3 user using the net app API
 Requires the onPremname, the namespace to create the secret in, the current k8s client, the svmInfo and the managementInfo
@@ -365,7 +373,7 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 
 func manageUserGroups(onPremName, managementIP, namespace string, client *kubernetes.Clientset, svmInfo SvmInfo, mgmInfo ManagementInfo) error {
 	// We will just create the user group if the user group already exists we get
-	// "message": "Group name \"test-jose-group\" already exists for SVM \"fld9filersvm\".",
+	//// "message": "Group name \"test-jose-group\" already exists for SVM \"fld9filersvm\".",
 	jsonString := fmt.Sprintf(
 		`{
 			"comment": "s3access created by Zone controller",
@@ -379,17 +387,36 @@ func manageUserGroups(onPremName, managementIP, namespace string, client *kubern
 		}`, onPremName)
 
 	urlString := "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/groups"
-	statusCode, _ := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, urlString, bytes.NewBuffer([]byte(jsonString)))
+	statusCode, responseBody := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, urlString, bytes.NewBuffer([]byte(jsonString)))
 	if statusCode == 201 {
 		// The user group was created and the current user was given to the user group
 		klog.Infof("Newly created user group s3access for svm:" + svmInfo.Name + " for the user:" + onPremName)
 		return nil
+	} else if statusCode == 409 {
+		// for a 409 status code we get 'conflict' it already exists and need to
+		// If it does exist then we need to grab the full list of users and patch it with the new onPremName user
+		// Get user list for s3access in svm
+		urlString = "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/groups/?name=s3access&fields=users.name"
+		statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
+		if statusCode != 200 {
+			return fmt.Errorf("Error while retrieving list of users on group: %v", responseBody)
+		}
+		getUsers := GetUserGroup{}
+		// unmarshal so that we can edit
+		err := json.Unmarshal(responseBody, &getUsers)
+		if err != nil {
+			return err
+		}
+		addUser := struct {
+			Name string `json:"name"`
+		}{
+			Name: onPremName,
+		}
+		getUsers.Records[0].Users = append(getUsers.Records[0].Users, addUser)
+		return nil
 	}
-	// If it does exist then we need to grab the full list of users and patch it with the new onPremName user
-	// Get user list for s3access in svm
-	ulString = "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/groups/?name=s3access"
-	// curl -viku  -X GET "https://172.20.62.10/api/protocols/s3/services/b1fb8f0c-dad1-11ed-aeb0-002248b01d5e/groups/?name=s3access&return_records=true" -H "accept: application/hal+json"
-
+	// If we get here there was another error
+	return fmt.Errorf("Error while managing user groups %s: %v", namespace, responseBody)
 }
 
 /*
