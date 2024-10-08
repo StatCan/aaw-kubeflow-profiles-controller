@@ -85,6 +85,14 @@ type ShareError struct {
 	Timestamp    time.Time
 }
 
+type ResponseError struct {
+	Error struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+		Target  string `json:"target"`
+	} `json:"error"`
+}
+
 // makes the customError implement the error interface
 func (e *ShareError) Error() string {
 	return e.ErrorMessage
@@ -102,7 +110,12 @@ func createS3User(onPremName string, managementIP string, namespace string, clie
 	statusCode, response := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, url, bytes.NewBuffer(postBody))
 
 	if statusCode != 201 {
-		return fmt.Errorf("an error cccured while creating the S3 User for onpremname %s: %v", onPremName, string(response))
+		errorStruct := ResponseError{}
+		err := json.Unmarshal(response, &errorStruct)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("an error cccured while creating the S3 User for onpremname %s: %s", onPremName, errorStruct.Error.Message)
 	}
 	klog.Infof("The S3 user was created. Proceeding to store SVM credentials")
 
@@ -183,8 +196,12 @@ func createS3Bucket(svmInfo SvmInfo, managementIP string, mgmInfo ManagementInfo
 		klog.Infof("S3 Bucket job for nas path %s in svm %s has been created: %v", nasPath, svmInfo.Vserver, string(responseBody))
 		return nil
 	}
-	klog.Infof("Sending the following requestBody:" + jsonString)
-	return fmt.Errorf("error when submitting the request to create a bucket with nas path %s: %v", nasPath, string(responseBody))
+	errorStruct := ResponseError{}
+	err := json.Unmarshal(responseBody, &errorStruct)
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("error when submitting the request to create a bucket with nas path %s: %s", nasPath, errorStruct.Error.Message)
 }
 
 /*
@@ -330,7 +347,18 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 			}
 			// Create the user
 			// Check if user exists
-			if !checkIfS3UserExists(mgmInfo, managementIP, svmInfo.Uuid, onPremName) {
+			isS3UserExists, err := checkIfS3UserExists(mgmInfo, managementIP, svmInfo.Uuid, onPremName)
+			if err != nil {
+				klog.Errorf("Error while checking S3 User existence in namespace %s", namespace)
+				return &ShareError{
+					ErrorMessage: err.Error(),
+					Svm:          svmInfo.Vserver,
+					Share:        "",
+					Timestamp:    time.Now(),
+				}
+			}
+
+			if !isS3UserExists {
 				// if user does not exist, create it
 				err = createS3User(onPremName, managementIP, namespace, client, svmInfo, mgmInfo)
 				if err != nil {
@@ -418,16 +446,21 @@ https://docs.netapp.com/us-en/ontap-restapi/ontap/get-protocols-s3-services-user
 Requires: managementIP, svm.uuid, name, password and username for authentication
 Returns true if it does exist
 */
-func checkIfS3UserExists(mgmInfo ManagementInfo, managementIP string, uuid string, onPremName string) bool {
+func checkIfS3UserExists(mgmInfo ManagementInfo, managementIP string, uuid string, onPremName string) (bool, error) {
 	// Build the request
 	urlString := "https://" + managementIP + "/api/protocols/s3/services/" + uuid + "/users/" + onPremName
 	statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
 	if statusCode != 200 {
-		klog.Errorf("Error when checking if user exists. Possibly does not exist. %v", string(responseBody))
-		return false
+		errorStruct := ResponseError{}
+		err := json.Unmarshal(responseBody, &errorStruct)
+		if err != nil {
+			return false, fmt.Errorf("Error when unmarshalling response to check if user exists: %s", err.Error())
+		}
+
+		return false, fmt.Errorf("Error when checking if user exists. Possibly does not exist: %s", errorStruct.Error.Message)
 	}
 	klog.Infof("User for onPremName:" + onPremName + " already exists. Will not create a new S3 User")
-	return true
+	return true, nil
 }
 
 /*
@@ -441,7 +474,12 @@ func checkIfS3BucketExists(mgmInfo ManagementInfo, managementIP string, uuid str
 	urlString := fmt.Sprintf("https://"+managementIP+"/api/protocols/s3/services/"+uuid+"/buckets?fields=**&name=%s", requestedBucket)
 	statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
 	if statusCode != 200 {
-		return false, fmt.Errorf("error when checking if bucket exists. %v", string(responseBody))
+		errorStruct := ResponseError{}
+		err := json.Unmarshal(responseBody, &errorStruct)
+		if err != nil {
+			return false, err
+		}
+		return false, fmt.Errorf("error when checking if bucket exists: %s", errorStruct.Error.Message)
 	}
 
 	// Check the response and go through it.
@@ -473,7 +511,12 @@ func getCifsShare(mgmInfo ManagementInfo, managementIP string, uuid string, requ
 	urlString := fmt.Sprintf("https://%s/api/protocols/cifs/shares/%s/%s?fields=**", managementIP, uuid, parentPath)
 	statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
 	if statusCode != 200 {
-		return "", fmt.Errorf("error when retrieving cifs share: %v", string(responseBody))
+		errorStruct := ResponseError{}
+		err := json.Unmarshal(responseBody, &errorStruct)
+		if err != nil {
+			return "", err
+		}
+		return "", fmt.Errorf("error when retrieving cifs share: %s", errorStruct.Error.Message)
 	}
 
 	// Check the response and go through it.
