@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -671,6 +672,14 @@ func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, er
 	json.Unmarshal([]byte(errorCM.Data["errors"]), &errorData)
 
 	errorData = append(errorData, error)
+
+	//keep only 5 latest errors
+	sort.Slice(errorData[:], func(i, j int) bool {
+		return errorData[i].Timestamp.After(errorData[j].Timestamp)
+	})
+	if len(errorData) > 5 {
+		errorData = errorData[:5]
+	}
 
 	newErrors, err := json.Marshal(errorData)
 	if err != nil {
