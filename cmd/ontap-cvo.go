@@ -385,10 +385,15 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 					}
 				}
 				// Assign the user to a group. A newly created user will not have been added
-				err = manageUserGroups(onPremName, managementIP, namespace, client, svmInfo, mgmInfo)
+				err = manageUserGroups(onPremName, managementIP, namespace, svmInfo, mgmInfo)
 				if err != nil {
 					klog.Errorf("Unable to assign to a user group: %s", onPremName)
-					return err
+					return &ShareError{
+						ErrorMessage: err.Error(),
+						Svm:          svmInfo.Vserver,
+						Share:        "",
+						Timestamp:    time.Now(),
+					}
 				}
 			}
 		} else if err != nil {
@@ -460,7 +465,7 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 	return nil
 }
 
-func manageUserGroups(onPremName, managementIP, namespace string, client *kubernetes.Clientset, svmInfo SvmInfo, mgmInfo ManagementInfo) error {
+func manageUserGroups(onPremName, managementIP, namespace string, svmInfo SvmInfo, mgmInfo ManagementInfo) error {
 	// We will just create the user group if the user group already exists we get
 	//// "message": "Group name \"test-jose-group\" already exists for SVM \"fld9filersvm\".",
 	jsonString := fmt.Sprintf(
@@ -488,7 +493,12 @@ func manageUserGroups(onPremName, managementIP, namespace string, client *kubern
 		urlString = "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/groups/?name=s3access&fields=users.name"
 		statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
 		if statusCode != 200 {
-			return fmt.Errorf("Error while retrieving list of users on group: %v", responseBody)
+			errorStruct := ResponseError{}
+			err := json.Unmarshal(responseBody, &errorStruct)
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("Error while retrieving list of users on group: %s", errorStruct.Error.Message)
 		}
 		getUsers := GetUserGroup{}
 		userGroupId := GetUserGroupId{}
@@ -512,13 +522,23 @@ func manageUserGroups(onPremName, managementIP, namespace string, client *kubern
 		urlString = "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/groups/" + strconv.Itoa(userGroupId.Records[0].ID)
 		statusCode, responseBody = performHttpCall("PATCH", mgmInfo.Username, mgmInfo.Password, urlString, bytes.NewBuffer(listToSubmit))
 		if statusCode != 200 {
-			return fmt.Errorf("error while patching the new user to the user group: %v", responseBody)
+			errorStruct := ResponseError{}
+			err := json.Unmarshal(responseBody, &errorStruct)
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("error while patching the new user to the user group: %s", errorStruct.Error.Message)
 		}
 		klog.Infof("User has been added to the user group")
 		return nil
 	}
 	// If we get here there was another error
-	return fmt.Errorf("error while managing user groups %s: %v", namespace, responseBody)
+	errorStruct := ResponseError{}
+	err := json.Unmarshal(responseBody, &errorStruct)
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("error while managing user groups %s: %s", namespace, errorStruct.Error.Message)
 }
 
 /*
