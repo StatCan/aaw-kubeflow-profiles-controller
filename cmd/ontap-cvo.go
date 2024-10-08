@@ -83,6 +83,12 @@ type GetUserGroup struct {
 	} `json:"records"`
 }
 
+type GetUserGroupId struct {
+	Records []struct {
+		ID int `json:"id"`
+	} `json:"records"`
+}
+
 /*
 Creates the S3 user using the net app API
 Requires the onPremname, the namespace to create the secret in, the current k8s client, the svmInfo and the managementInfo
@@ -402,21 +408,34 @@ func manageUserGroups(onPremName, managementIP, namespace string, client *kubern
 			return fmt.Errorf("Error while retrieving list of users on group: %v", responseBody)
 		}
 		getUsers := GetUserGroup{}
-		// unmarshal so that we can edit
+		userGroupId := GetUserGroupId{}
+		// unmarshal so that we can edit https://goplay.tools/snippet/Vl_wsc9tACN
 		err := json.Unmarshal(responseBody, &getUsers)
 		if err != nil {
 			return err
 		}
+		_ = json.Unmarshal(responseBody, &userGroupId)
 		addUser := struct {
 			Name string `json:"name"`
 		}{
 			Name: onPremName,
 		}
 		getUsers.Records[0].Users = append(getUsers.Records[0].Users, addUser)
+		listToSubmit, err := json.Marshal(getUsers.Records[0])
+		if err != nil {
+			return fmt.Errorf("error while marshaling the new user: %v", err)
+		}
+		// Submit it
+		urlString = "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/groups/" + strconv.Itoa(userGroupId.Records[0].ID)
+		statusCode, responseBody = performHttpCall("PATCH", mgmInfo.Username, mgmInfo.Password, urlString, bytes.NewBuffer(listToSubmit))
+		if statusCode != 200 {
+			return fmt.Errorf("error while patching the new user to the user group: %v", responseBody)
+		}
+		klog.Infof("User has been added to the user group")
 		return nil
 	}
 	// If we get here there was another error
-	return fmt.Errorf("Error while managing user groups %s: %v", namespace, responseBody)
+	return fmt.Errorf("error while managing user groups %s: %v", namespace, responseBody)
 }
 
 /*
