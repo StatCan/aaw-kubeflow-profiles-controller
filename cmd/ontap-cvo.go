@@ -672,7 +672,6 @@ func getSvmInfoList(client *kubernetes.Clientset) (map[string]SvmInfo, error) {
 	return filerList, nil
 }
 
-// TODO: how do we clean up this error config map?
 func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, error ShareError) {
 	// Delete the requesting configmap
 	err = client.CoreV1().ConfigMaps(namespace).Delete(context.Background(), requestingSharesConfigMapName, metav1.DeleteOptions{})
