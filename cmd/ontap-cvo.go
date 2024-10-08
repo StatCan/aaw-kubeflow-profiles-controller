@@ -396,10 +396,10 @@ func manageUserGroups(onPremName, managementIP, namespace string, client *kubern
 	statusCode, responseBody := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, urlString, bytes.NewBuffer([]byte(jsonString)))
 	if statusCode == 201 {
 		// The user group was created and the current user was given to the user group
-		klog.Infof("Newly created user group s3access for svm:" + svmInfo.Name + " for the user:" + onPremName)
+		klog.Infof("Newly created user group s3access for svm: %s for the user: %s", svmInfo.Name, onPremName)
 		return nil
 	} else if statusCode == 409 {
-		// for a 409 status code we get 'conflict' it already exists and need to
+		// for a 409 status code we get 'conflict' it already exists
 		// If it does exist then we need to grab the full list of users and patch it with the new onPremName user
 		// Get user list for s3access in svm
 		urlString = "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/groups/?name=s3access&fields=users.name"
