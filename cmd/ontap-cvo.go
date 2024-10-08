@@ -98,6 +98,20 @@ func (e *ShareError) Error() string {
 	return e.ErrorMessage
 }
 
+type GetUserGroup struct {
+	Records []struct {
+		Users []struct {
+			Name string `json:"name"`
+		} `json:"users"`
+	} `json:"records"`
+}
+
+type GetUserGroupId struct {
+	Records []struct {
+		ID int `json:"id"`
+	} `json:"records"`
+}
+
 /*
 Creates the S3 user using the net app API
 Requires the onPremname, the namespace to create the secret in, the current k8s client, the svmInfo and the managementInfo
@@ -370,6 +384,12 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 						Timestamp:    time.Now(),
 					}
 				}
+				// Assign the user to a group. A newly created user will not have been added
+				err = manageUserGroups(onPremName, managementIP, namespace, client, svmInfo, mgmInfo)
+				if err != nil {
+					klog.Errorf("Unable to assign to a user group: %s", onPremName)
+					return err
+				}
 			}
 		} else if err != nil {
 			klog.Errorf("Error occurred while searching for %s secret in ns %s: %v", k, namespace, err)
@@ -438,6 +458,67 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 	}
 	klog.Infof("Finished processing configmap for:" + namespace)
 	return nil
+}
+
+func manageUserGroups(onPremName, managementIP, namespace string, client *kubernetes.Clientset, svmInfo SvmInfo, mgmInfo ManagementInfo) error {
+	// We will just create the user group if the user group already exists we get
+	//// "message": "Group name \"test-jose-group\" already exists for SVM \"fld9filersvm\".",
+	jsonString := fmt.Sprintf(
+		`{
+			"comment": "s3access created by Zone controller",
+			"name": "s3access",
+			"policies": [
+			{ "name": "FullAccess" }
+			],
+			"users": [
+			{ "name": "%s" }
+			]
+		}`, onPremName)
+
+	urlString := "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/groups"
+	statusCode, responseBody := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, urlString, bytes.NewBuffer([]byte(jsonString)))
+	if statusCode == 201 {
+		// The user group was created and the current user was given to the user group
+		klog.Infof("Newly created user group s3access for svm: %s for the user: %s", svmInfo.Name, onPremName)
+		return nil
+	} else if statusCode == 409 {
+		// for a 409 status code we get 'conflict' it already exists
+		// If it does exist then we need to grab the full list of users and patch it with the new onPremName user
+		// Get user list for s3access in svm
+		urlString = "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/groups/?name=s3access&fields=users.name"
+		statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
+		if statusCode != 200 {
+			return fmt.Errorf("Error while retrieving list of users on group: %v", responseBody)
+		}
+		getUsers := GetUserGroup{}
+		userGroupId := GetUserGroupId{}
+		// unmarshal so that we can edit https://goplay.tools/snippet/Vl_wsc9tACN
+		err := json.Unmarshal(responseBody, &getUsers)
+		if err != nil {
+			return err
+		}
+		_ = json.Unmarshal(responseBody, &userGroupId)
+		addUser := struct {
+			Name string `json:"name"`
+		}{
+			Name: onPremName,
+		}
+		getUsers.Records[0].Users = append(getUsers.Records[0].Users, addUser)
+		listToSubmit, err := json.Marshal(getUsers.Records[0])
+		if err != nil {
+			return fmt.Errorf("error while marshaling the new user: %v", err)
+		}
+		// Submit it
+		urlString = "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/groups/" + strconv.Itoa(userGroupId.Records[0].ID)
+		statusCode, responseBody = performHttpCall("PATCH", mgmInfo.Username, mgmInfo.Password, urlString, bytes.NewBuffer(listToSubmit))
+		if statusCode != 200 {
+			return fmt.Errorf("error while patching the new user to the user group: %v", responseBody)
+		}
+		klog.Infof("User has been added to the user group")
+		return nil
+	}
+	// If we get here there was another error
+	return fmt.Errorf("error while managing user groups %s: %v", namespace, responseBody)
 }
 
 /*
