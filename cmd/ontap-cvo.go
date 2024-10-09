@@ -551,14 +551,16 @@ func checkIfS3UserExists(mgmInfo ManagementInfo, managementIP string, uuid strin
 	// Build the request
 	urlString := "https://" + managementIP + "/api/protocols/s3/services/" + uuid + "/users/" + onPremName
 	statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
-	if statusCode != 200 {
+	if statusCode == 404 {
+		klog.Infof("User does not exist. Must create a user")
+		return false, nil
+	} else if statusCode != 200 {
 		errorStruct := ResponseError{}
 		err := json.Unmarshal(responseBody, &errorStruct)
 		if err != nil {
 			return false, fmt.Errorf("Error when unmarshalling response to check if user exists: %s", err.Error())
 		}
-
-		return false, fmt.Errorf("Error when checking if user exists. Possibly does not exist: %s", errorStruct.Error.Message)
+		return false, fmt.Errorf("Error when checking if user exists: %s", errorStruct.Error.Message)
 	}
 	klog.Infof("User for onPremName:" + onPremName + " already exists. Will not create a new S3 User")
 	return true, nil
