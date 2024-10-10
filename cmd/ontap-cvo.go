@@ -408,15 +408,17 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 
 		// Create the s3 buckets
 		s3BucketsList := sharesData[k]
-		for _, s := range s3BucketsList {
+		s3BucketsLength := len(s3BucketsList)
+		for index, s := range s3BucketsList {
 			// First verify that the share is not a duplicate
-			err = validateUserInput(client, namespace, svmInfo.Vserver, s)
+			runningReqShareList := s3BucketsList[index+1 : s3BucketsLength] // don't include current number
+			err = validateUserInput(client, namespace, svmInfo.Vserver, s, runningReqShareList)
 			if err != nil {
-				klog.Errorf("Error in requesting shares for: %s", namespace)
+				klog.Errorf("Error in validating requesting shares for: %s", namespace)
 				return &ShareError{
 					ErrorMessage: err.Error(),
-					Svm:          "",
-					Share:        "",
+					Svm:          svmInfo.Vserver,
+					Share:        s,
 					Timestamp:    time.Now(),
 				}
 			}
@@ -564,7 +566,7 @@ func checkIfS3UserExists(mgmInfo ManagementInfo, managementIP string, uuid strin
 	urlString := "https://" + managementIP + "/api/protocols/s3/services/" + uuid + "/users/" + onPremName
 	statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
 	if statusCode == 404 {
-		klog.Infof("User does not exist. Must create a user")
+		klog.Infof("S3 User does not exist. Must create a user")
 		return false, nil
 	} else if statusCode != 200 {
 		errorStruct := ResponseError{}
@@ -615,7 +617,7 @@ func checkIfS3BucketExists(mgmInfo ManagementInfo, managementIP string, uuid str
 /*
 This will check for a CIFS share to retrieve the path for the desired bucket
 https://docs.netapp.com/us-en/ontap-restapi/ontap/protocols_cifs_shares_endpoint_overview.html#retrieving-a-specific-cifs-share-configuration-for-an-svm
-Requires: managementInfo, svm.uuid and the hashed bucket Name
+Requires: managementInfo, svm.uuid and the requested bucket name
 Returns true if it does exist
 */
 func getCifsShare(mgmInfo ManagementInfo, managementIP string, uuid string, requestedBucket string) (string, error) {
@@ -665,9 +667,16 @@ func formatSharesMap(shares map[string][]string) map[string]string {
 }
 
 // This will check for duplicate shares
-func validateUserInput(client *kubernetes.Clientset, namespace string, svm string, shareToCheck string) error {
-	// Retrieve the users existing-cm
+func validateUserInput(client *kubernetes.Clientset, namespace string, svm string, shareToCheck string,
+	requestedShares []string) error {
 	klog.Infof("Validating that user did not submit duplicate request " + namespace)
+	// Check that there are no duplicates in requesting-shares cm itself
+	for reqShareIndex := range requestedShares {
+		if requestedShares[reqShareIndex] == shareToCheck {
+			return fmt.Errorf("duplicate share:%s in requesting shares cm in namespace: %s", shareToCheck, namespace)
+		}
+	}
+	// Retrieve the users existing-cm
 	existingSharesCM, err := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), existingSharesConfigMapName, metav1.GetOptions{})
 	if k8serrors.IsNotFound(err) {
 		klog.Infof("User does not have an existing-shares configmap.")
@@ -679,15 +688,11 @@ func validateUserInput(client *kubernetes.Clientset, namespace string, svm strin
 	}
 	for share := range userSharesData[svm] {
 		if userSharesData[svm][share] == shareToCheck {
-			klog.Errorf("Duplicate share:%s already exists for svm:%s in namespace: %s", shareToCheck, svm, namespace)
-			return &ShareError{
-				ErrorMessage: "The requested share already exists for the filer",
-				Svm:          svm,
-				Share:        shareToCheck,
-				Timestamp:    time.Now(),
-			}
+			return fmt.Errorf("duplicate share:%s already exists for svm:%s in namespace: %s", shareToCheck, svm, namespace)
 		}
 	}
+	// should check that the requesting-shares cm itself also doesnt have duplicates, since its a bulk
+	// update of existing-shares cm
 	return nil
 }
 
