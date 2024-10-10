@@ -408,11 +408,9 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 
 		// Create the s3 buckets
 		s3BucketsList := sharesData[k]
-		s3BucketsLength := len(s3BucketsList)
 		for index, s := range s3BucketsList {
 			// First verify that the share is not a duplicate
-			runningReqShareList := s3BucketsList[index+1 : s3BucketsLength] // don't include current number
-			err = validateUserInput(client, namespace, svmInfo.Vserver, s, runningReqShareList)
+			err = validateUserInput(client, namespace, svmInfo.Vserver, s, s3BucketsList, index)
 			if err != nil {
 				klog.Errorf("Error in validating requesting shares for: %s", namespace)
 				return &ShareError{
@@ -668,11 +666,11 @@ func formatSharesMap(shares map[string][]string) map[string]string {
 
 // This will check for duplicate shares
 func validateUserInput(client *kubernetes.Clientset, namespace string, svm string, shareToCheck string,
-	requestedShares []string) error {
+	requestedShares []string, startingIndex int) error {
 	klog.Infof("Validating that user did not submit duplicate request " + namespace)
 	// Check that there are no duplicates in requesting-shares cm itself
-	for reqShareIndex := range requestedShares {
-		if requestedShares[reqShareIndex] == shareToCheck {
+	for i := startingIndex + 1; i < len(requestedShares); i++ {
+		if requestedShares[i] == shareToCheck {
 			return fmt.Errorf("duplicate share:%s in requesting shares cm in namespace: %s", shareToCheck, namespace)
 		}
 	}
@@ -691,8 +689,6 @@ func validateUserInput(client *kubernetes.Clientset, namespace string, svm strin
 			return fmt.Errorf("duplicate share:%s already exists for svm:%s in namespace: %s", shareToCheck, svm, namespace)
 		}
 	}
-	// should check that the requesting-shares cm itself also doesnt have duplicates, since its a bulk
-	// update of existing-shares cm
 	return nil
 }
 
