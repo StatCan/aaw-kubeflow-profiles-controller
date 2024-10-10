@@ -409,6 +409,18 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 		// Create the s3 buckets
 		s3BucketsList := sharesData[k]
 		for _, s := range s3BucketsList {
+			// First verify that the share is not a duplicate
+			err = validateUserInput(client, namespace, svmInfo.Vserver, s)
+			if err != nil {
+				klog.Errorf("Error in requesting shares for: %s", namespace)
+				return &ShareError{
+					ErrorMessage: err.Error(),
+					Svm:          "",
+					Share:        "",
+					Timestamp:    time.Now(),
+				}
+			}
+
 			hashedBucketName := hashBucketName(s)
 			klog.Infof("Checking if the following bucket exists: %s", s)
 			isBucketExists, err := checkIfS3BucketExists(mgmInfo, managementIP, svmInfo.Uuid, hashedBucketName)
@@ -650,6 +662,33 @@ func formatSharesMap(shares map[string][]string) map[string]string {
 		result[k] = string(val)
 	}
 	return result
+}
+
+// This will check for duplicate shares
+func validateUserInput(client *kubernetes.Clientset, namespace string, svm string, shareToCheck string) error {
+	// Retrieve the users existing-cm
+	klog.Infof("Validating that user did not submit duplicate request " + namespace)
+	existingSharesCM, err := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), existingSharesConfigMapName, metav1.GetOptions{})
+	if k8serrors.IsNotFound(err) {
+		klog.Infof("User does not have an existing-shares configmap.")
+		return nil
+	}
+	userSharesData, err := unmarshalSharesMap(existingSharesCM.Data)
+	if err != nil {
+		return fmt.Errorf("error while unmarshalling existing shares configmap in %s: %v", namespace, err)
+	}
+	for share := range userSharesData[svm] {
+		if userSharesData[svm][share] == shareToCheck {
+			klog.Errorf("Duplicate share:%s already exists for svm:%s in namespace: %s", shareToCheck, svm, namespace)
+			return &ShareError{
+				ErrorMessage: "The requested share already exists for the filer",
+				Svm:          svm,
+				Share:        shareToCheck,
+				Timestamp:    time.Now(),
+			}
+		}
+	}
+	return nil
 }
 
 /*
