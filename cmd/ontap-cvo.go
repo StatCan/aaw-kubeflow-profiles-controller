@@ -622,6 +622,7 @@ func getCifsShare(mgmInfo ManagementInfo, managementIP string, uuid string, requ
 	// splits the bucket name if needed
 	bucketPaths := strings.Split(requestedBucket, "/")
 	parentPath := bucketPaths[0]
+	remainingPaths := strings.Join(bucketPaths[1:], "/")
 	// Build the request
 	urlString := fmt.Sprintf("https://%s/api/protocols/cifs/shares/%s/%s?fields=**", managementIP, uuid, parentPath)
 	statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
@@ -641,7 +642,7 @@ func getCifsShare(mgmInfo ManagementInfo, managementIP string, uuid string, requ
 		return "", err
 	}
 
-	return data.Path, nil
+	return data.Path + "/" + remainingPaths, nil
 }
 
 // concats the values of modifierMap into the given sourceMap
