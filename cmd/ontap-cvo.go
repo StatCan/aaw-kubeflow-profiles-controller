@@ -190,6 +190,9 @@ func createS3Bucket(svmInfo SvmInfo, managementIP string, mgmInfo ManagementInfo
 							"GetBucketAcl",
 							"GetObjectAcl"
 						],
+						"principals": [
+              				"group/s3access"
+            			],
 						"resources": [
 							"%s",
 							"%s/*"
