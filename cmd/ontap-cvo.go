@@ -364,6 +364,9 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 			if strings.Contains(svmInfo.Vserver, "sasfs") {
 				managementIP = mgmInfo.ManagementIPSas
 			}
+
+			svmInfoString, _ := json.Marshal(svmInfo)
+			klog.Infof("svminfo: %s", string(svmInfoString))
 			// Create the user
 			// Check if user exists
 			isS3UserExists, err := checkIfS3UserExists(mgmInfo, managementIP, svmInfo.Uuid, onPremName)
@@ -567,6 +570,7 @@ Returns true if it does exist
 func checkIfS3UserExists(mgmInfo ManagementInfo, managementIP string, uuid string, onPremName string) (bool, error) {
 	// Build the request
 	urlString := "https://" + managementIP + "/api/protocols/s3/services/" + uuid + "/users/" + onPremName
+	klog.Infof("check s3User Url: %s", urlString)
 	statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
 	if statusCode == 404 {
 		klog.Infof("S3 User does not exist. Must create a user")
