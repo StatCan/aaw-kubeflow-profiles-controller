@@ -121,6 +121,7 @@ func createS3User(onPremName string, managementIP string, namespace string, clie
 		"name": onPremName,
 	})
 	url := "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/users"
+	klog.Infof("s3User Url: %s", url)
 	statusCode, response := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, url, bytes.NewBuffer(postBody))
 
 	if statusCode != 201 {
@@ -328,6 +329,7 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 	managementIP := mgmInfo.ManagementIPField
 
 	sharesData, err := unmarshalSharesMap(shares.Data)
+	klog.Infof("shares.data: %s", shares.Data)
 	if err != nil {
 		klog.Errorf("Error unmarshalling requesting shares for namespace %s", namespace)
 		return &ShareError{
