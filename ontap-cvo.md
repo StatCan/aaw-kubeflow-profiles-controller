@@ -84,4 +84,7 @@ With the hashed bucket name, we [check if the bucket exists](https://docs.netapp
 
 
 ## Updating User Configmaps
+After the user and buckets have been created successfully, the controller must update the `existing-shares` configmap. This configmap is consumed by the sidecar injector when mounting buckets. The `requesting-shares` configmap will also be deleted in this step so that it does not get re-processed.
 
+## Errors
+If at any point an error occurs in the controller while configuring user shares, it will exit the current loop, delete the `requesting-shares` configmap and write the error to the `shares-error` configmap whose contents are shown to the user on the manage filers page.
