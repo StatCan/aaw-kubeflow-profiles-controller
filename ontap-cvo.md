@@ -71,11 +71,17 @@ If the secret does exist then we skip ahead to [bucket creation](#bucket-creatio
 
 After getting the onPremises name, the controller uses the [api endpoint to retrieve an S3 user](https://docs.netapp.com/us-en/ontap-restapi/ontap/get-protocols-s3-services-users-.html#related-ontap-commands) to see if it already exists for the SVM. If we get a `404` then we know we must create the user.
 
-We then create the user with the [create an S3 User configuration](https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-services-users.html#important-notes) endpoint. 
+We then create the user with the [create an S3 User configuration](https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-services-users.html#important-notes) endpoint and we store the result in a secret in the user's namespace. 
 
 For the user to interact with the buckets, we must also assign the user to a usergroup. Since we do not know if a user group already exists; we  first attempt [creating the user group](https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-services-groups.html) with the current user which will assign it. If it already exists we get a `409` and must get the [current, full list of users for the group](https://docs.netapp.com/us-en/ontap-restapi/ontap/get-protocols-s3-services-groups-.html). This is because we cannot _append_ a new user to the group.
 After retrieving the user group we then [submit and update the list](https://docs.netapp.com/us-en/ontap-restapi/ontap/patch-protocols-s3-services-groups-.html)
 
 ## Bucket Creation
+The first step taken is verifying the contents of the `requesting-shares` configmap to not allow for duplicate requests. If a duplicate request were to go through this would cause the mounting of the buckets to fail.
 
+We then _hash_ the full path of the requested share, this is to ensure bucket name compliance and to avoid any collisions in bucket names.
+With the hashed bucket name, we [check if the bucket exists](https://docs.netapp.com/us-en/ontap-restapi/ontap/get-protocols-s3-services-buckets-.html) and if it does not, we [create it](https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-services-buckets.html)
+
+
+## Updating User Configmaps
 
