@@ -73,6 +73,9 @@ After getting the onPremises name, the controller uses the [api endpoint to retr
 
 We then create the user with the [create an S3 User configuration](https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-services-users.html#important-notes) endpoint. 
 
+For the user to interact with the buckets, we must also assign the user to a usergroup. Since we do not know if a user group already exists; we  first attempt [creating the user group](https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-services-groups.html) with the current user which will assign it. If it already exists we get a `409` and must get the [current, full list of users for the group](https://docs.netapp.com/us-en/ontap-restapi/ontap/get-protocols-s3-services-groups-.html). This is because we cannot _append_ a new user to the group.
+After retrieving the user group we then [submit and update the list](https://docs.netapp.com/us-en/ontap-restapi/ontap/patch-protocols-s3-services-groups-.html)
 
 ## Bucket Creation
+
 
