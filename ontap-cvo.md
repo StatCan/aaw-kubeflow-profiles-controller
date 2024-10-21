@@ -12,7 +12,7 @@ In summary, the controller waits for the creation of a user [`requested-shares` 
 This controller is built using the existing profiles-controller structure, and as such uses the same `profiles-controller` image that the other controllers use and is distinguished by using the args value of `ontap-cvo` in the container.
 
 ### Required Secrets and Permissions
-For this to run successfully, the following secrets must exist in the `das` or chosen `namespace`.
+For this to run successfully, the following secrets (see [BTIS-199 for status on persisting these secrets](https://jirab.statcan.ca/browse/BTIS-199) and configmaps (persisted in argocd) must exist in the `das` or chosen `namespace`.
 
 The **netapp-management-information** secret which has;
 - The Management IP for the field filers
@@ -22,7 +22,32 @@ The **netapp-management-information** secret which has;
 
 These values are used when communicating with the NetApp API when creating users or buckets. 
 
-The **
+The **microsoft-graph-api-secret** secret which has;
+- The Tenant_id
+- The Client_id
+- The Client_secret
+
+These values are taken from the Azure portal from an sp that has `User.Read.All` permissions on it to interact with Microsoft Graph Api to retrieve the on premises name.
+
+The **filers-list** configmap which has the data containing information on the filers;
+```
+data:
+  filers: |
+  [
+    {
+        "vserver": "fldXfilersvm",
+        "name": "Field X Filer",
+        "uuid": "uuidHere",
+        "url: "https://fldfiler.ca"
+    },...
+  ]
+```
+
+### Required Network Policies
+In addition to allowing the flows in the cloud firewall, we must also configure our cluster network policies to allow egress to microsoft graph api and the Netapp ontap cvo solution.
+
+### Deployment
+This app is deployed via an [ArgoCD application](https://gitlab.k8s.cloud.statcan.ca/business-transformation/aaw/aaw-argocd-manifests/-/blob/das-prod-cc-00/applications/profiles-controller.yaml?ref_type=heads) that references a [chart](https://gitlab.k8s.cloud.statcan.ca/cloudnative/statcan/charts/-/tree/profiles-controller/stable/profiles-controller?ref_type=heads) that has our above configuration.
 
 ### Requesting Shares Configmap
 
