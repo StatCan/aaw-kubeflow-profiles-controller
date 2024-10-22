@@ -349,11 +349,13 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 	for k := range sharesData {
 		svmInfo := svmInfoMap[k]
 		// have to iterate and check secrets
-		klog.Infof("Searching for: " + k + userSvmSecretSuffix)
-		_, err := client.CoreV1().Secrets(namespace).Get(context.Background(), k+userSvmSecretSuffix, metav1.GetOptions{})
+		// format and search for - instead of underscores
+		svmSecretName := strings.Replace(k, "_", "-", -1) + userSvmSecretSuffix
+		klog.Infof("Searching for: " + svmSecretName)
+		_, err := client.CoreV1().Secrets(namespace).Get(context.Background(), svmSecretName, metav1.GetOptions{})
 		if k8serrors.IsNotFound(err) {
 			// Create the secret for that filer
-			klog.Infof("Secret not found for filer %s in ns: %s, creating secret", k, namespace)
+			klog.Infof("Secret not found for filer %s in ns: %s, creating secret", svmSecretName, namespace)
 			// Get the OnPremName
 			onPremName, err := getOnPrem(email, client)
 			if err != nil {
