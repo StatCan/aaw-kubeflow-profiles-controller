@@ -142,10 +142,11 @@ func createS3User(onPremName string, mgmUser string, mgmPassword string, managem
 	if err != nil {
 		return fmt.Errorf("error in JSON unmarshalling for creating S3 user with onprem %s: %v", onPremName, err)
 	}
-	// Create the secret
+	// Create the secret and change all underscores to dashes
+	svmSecretName := strings.ReplaceAll(svmInfo.Vserver, "_", "-") + userSvmSecretSuffix
 	usersecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      svmInfo.Vserver + userSvmSecretSuffix,
+			Name:      svmSecretName,
 			Namespace: namespace,
 		},
 		Data: map[string][]byte{
@@ -349,8 +350,8 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 	for k := range sharesData {
 		svmInfo := svmInfoMap[k]
 		// have to iterate and check secrets
-		// format and search for - instead of underscores
-		svmSecretName := strings.Replace(k, "_", "-", -1) + userSvmSecretSuffix
+		// Replace underscores with dashes
+		svmSecretName := strings.ReplaceAll(k, "_", "-") + userSvmSecretSuffix
 		klog.Infof("Searching for: " + svmSecretName)
 		_, err := client.CoreV1().Secrets(namespace).Get(context.Background(), svmSecretName, metav1.GetOptions{})
 		if k8serrors.IsNotFound(err) {
