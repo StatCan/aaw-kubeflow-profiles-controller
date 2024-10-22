@@ -62,6 +62,7 @@ type ManagementInfo struct {
 	ManagementIPSas   string
 	Username          string
 	Password          string
+	PasswordSAS       string
 }
 
 type S3Bucket struct {
@@ -116,13 +117,14 @@ type GetUserGroupId struct {
 Creates the S3 user using the net app API
 Requires the onPremname, the namespace to create the secret in, the current k8s client, the svmInfo and the managementInfo
 */
-func createS3User(onPremName string, managementIP string, namespace string, client *kubernetes.Clientset, svmInfo SvmInfo, mgmInfo ManagementInfo) error {
+func createS3User(onPremName string, mgmUser string, mgmPassword string, managementIP string, namespace string,
+	client *kubernetes.Clientset, svmInfo SvmInfo) error {
 	postBody, _ := json.Marshal(map[string]interface{}{
 		"name": onPremName,
 	})
 	url := "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/users"
 	klog.Infof("s3User Url: %s", url)
-	statusCode, response := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, url, bytes.NewBuffer(postBody))
+	statusCode, response := performHttpCall("POST", mgmUser, mgmPassword, url, bytes.NewBuffer(postBody))
 
 	if statusCode != 201 {
 		errorStruct := ResponseError{}
@@ -171,7 +173,7 @@ func hashBucketName(name string) string {
 This will create the S3 bucket. Requires the bucketName to be hashed, the nasPath and relevant management and svm information
 https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html
 */
-func createS3Bucket(svmInfo SvmInfo, managementIP string, mgmInfo ManagementInfo, hashedbucketName string, nasPath string) error {
+func createS3Bucket(svmInfo SvmInfo, mgmUser string, mgmPassword string, managementIP string, hashedbucketName string, nasPath string) error {
 	// Create a string that is valid json, as thats the simplest way of working with this request
 	// https://go.dev/play/p/xs_B0l3HsBw
 	jsonString := fmt.Sprintf(
@@ -205,7 +207,7 @@ func createS3Bucket(svmInfo SvmInfo, managementIP string, mgmInfo ManagementInfo
 		hashedbucketName, nasPath, hashedbucketName, hashedbucketName)
 
 	urlString := "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/buckets"
-	statusCode, responseBody := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, urlString, bytes.NewBuffer([]byte(jsonString)))
+	statusCode, responseBody := performHttpCall("POST", mgmUser, mgmPassword, urlString, bytes.NewBuffer([]byte(jsonString)))
 	if statusCode == 201 {
 		// https://docs.netapp.com/us-en/ontap-restapi/ontap/post-protocols-s3-buckets.html#response
 		klog.Infof("S3 Bucket for nas path %s in svm %s has been created: %v", nasPath, svmInfo.Vserver, string(responseBody))
@@ -294,11 +296,13 @@ func getManagementInfo(client *kubernetes.Clientset) (ManagementInfo, error) {
 	username := string(secret.Data["USERNAME"])
 	password := string(secret.Data["PASSWORD"])
 	management_ip_sas := string(secret.Data["MANAGEMENT_IP_SAS"])
+	password_sas := string(secret.Data["PASSWORD_SAS"])
 	mgmInfo := ManagementInfo{
 		ManagementIPField: management_ip_field,
 		Username:          username,
 		Password:          password,
 		ManagementIPSas:   management_ip_sas,
+		PasswordSAS:       password_sas,
 	}
 	return mgmInfo, nil
 }
@@ -325,8 +329,10 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 	// Getting the requesting shares CM for user
 	shares, _ := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), requestingSharesConfigMapName, metav1.GetOptions{})
 
-	// Default to field filers IP
+	// Default to field filer settings
 	managementIP := mgmInfo.ManagementIPField
+	managementUser := mgmInfo.Username
+	managementPass := mgmInfo.Password
 
 	sharesData, err := unmarshalSharesMap(shares.Data)
 	klog.Infof("shares.data: %s", shares.Data)
@@ -363,13 +369,14 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 			// If it's a SASfs filer we need to use the sasmanagement ip
 			if strings.Contains(svmInfo.Vserver, "sasfs") {
 				managementIP = mgmInfo.ManagementIPSas
+				managementPass = mgmInfo.PasswordSAS
 			}
 
 			svmInfoString, _ := json.Marshal(svmInfo)
 			klog.Infof("svminfo: %s", string(svmInfoString))
 			// Create the user
 			// Check if user exists
-			isS3UserExists, err := checkIfS3UserExists(mgmInfo, managementIP, svmInfo.Uuid, onPremName)
+			isS3UserExists, err := checkIfS3UserExists(managementUser, managementPass, managementIP, svmInfo.Uuid, onPremName)
 			if err != nil {
 				klog.Errorf("Error while checking S3 User existence in namespace %s", namespace)
 				return &ShareError{
@@ -382,7 +389,7 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 
 			if !isS3UserExists {
 				// if user does not exist, create it
-				err = createS3User(onPremName, managementIP, namespace, client, svmInfo, mgmInfo)
+				err = createS3User(onPremName, managementUser, managementPass, managementIP, namespace, client, svmInfo)
 				if err != nil {
 					klog.Errorf("Unable to create S3 user: %s", onPremName)
 					return &ShareError{
@@ -393,7 +400,7 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 					}
 				}
 				// Assign the user to a group. A newly created user will not have been added
-				err = manageUserGroups(onPremName, managementIP, namespace, svmInfo, mgmInfo)
+				err = manageUserGroups(onPremName, managementUser, managementPass, managementIP, namespace, svmInfo)
 				if err != nil {
 					klog.Errorf("Unable to assign to a user group: %s", onPremName)
 					return &ShareError{
@@ -431,7 +438,7 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 
 			hashedBucketName := hashBucketName(s)
 			klog.Infof("Checking if the following bucket exists: %s", s)
-			isBucketExists, err := checkIfS3BucketExists(mgmInfo, managementIP, svmInfo.Uuid, hashedBucketName)
+			isBucketExists, err := checkIfS3BucketExists(managementUser, managementPass, managementIP, svmInfo.Uuid, hashedBucketName)
 			if err != nil {
 				klog.Errorf("Error while checking bucket existence in namespace %s", namespace)
 				return &ShareError{
@@ -444,7 +451,7 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 
 			if !isBucketExists {
 				//Get CIFS Share path
-				path, err := getCifsShare(mgmInfo, managementIP, svmInfo.Uuid, s)
+				path, err := getCifsShare(managementUser, managementPass, managementIP, svmInfo.Uuid, s)
 				if err != nil {
 					klog.Errorf("Error while getting cifs share in namespace %s", namespace)
 					return &ShareError{
@@ -456,7 +463,7 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 				}
 
 				//create the bucket
-				err = createS3Bucket(svmInfo, managementIP, mgmInfo, hashedBucketName, path)
+				err = createS3Bucket(svmInfo, managementUser, managementPass, managementIP, hashedBucketName, path)
 				if err != nil {
 					klog.Errorf("Error while creating s3 bucket in namespace %s", namespace)
 					return &ShareError{
@@ -485,7 +492,7 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 	return nil
 }
 
-func manageUserGroups(onPremName, managementIP, namespace string, svmInfo SvmInfo, mgmInfo ManagementInfo) error {
+func manageUserGroups(onPremName, mgmUser string, mgmPassword string, managementIP, namespace string, svmInfo SvmInfo) error {
 	// We will just create the user group if the user group already exists we get
 	//// "message": "Group name \"test-jose-group\" already exists for SVM \"fld9filersvm\".",
 	jsonString := fmt.Sprintf(
@@ -501,7 +508,7 @@ func manageUserGroups(onPremName, managementIP, namespace string, svmInfo SvmInf
 		}`, onPremName)
 
 	urlString := "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/groups"
-	statusCode, responseBody := performHttpCall("POST", mgmInfo.Username, mgmInfo.Password, urlString, bytes.NewBuffer([]byte(jsonString)))
+	statusCode, responseBody := performHttpCall("POST", mgmUser, mgmPassword, urlString, bytes.NewBuffer([]byte(jsonString)))
 	if statusCode == 201 {
 		// The user group was created and the current user was given to the user group
 		klog.Infof("Newly created user group s3access for svm: %s for the user: %s", svmInfo.Name, onPremName)
@@ -511,7 +518,7 @@ func manageUserGroups(onPremName, managementIP, namespace string, svmInfo SvmInf
 		// If it does exist then we need to grab the full list of users and patch it with the new onPremName user
 		// Get user list for s3access in svm
 		urlString = "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/groups/?name=s3access&fields=users.name"
-		statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
+		statusCode, responseBody := performHttpCall("GET", mgmUser, mgmPassword, urlString, nil)
 		if statusCode != 200 {
 			errorStruct := ResponseError{}
 			err := json.Unmarshal(responseBody, &errorStruct)
@@ -540,7 +547,7 @@ func manageUserGroups(onPremName, managementIP, namespace string, svmInfo SvmInf
 		}
 		// Submit it
 		urlString = "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/groups/" + strconv.Itoa(userGroupId.Records[0].ID)
-		statusCode, responseBody = performHttpCall("PATCH", mgmInfo.Username, mgmInfo.Password, urlString, bytes.NewBuffer(listToSubmit))
+		statusCode, responseBody = performHttpCall("PATCH", mgmUser, mgmPassword, urlString, bytes.NewBuffer(listToSubmit))
 		if statusCode != 200 {
 			errorStruct := ResponseError{}
 			err := json.Unmarshal(responseBody, &errorStruct)
@@ -567,11 +574,11 @@ https://docs.netapp.com/us-en/ontap-restapi/ontap/get-protocols-s3-services-user
 Requires: managementIP, svm.uuid, name, password and username for authentication
 Returns true if it does exist
 */
-func checkIfS3UserExists(mgmInfo ManagementInfo, managementIP string, uuid string, onPremName string) (bool, error) {
+func checkIfS3UserExists(mgmUser string, mgmPassword string, managementIP string, uuid string, onPremName string) (bool, error) {
 	// Build the request
 	urlString := "https://" + managementIP + "/api/protocols/s3/services/" + uuid + "/users/" + onPremName
 	klog.Infof("check s3User Url: %s", urlString)
-	statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
+	statusCode, responseBody := performHttpCall("GET", mgmUser, mgmPassword, urlString, nil)
 	if statusCode == 404 {
 		klog.Infof("S3 User does not exist. Must create a user")
 		return false, nil
@@ -593,10 +600,10 @@ https://docs.netapp.com/us-en/ontap-restapi/ontap/get-protocols-s3-services-buck
 Requires: managementInfo, svm.uuid and the hashed bucket Name
 Returns true if it does exist
 */
-func checkIfS3BucketExists(mgmInfo ManagementInfo, managementIP string, uuid string, requestedBucket string) (bool, error) {
+func checkIfS3BucketExists(mgmUser string, mgmPassword string, managementIP string, uuid string, requestedBucket string) (bool, error) {
 	// Build the request
 	urlString := fmt.Sprintf("https://"+managementIP+"/api/protocols/s3/services/"+uuid+"/buckets?fields=**&name=%s", requestedBucket)
-	statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
+	statusCode, responseBody := performHttpCall("GET", mgmUser, mgmPassword, urlString, nil)
 	if statusCode != 200 {
 		errorStruct := ResponseError{}
 		err := json.Unmarshal(responseBody, &errorStruct)
@@ -627,14 +634,14 @@ https://docs.netapp.com/us-en/ontap-restapi/ontap/protocols_cifs_shares_endpoint
 Requires: managementInfo, svm.uuid and the requested bucket name
 Returns true if it does exist
 */
-func getCifsShare(mgmInfo ManagementInfo, managementIP string, uuid string, requestedBucket string) (string, error) {
+func getCifsShare(mgmUser string, mgmPassword string, managementIP string, uuid string, requestedBucket string) (string, error) {
 	// splits the bucket name if needed
 	bucketPaths := strings.Split(requestedBucket, "/")
 	parentPath := bucketPaths[0]
 	remainingPaths := strings.Join(bucketPaths[1:], "/")
 	// Build the request
 	urlString := fmt.Sprintf("https://%s/api/protocols/cifs/shares/%s/%s?fields=**", managementIP, uuid, parentPath)
-	statusCode, responseBody := performHttpCall("GET", mgmInfo.Username, mgmInfo.Password, urlString, nil)
+	statusCode, responseBody := performHttpCall("GET", mgmUser, mgmPassword, urlString, nil)
 	if statusCode != 200 {
 		errorStruct := ResponseError{}
 		err := json.Unmarshal(responseBody, &errorStruct)
