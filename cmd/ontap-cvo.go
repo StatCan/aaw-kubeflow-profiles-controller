@@ -142,10 +142,11 @@ func createS3User(onPremName string, mgmUser string, mgmPassword string, managem
 	if err != nil {
 		return fmt.Errorf("error in JSON unmarshalling for creating S3 user with onprem %s: %v", onPremName, err)
 	}
-	// Create the secret
+	// Create the secret and change all underscores to dashes
+	svmSecretName := strings.ReplaceAll(svmInfo.Vserver, "_", "-") + userSvmSecretSuffix
 	usersecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      svmInfo.Vserver + userSvmSecretSuffix,
+			Name:      svmSecretName,
 			Namespace: namespace,
 		},
 		Data: map[string][]byte{
@@ -349,11 +350,13 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 	for k := range sharesData {
 		svmInfo := svmInfoMap[k]
 		// have to iterate and check secrets
-		klog.Infof("Searching for: " + k + userSvmSecretSuffix)
-		_, err := client.CoreV1().Secrets(namespace).Get(context.Background(), k+userSvmSecretSuffix, metav1.GetOptions{})
+		// Replace underscores with dashes
+		svmSecretName := strings.ReplaceAll(k, "_", "-") + userSvmSecretSuffix
+		klog.Infof("Searching for: " + svmSecretName)
+		_, err := client.CoreV1().Secrets(namespace).Get(context.Background(), svmSecretName, metav1.GetOptions{})
 		if k8serrors.IsNotFound(err) {
 			// Create the secret for that filer
-			klog.Infof("Secret not found for filer %s in ns: %s, creating secret", k, namespace)
+			klog.Infof("Secret not found for filer %s in ns: %s, creating secret", svmSecretName, namespace)
 			// Get the OnPremName
 			onPremName, err := getOnPrem(email, client)
 			if err != nil {
