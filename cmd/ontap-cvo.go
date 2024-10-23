@@ -330,11 +330,6 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 	// Getting the requesting shares CM for user
 	shares, _ := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), requestingSharesConfigMapName, metav1.GetOptions{})
 
-	// Default to field filer settings
-	managementIP := mgmInfo.ManagementIPField
-	managementUser := mgmInfo.Username
-	managementPass := mgmInfo.Password
-
 	sharesData, err := unmarshalSharesMap(shares.Data)
 	klog.Infof("shares.data: %s", shares.Data)
 	if err != nil {
@@ -348,6 +343,10 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 	}
 
 	for k := range sharesData {
+		// Default to field filer settings
+		managementIP := mgmInfo.ManagementIPField
+		managementUser := mgmInfo.Username
+		managementPass := mgmInfo.Password
 		svmInfo := svmInfoMap[k]
 		// have to iterate and check secrets
 		// Replace underscores with dashes
