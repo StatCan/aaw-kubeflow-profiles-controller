@@ -372,6 +372,7 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 			if strings.Contains(svmInfo.Vserver, "sasfs") {
 				managementIP = mgmInfo.ManagementIPSas
 				managementPass = mgmInfo.PasswordSAS
+				klog.Infof("SAS Filer detected, using sas settings")
 			}
 
 			svmInfoString, _ := json.Marshal(svmInfo)
