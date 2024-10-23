@@ -348,6 +348,12 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 		managementUser := mgmInfo.Username
 		managementPass := mgmInfo.Password
 		svmInfo := svmInfoMap[k]
+		// If it's a SASfs filer we need to use the sasmanagement ip
+		if strings.Contains(svmInfo.Vserver, "sasfs") {
+			managementIP = mgmInfo.ManagementIPSas
+			managementPass = mgmInfo.PasswordSAS
+			klog.Infof("SAS Filer detected, using sas settings")
+		}
 		// have to iterate and check secrets
 		// Replace underscores with dashes
 		svmSecretName := strings.ReplaceAll(k, "_", "-") + userSvmSecretSuffix
@@ -366,13 +372,6 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 					Share:        "",
 					Timestamp:    time.Now(),
 				}
-			}
-
-			// If it's a SASfs filer we need to use the sasmanagement ip
-			if strings.Contains(svmInfo.Vserver, "sasfs") {
-				managementIP = mgmInfo.ManagementIPSas
-				managementPass = mgmInfo.PasswordSAS
-				klog.Infof("SAS Filer detected, using sas settings")
 			}
 
 			svmInfoString, _ := json.Marshal(svmInfo)
