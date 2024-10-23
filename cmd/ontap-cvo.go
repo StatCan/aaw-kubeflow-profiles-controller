@@ -330,11 +330,6 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 	// Getting the requesting shares CM for user
 	shares, _ := client.CoreV1().ConfigMaps(namespace).Get(context.Background(), requestingSharesConfigMapName, metav1.GetOptions{})
 
-	// Default to field filer settings
-	managementIP := mgmInfo.ManagementIPField
-	managementUser := mgmInfo.Username
-	managementPass := mgmInfo.Password
-
 	sharesData, err := unmarshalSharesMap(shares.Data)
 	klog.Infof("shares.data: %s", shares.Data)
 	if err != nil {
@@ -348,7 +343,17 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 	}
 
 	for k := range sharesData {
+		// Default to field filer settings
+		managementIP := mgmInfo.ManagementIPField
+		managementUser := mgmInfo.Username
+		managementPass := mgmInfo.Password
 		svmInfo := svmInfoMap[k]
+		// If it's a SASfs filer we need to use the sasmanagement ip
+		if strings.Contains(svmInfo.Vserver, "sasfs") {
+			managementIP = mgmInfo.ManagementIPSas
+			managementPass = mgmInfo.PasswordSAS
+			klog.Infof("SAS Filer detected, using sas settings")
+		}
 		// have to iterate and check secrets
 		// Replace underscores with dashes
 		svmSecretName := strings.ReplaceAll(k, "_", "-") + userSvmSecretSuffix
@@ -367,12 +372,6 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 					Share:        "",
 					Timestamp:    time.Now(),
 				}
-			}
-
-			// If it's a SASfs filer we need to use the sasmanagement ip
-			if strings.Contains(svmInfo.Vserver, "sasfs") {
-				managementIP = mgmInfo.ManagementIPSas
-				managementPass = mgmInfo.PasswordSAS
 			}
 
 			svmInfoString, _ := json.Marshal(svmInfo)
@@ -788,6 +787,7 @@ https://www.makeuseof.com/go-make-http-requests/
 An example requestBody assignment can look like: https://zetcode.com/golang/getpostrequest/
 */
 func performHttpCall(requestType string, username string, password string, url string, requestBody io.Reader) (statusCode int, responseBody []byte) {
+	klog.Infof(requestType + "ing the URL: " + url)
 	// Set up connecting: https://stackoverflow.com/a/59738724
 	customTransport := http.DefaultTransport.(*http.Transport).Clone()
 	customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
