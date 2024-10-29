@@ -33,6 +33,16 @@ Some controllers deploy per-namespace applications for each user (e.g. Gitea, S3
 1. The `profiles-argocd-system` folder of the [aaw-argocd-manifests](https://github.com/StatCan/aaw-argocd-manifests) repository contains manifests that get deployed by per-namespace ArgoCD applications. The intended pattern is that Kubernetes manifests are applied directly with Kustomize patches as required.
 2. Depending on what a particular per-namespace application looks like, there may be a manual step required where a developer must build the manifests by, for example, templating a helm chart and saving the output in a `manifest.yaml` file. In this case, a PR must be made to either the `aaw-dev-cc-00` or `aaw-prod-cc-00` branches of the aaw-argocd-manifests repo with the newly build `manifest.yaml` file.
 
+### Testing Specific Controller Images
+
+1. Start by opening the appropriate ArgoCD instance. Here we will check the following:
+   - take note of the current SHA associated with the profiles-controller Argo App.
+   - Disable auto-sync on both, the App of apps `Argocd-Manifests:aaw-das-system` and `profiles-controller`. This will avoid any unintended reconcile.
+2. Take note of the SHA associated with the image you've build. Make sure that this image was pushed to the appropriate ACR instance.
+3. In ArgoCD, replace the SHA for the profiles-controller (or appropriate sub-controller) with the value in step 2. This should cause a new replicaset to spawn.
+4. Test your changes.
+5. Once complete, enable auto-sync on the App of apps `Argocd-Manifests:aaw-das-system` and `profiles-controller`. This should align the cluster state with the repo state. Follow [How to Create a Controller](### How to Create a Controller) to deploy your changes formally. 
+
 ## Terminology
 
 Helpful links to k8s resources, technologies and other terminologies related to this project are provided below.
