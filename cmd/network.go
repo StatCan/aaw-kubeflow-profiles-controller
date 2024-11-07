@@ -167,7 +167,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 	protocolTCP := corev1.ProtocolTCP
 	portNotebook := intstr.FromString("notebook-port")
 	portSQL := intstr.FromInt(1433)
-	portOracle := intstr.FromInt(1522)
+	portOracle := intstr.FromInt(1521)
 	portHTTPS := intstr.FromInt(443)
 
 	// Define the notebook PodSelector
