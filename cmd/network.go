@@ -167,7 +167,8 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 	protocolTCP := corev1.ProtocolTCP
 	portNotebook := intstr.FromString("notebook-port")
 	portSQL := intstr.FromInt(1433)
-	portOracle := intstr.FromInt(1521)
+	portOracle := intstr.FromInt(1522)
+	portOracle2 := intstr.FromInt(2485)
 	portHTTPS := intstr.FromInt(443)
 
 	// Define the notebook PodSelector
@@ -273,53 +274,56 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 		},
 	})
 
-// Allow egress to SQL Server from notebooks
-policies = append(policies, &networkingv1.NetworkPolicy{
-    ObjectMeta: metav1.ObjectMeta{
-        Name:      "allow-sql-egress",
-        Namespace: profile.Name,
-    },
-    Spec: networkingv1.NetworkPolicySpec{
-        PodSelector: notebookPodSelector,
-        PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
-        Egress: []networkingv1.NetworkPolicyEgressRule{
-            {
-                Ports: []networkingv1.NetworkPolicyPort{
-                    {
-                        Protocol: &protocolTCP,
-                        Port:     &portSQL,
-                    },
-                },
-            },
-        },
-    },
-})
+	// Allow egress to SQL Server from notebooks
+	policies = append(policies, &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "allow-sql-egress",
+			Namespace: profile.Name,
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: notebookPodSelector,
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+			Egress: []networkingv1.NetworkPolicyEgressRule{
+				{
+					Ports: []networkingv1.NetworkPolicyPort{
+						{
+							Protocol: &protocolTCP,
+							Port:     &portSQL,
+						},
+					},
+				},
+			},
+		},
+	})
 
-// Allow egress to Oracle from notebooks
-policies = append(policies, &networkingv1.NetworkPolicy{
-    ObjectMeta: metav1.ObjectMeta{
-        Name:      "allow-oracle-egress",
-        Namespace: profile.Name,
-    },
-    Spec: networkingv1.NetworkPolicySpec{
-        PodSelector: notebookPodSelector,
-        PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
-        Egress: []networkingv1.NetworkPolicyEgressRule{
-            {
-                Ports: []networkingv1.NetworkPolicyPort{
-                    {
-                        Protocol: &protocolTCP,
-                        Port:     &portOracle,
-                    },
-                },
-            },
-        },
-    },
-})
+	// Allow egress to Oracle from notebooks
+	policies = append(policies, &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "allow-oracle-egress",
+			Namespace: profile.Name,
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: notebookPodSelector,
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+			Egress: []networkingv1.NetworkPolicyEgressRule{
+				{
+					Ports: []networkingv1.NetworkPolicyPort{
+						{
+							Protocol: &protocolTCP,
+							Port:     &portOracle,
+						},
+						{
+							Protocol: &protocolTCP,
+							Port:     &portOracle2,
+						},
+					},
+				},
+			},
+		},
+	})
 
 	return policies
 }
-
 
 func init() {
 	rootCmd.AddCommand(networkCmd)
