@@ -25,21 +25,21 @@ import (
 
 var quotaPrefixLabel = "quotas.statcan.gc.ca/"
 var defaultResources = corev1.ResourceList{
-	"requests.cpu": *resource.NewQuantity(70, resource.DecimalSI),
-	"limits.cpu":   *resource.NewQuantity(70, resource.DecimalSI),
+	"requests.cpu": *resource.NewQuantity(16, resource.DecimalSI),
+	"limits.cpu":   *resource.NewQuantity(16, resource.DecimalSI),
 
 	// Memory
-	"requests.memory": *resource.NewScaledQuantity(368, resource.Giga),
-	"limits.memory":   *resource.NewScaledQuantity(368, resource.Giga),
+	"requests.memory": *resource.NewScaledQuantity(64, resource.Giga),
+	"limits.memory":   *resource.NewScaledQuantity(64, resource.Giga),
 
 	// Storage
-	"requests.storage": *resource.NewScaledQuantity(100, resource.Tera),
+	"requests.storage": *resource.NewScaledQuantity(1, resource.Tera),
 
 	// GPU
-	"requests.nvidia.com/gpu": *resource.NewQuantity(2, resource.DecimalSI),
+	"requests.nvidia.com/gpu": *resource.NewQuantity(0, resource.DecimalSI),
 
 	// Pods
-	"pods": *resource.NewQuantity(100, resource.DecimalSI),
+	"pods": *resource.NewQuantity(20, resource.DecimalSI),
 
 	// Services
 	"services.nodeports":     *resource.NewQuantity(0, resource.DecimalSI),
