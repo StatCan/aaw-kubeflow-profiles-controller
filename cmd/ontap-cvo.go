@@ -253,9 +253,12 @@ func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, error) 
 		return "", err
 	}
 
+	ctxTimeout, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	// Creating graph client object
 	graphClient, err := msgraphsdk.NewGraphServiceClientWithCredentials(
 		cred, []string{"https://graph.microsoft.com/.default"})
+
 	if err != nil {
 		klog.Errorf("graph client error: %v", err)
 		return "", err
@@ -270,7 +273,8 @@ func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, error) 
 	}
 
 	// Calling graph api
-	result, err := graphClient.Users().ByUserId(ownerEmail).Get(context.Background(), &options)
+	//result, err := graphClient.Users().ByUserId(ownerEmail).Get(context.Background(), &options)
+	result, err := graphClient.Users().ByUserId(ownerEmail).Get(ctxTimeout, &options)
 	if err != nil {
 		klog.Errorf("An Error Occured while trying to retrieve on prem name: %v", err)
 		return "", err
