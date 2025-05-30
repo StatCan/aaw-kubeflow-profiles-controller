@@ -159,6 +159,26 @@ func createKerberosConfigMap(namespace string, kubeClient *kubernetes.Clientset)
 func generateKerberosNetworkPolicy(namespace string) networkingv1.NetworkPolicy {
 	portKDC := intstr.FromInt(88)
 	protocolTCP := corev1.ProtocolTCP
+	netpolCIDRList := []string{
+		"10.125.36.11/32",
+		"10.204.232.32/32",
+		"172.20.60.68/32",
+		"10.204.232.15/32",
+		"172.20.60.69/32",
+		"10.125.36.10/32",
+	}
+
+	// generate the object list of CIDR blocks for the netpol
+	policyPeerList := []networkingv1.NetworkPolicyPeer{}
+	for _, val := range netpolCIDRList {
+		policyPeerList = append(policyPeerList,
+			networkingv1.NetworkPolicyPeer{
+				IPBlock: &networkingv1.IPBlock{
+					CIDR: val,
+				},
+			},
+		)
+	}
 
 	policy := networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -183,18 +203,7 @@ func generateKerberosNetworkPolicy(namespace string) networkingv1.NetworkPolicy 
 							Port:     &portKDC,
 						},
 					},
-					To: []networkingv1.NetworkPolicyPeer{
-						{
-							IPBlock: &networkingv1.IPBlock{
-								CIDR: "172.20.60.68/32",
-							},
-						},
-						{
-							IPBlock: &networkingv1.IPBlock{
-								CIDR: "172.20.60.69/32",
-							},
-						},
-					},
+					To: policyPeerList,
 				},
 			},
 		},
