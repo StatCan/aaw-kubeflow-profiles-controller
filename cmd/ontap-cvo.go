@@ -253,7 +253,7 @@ func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, error) 
 		return "", err
 	}
 
-	ctxTimeout, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctxTimeout, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	// Creating graph client object
 	graphClient, err := msgraphsdk.NewGraphServiceClientWithCredentials(
