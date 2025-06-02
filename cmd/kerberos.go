@@ -21,7 +21,8 @@ import (
 )
 
 type KerberosConfig struct {
-	NetPolIPs []string
+	NetPolIPs      []string
+	SidecarConfigs string
 }
 
 var kerberosCmd = &cobra.Command{
@@ -58,12 +59,12 @@ var kerberosCmd = &cobra.Command{
 			secret := event.Object.(*corev1.Secret)
 			switch event.Type {
 			case watch.Modified, watch.Added:
-				err := createKerberosUserConfigMap(secret.Namespace, kubeClient)
+				err := createKerberosUserConfigMap(secret.Namespace, kubeClient, kerberosConfig.SidecarConfigs)
 				if err != nil {
 					klog.Errorf("Error occurred while creating the ConfigMap for namespace %s: %s", secret.Namespace, err.Error())
 				}
 
-				err = createKerberosNetworkPolicy(secret.Namespace, kubeClient, kerberosConfig)
+				err = createKerberosNetworkPolicy(secret.Namespace, kubeClient, kerberosConfig.NetPolIPs)
 				if err != nil {
 					klog.Errorf("Error occurred while creating the NetworkPolicy for namespace %s: %s", secret.Namespace, err.Error())
 				}
@@ -94,69 +95,29 @@ func getKerberosConfigmap(client *kubernetes.Clientset) (KerberosConfig, error) 
 	}
 
 	config := KerberosConfig{
-		NetPolIPs: *netpolIPs,
+		NetPolIPs:      *netpolIPs,
+		SidecarConfigs: configmap.Data["sidecarConfigs"],
 	}
 	return config, nil
 }
 
-func generateKerberosConfigMap(namespace string) corev1.ConfigMap {
+func generateKerberosConfigMap(namespace string, sidecarConfigs string) corev1.ConfigMap {
 	configmap := corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "kerberos-sidecar-config",
 			Namespace: namespace,
 		},
 		Data: map[string]string{ //The lack of indents in the data is important here
-			"krb5.conf": `[appdefaults]
-default_lifetime        = 25hrs
-krb4_convert            = false
-krb4_convert_524        = false
-
-ksu = {
-forwardable     = false
-}
-
-pam = {
-minimum_uid     = 100
-forwardable     = true
-}
-
-pam-afs-session = {
-minimum_uid     = 100
-}
-
-[logging]
-default = STDERR
-
-[libdefaults]
-udp_preference_limit=1
-default_ccache_name=FILE:/dev/shm/ccache
-default_client_keytab_name=/krb5/client.keytab
-default_keytab_name=/krb5/krb5.keytab
-ignore_acceptor_hostname = true
-rdns = false
-default_realm = STATCAN.CA
-dns_lookup_realm = false
-noaddresses = true
-ticket_lifetime = 24h
-renew_lifetime = 7d
-forwardable = true
-
-[realms]
-STATCAN.CA = {
-}
-
-[domain_realm]
-statcan.ca = STATCAN.CA
-.statcan.ca = STATCAN.CA`,
+			"krb5.conf": sidecarConfigs,
 		},
 	}
 
 	return configmap
 }
 
-func createKerberosUserConfigMap(namespace string, kubeClient *kubernetes.Clientset) error {
+func createKerberosUserConfigMap(namespace string, kubeClient *kubernetes.Clientset, sidecarConfigs string) error {
 	// generate the configmap
-	masterCM := generateKerberosConfigMap(namespace)
+	masterCM := generateKerberosConfigMap(namespace, sidecarConfigs)
 
 	// find the kerberos configmap for the given namespace
 	userCM, err := kubeClient.CoreV1().ConfigMaps(namespace).Get(context.Background(), masterCM.Name, metav1.GetOptions{})
@@ -236,9 +197,9 @@ func generateKerberosNetworkPolicy(namespace string, netpolCIDRList []string) ne
 	return policy
 }
 
-func createKerberosNetworkPolicy(namespace string, kubeClient *kubernetes.Clientset, kerberosConfig KerberosConfig) error {
+func createKerberosNetworkPolicy(namespace string, kubeClient *kubernetes.Clientset, ipList []string) error {
 	// generate the policy for egress to kerberos
-	policy := generateKerberosNetworkPolicy(namespace, kerberosConfig.NetPolIPs)
+	policy := generateKerberosNetworkPolicy(namespace, ipList)
 
 	// find the egress kerberos policy for the given namespace
 	currentPolicy, err := kubeClient.NetworkingV1().NetworkPolicies(namespace).Get(context.Background(), policy.Name, metav1.GetOptions{})
