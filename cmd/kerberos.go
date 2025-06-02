@@ -107,7 +107,7 @@ func generateKerberosConfigMap(namespace string, sidecarConfigs string) corev1.C
 			Name:      "kerberos-sidecar-config",
 			Namespace: namespace,
 		},
-		Data: map[string]string{ //The lack of indents in the data is important here
+		Data: map[string]string{
 			"krb5.conf": sidecarConfigs,
 		},
 	}
