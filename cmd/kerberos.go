@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"sync"
 
@@ -18,6 +19,10 @@ import (
 	toolsWatch "k8s.io/client-go/tools/watch"
 	"k8s.io/klog"
 )
+
+type KerberosConfig struct {
+	NetPolIPs []string
+}
 
 var kerberosCmd = &cobra.Command{
 	Use:   "kerberos",
@@ -36,6 +41,11 @@ var kerberosCmd = &cobra.Command{
 			klog.Fatalf("Error building kubernetes clientset: %s", err.Error())
 		}
 
+		kerberosConfig, err := getKerberosConfigmap(kubeClient)
+		if err != nil {
+			klog.Fatalf("Error getting configmap: %s", err.Error())
+		}
+
 		watchFunc := func(options metav1.ListOptions) (watch.Interface, error) {
 			timeOut := int64(60)
 			// Watches all namespaces, hence the Secrets("")
@@ -48,12 +58,12 @@ var kerberosCmd = &cobra.Command{
 			secret := event.Object.(*corev1.Secret)
 			switch event.Type {
 			case watch.Modified, watch.Added:
-				err := createKerberosConfigMap(secret.Namespace, kubeClient)
+				err := createKerberosUserConfigMap(secret.Namespace, kubeClient)
 				if err != nil {
 					klog.Errorf("Error occurred while creating the ConfigMap for namespace %s: %s", secret.Namespace, err.Error())
 				}
 
-				err = createKerberosNetworkPolicy(secret.Namespace, kubeClient)
+				err = createKerberosNetworkPolicy(secret.Namespace, kubeClient, kerberosConfig)
 				if err != nil {
 					klog.Errorf("Error occurred while creating the NetworkPolicy for namespace %s: %s", secret.Namespace, err.Error())
 				}
@@ -65,6 +75,28 @@ var kerberosCmd = &cobra.Command{
 		wg.Add(1)
 		wg.Wait()
 	},
+}
+
+func getKerberosConfigmap(client *kubernetes.Clientset) (KerberosConfig, error) {
+	klog.Infof("Getting Kerberos controller configs")
+
+	configmap, err := client.CoreV1().ConfigMaps("das").Get(context.Background(), "kerberos-config", metav1.GetOptions{})
+	if err != nil {
+		klog.Errorf("error occured while getting the kerberos configmap: %v", err)
+		return KerberosConfig{}, err
+	}
+
+	netpolIPs := &[]string{}
+	err = json.Unmarshal([]byte(configmap.Data["ipList"]), netpolIPs)
+	if err != nil {
+		klog.Errorf("error occured while unmarshalling the kerberos configmap: %v", err)
+		return KerberosConfig{}, err
+	}
+
+	config := KerberosConfig{
+		NetPolIPs: *netpolIPs,
+	}
+	return config, nil
 }
 
 func generateKerberosConfigMap(namespace string) corev1.ConfigMap {
@@ -122,7 +154,7 @@ statcan.ca = STATCAN.CA
 	return configmap
 }
 
-func createKerberosConfigMap(namespace string, kubeClient *kubernetes.Clientset) error {
+func createKerberosUserConfigMap(namespace string, kubeClient *kubernetes.Clientset) error {
 	// generate the configmap
 	masterCM := generateKerberosConfigMap(namespace)
 
@@ -156,17 +188,9 @@ func createKerberosConfigMap(namespace string, kubeClient *kubernetes.Clientset)
 	return nil
 }
 
-func generateKerberosNetworkPolicy(namespace string) networkingv1.NetworkPolicy {
+func generateKerberosNetworkPolicy(namespace string, netpolCIDRList []string) networkingv1.NetworkPolicy {
 	portKDC := intstr.FromInt(88)
 	protocolTCP := corev1.ProtocolTCP
-	netpolCIDRList := []string{
-		"10.125.36.11/32",
-		"10.204.232.32/32",
-		"172.20.60.68/32",
-		"10.204.232.15/32",
-		"172.20.60.69/32",
-		"10.125.36.10/32",
-	}
 
 	// generate the object list of CIDR blocks for the netpol
 	policyPeerList := []networkingv1.NetworkPolicyPeer{}
@@ -212,9 +236,9 @@ func generateKerberosNetworkPolicy(namespace string) networkingv1.NetworkPolicy 
 	return policy
 }
 
-func createKerberosNetworkPolicy(namespace string, kubeClient *kubernetes.Clientset) error {
+func createKerberosNetworkPolicy(namespace string, kubeClient *kubernetes.Clientset, kerberosConfig KerberosConfig) error {
 	// generate the policy for egress to kerberos
-	policy := generateKerberosNetworkPolicy(namespace)
+	policy := generateKerberosNetworkPolicy(namespace, kerberosConfig.NetPolIPs)
 
 	// find the egress kerberos policy for the given namespace
 	currentPolicy, err := kubeClient.NetworkingV1().NetworkPolicies(namespace).Get(context.Background(), policy.Name, metav1.GetOptions{})
