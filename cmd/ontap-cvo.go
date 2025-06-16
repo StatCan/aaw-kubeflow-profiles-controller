@@ -444,6 +444,7 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 
 			hashedBucketName := hashBucketName(s)
 			klog.Infof("Checking if the following bucket exists: %s", s)
+			// JOSE NOTE: inside this checkIfS3BucketExists does it crash on the input `%2e%2e%%32%66%2e%2e%%32%66%7bFILE%7d`
 			isBucketExists, err := checkIfS3BucketExists(managementUser, managementPass, managementIP, svmInfo.Uuid, hashedBucketName)
 			if err != nil {
 				klog.Errorf("Error while checking bucket existence in namespace %s", namespace)
@@ -608,6 +609,7 @@ Returns true if it does exist
 */
 func checkIfS3BucketExists(mgmUser string, mgmPassword string, managementIP string, uuid string, requestedBucket string) (bool, error) {
 	// Build the request
+	// am guessing that the `requestedBucket` here is what causes it to die
 	urlString := fmt.Sprintf("https://"+managementIP+"/api/protocols/s3/services/"+uuid+"/buckets?fields=**&name=%s", requestedBucket)
 	statusCode, responseBody := performHttpCall("GET", mgmUser, mgmPassword, urlString, nil)
 	if statusCode != 200 {
@@ -790,18 +792,23 @@ requestBody should be nil for GET requests.
 https://www.makeuseof.com/go-make-http-requests/
 An example requestBody assignment can look like: https://zetcode.com/golang/getpostrequest/
 */
+// JOSE NOTE, dies in here, assuming the URL is funky
 func performHttpCall(requestType string, username string, password string, url string, requestBody io.Reader) (statusCode int, responseBody []byte) {
 	klog.Infof(requestType + "ing the URL: " + url)
 	// Set up connecting: https://stackoverflow.com/a/59738724
 	customTransport := http.DefaultTransport.(*http.Transport).Clone()
 	customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	client := &http.Client{Transport: customTransport}
-	req, _ := http.NewRequest(requestType, url, requestBody)
+	req, err := http.NewRequest(requestType, url, requestBody)
+	if err != nil {
+		return 400, []byte("Error when creating http request:" + err.Error())
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("accept", "application/json")
 	authorization := basicAuth(username, password)
 	req.Header.Set("Authorization", "Basic "+authorization)
 	//resp, err := http.DefaultClient.Do(req)
+	// does not hit any of these `klog.fatlF`s
 	resp, err := client.Do(req)
 	if err != nil {
 		klog.Fatalf("error sending and returning HTTP response  : %v", err)
