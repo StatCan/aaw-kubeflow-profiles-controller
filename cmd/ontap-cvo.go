@@ -608,7 +608,6 @@ Returns true if it does exist
 */
 func checkIfS3BucketExists(mgmUser string, mgmPassword string, managementIP string, uuid string, requestedBucket string) (bool, error) {
 	// Build the request
-	// am guessing that the `requestedBucket` here is what causes it to die
 	urlString := fmt.Sprintf("https://"+managementIP+"/api/protocols/s3/services/"+uuid+"/buckets?fields=**&name=%s", requestedBucket)
 	statusCode, responseBody := performHttpCall("GET", mgmUser, mgmPassword, urlString, nil)
 	if statusCode != 200 {
