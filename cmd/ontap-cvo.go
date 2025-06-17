@@ -796,7 +796,11 @@ func performHttpCall(requestType string, username string, password string, url s
 	customTransport := http.DefaultTransport.(*http.Transport).Clone()
 	customTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	client := &http.Client{Transport: customTransport}
-	req, _ := http.NewRequest(requestType, url, requestBody)
+	req, err := http.NewRequest(requestType, url, requestBody)
+	if err != nil {
+		klog.Errorf("Error when creating http request")
+		return 400, []byte(err.Error())
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("accept", "application/json")
 	authorization := basicAuth(username, password)
@@ -804,11 +808,13 @@ func performHttpCall(requestType string, username string, password string, url s
 	//resp, err := http.DefaultClient.Do(req)
 	resp, err := client.Do(req)
 	if err != nil {
-		klog.Fatalf("error sending and returning HTTP response  : %v", err)
+		klog.Errorf("error sending and returning HTTP response  : %v", err)
+		return 400, []byte(err.Error())
 	}
 	responseBody, err = io.ReadAll(resp.Body)
 	if err != nil {
-		klog.Fatalf("error reading HTTP response  : %v", err)
+		klog.Errorf("error reading HTTP response  : %v", err)
+		return 400, []byte(err.Error())
 	}
 	defer resp.Body.Close() // clean up memory
 	return resp.StatusCode, responseBody
