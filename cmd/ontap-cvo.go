@@ -809,10 +809,12 @@ func performHttpCall(requestType string, username string, password string, url s
 	resp, err := client.Do(req)
 	if err != nil {
 		klog.Errorf("error sending and returning HTTP response  : %v", err)
+		return 400, []byte(err.Error())
 	}
 	responseBody, err = io.ReadAll(resp.Body)
 	if err != nil {
 		klog.Errorf("error reading HTTP response  : %v", err)
+		return 400, []byte(err.Error())
 	}
 	defer resp.Body.Close() // clean up memory
 	return resp.StatusCode, responseBody
