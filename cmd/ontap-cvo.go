@@ -444,7 +444,6 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 
 			hashedBucketName := hashBucketName(s)
 			klog.Infof("Checking if the following bucket exists: %s", s)
-			// JOSE NOTE: inside this checkIfS3BucketExists does it crash on the input `%2e%2e%%32%66%2e%2e%%32%66%7bFILE%7d`
 			isBucketExists, err := checkIfS3BucketExists(managementUser, managementPass, managementIP, svmInfo.Uuid, hashedBucketName)
 			if err != nil {
 				klog.Errorf("Error while checking bucket existence in namespace %s", namespace)
@@ -792,7 +791,6 @@ requestBody should be nil for GET requests.
 https://www.makeuseof.com/go-make-http-requests/
 An example requestBody assignment can look like: https://zetcode.com/golang/getpostrequest/
 */
-// JOSE NOTE, dies in here, assuming the URL is funky
 func performHttpCall(requestType string, username string, password string, url string, requestBody io.Reader) (statusCode int, responseBody []byte) {
 	klog.Infof(requestType + "ing the URL: " + url)
 	// Set up connecting: https://stackoverflow.com/a/59738724
@@ -809,7 +807,6 @@ func performHttpCall(requestType string, username string, password string, url s
 	authorization := basicAuth(username, password)
 	req.Header.Set("Authorization", "Basic "+authorization)
 	//resp, err := http.DefaultClient.Do(req)
-	// does not hit any of these `klog.fatlF`s
 	resp, err := client.Do(req)
 	if err != nil {
 		klog.Fatalf("error sending and returning HTTP response  : %v", err)
