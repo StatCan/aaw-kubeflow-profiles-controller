@@ -801,7 +801,8 @@ func performHttpCall(requestType string, username string, password string, url s
 	client := &http.Client{Transport: customTransport}
 	req, err := http.NewRequest(requestType, url, requestBody)
 	if err != nil {
-		return 400, []byte("Error when creating http request:" + err.Error())
+		klog.Errorf("Error when creating http request")
+		return 400, []byte(err.Error())
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("accept", "application/json")
