@@ -925,13 +925,13 @@ func podNamespace() string {
 		return ns
 	}
 	// If the environment variable is not set, read the namespace from the file
-	if ns, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
+	ns, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+	if err == nil {
 		return strings.TrimSpace(string(ns))
 	}
 	// If the file cannot be read, log a fatal error
-	if err != nil {
-		klog.Fatalf("Error reading namespace: %v", err)
-	} // Default to "default" namespace if all else fails
+	klog.Fatalf("Error reading namespace: %v", err)
+	// Default to "default" namespace if all else fails
 	return "default"
 }
 
