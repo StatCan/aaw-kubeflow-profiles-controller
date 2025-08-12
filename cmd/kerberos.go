@@ -95,7 +95,7 @@ var kerberosCmd = &cobra.Command{
 func getKerberosConfigs(client *kubernetes.Clientset) (KerberosConfig, error) {
 	klog.Infof("Getting Kerberos controller configs")
 
-	configmap, err := client.CoreV1().ConfigMaps("das").Get(context.Background(), "kerberos-config", metav1.GetOptions{})
+	configmap, err := client.CoreV1().ConfigMaps(podNs).Get(context.Background(), "kerberos-config", metav1.GetOptions{})
 	if err != nil {
 		klog.Errorf("error occured while getting the kerberos configmap: %v", err)
 		return KerberosConfig{}, err

@@ -11,6 +11,7 @@ import (
 	"hash/fnv"
 	"io"
 	"net/http"
+	"os"
 	"slices"
 	"sort"
 	"strconv"
@@ -40,6 +41,8 @@ const userSvmSecretSuffix = "-conn-secret"
 const existingSharesConfigMapName = "existing-shares"
 const requestingSharesConfigMapName = "requesting-shares"
 const sharesErrorsConfigMapName = "shares-errors"
+
+var podNs string
 
 type createUserResponse struct {
 	Records []s3KeysObj `json:"records"`
@@ -231,7 +234,7 @@ This will get the onPremName given the owner email
 func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, error) {
 	klog.Infof("Retrieving onprem Name")
 	// Get the App Registration Info
-	secret, err := client.CoreV1().Secrets("das").Get(context.Background(), "microsoft-graph-api-secret", metav1.GetOptions{})
+	secret, err := client.CoreV1().Secrets(podNs).Get(context.Background(), "microsoft-graph-api-secret", metav1.GetOptions{})
 	if err != nil {
 		klog.Errorf("an error occured while getting registration secret %v", err)
 		return "", err
@@ -291,7 +294,7 @@ func getOnPrem(ownerEmail string, client *kubernetes.Clientset) (string, error) 
 func getManagementInfo(client *kubernetes.Clientset) (ManagementInfo, error) {
 	klog.Infof("Getting secret containing the management information...")
 
-	secret, err := client.CoreV1().Secrets("das").Get(context.Background(), "netapp-management-information", metav1.GetOptions{})
+	secret, err := client.CoreV1().Secrets(podNs).Get(context.Background(), "netapp-management-information", metav1.GetOptions{})
 	if err != nil {
 		klog.Errorf("error occured while getting the management api secret: %v", err)
 		return ManagementInfo{}, err
@@ -823,7 +826,7 @@ func performHttpCall(requestType string, username string, password string, url s
 func getSvmInfoList(client *kubernetes.Clientset) (map[string]SvmInfo, error) {
 	klog.Infof("Getting filers list...")
 
-	filerListCM, err := client.CoreV1().ConfigMaps("das").Get(context.Background(), "filers-list", metav1.GetOptions{})
+	filerListCM, err := client.CoreV1().ConfigMaps(podNs).Get(context.Background(), "filers-list", metav1.GetOptions{})
 	if err != nil {
 		klog.Errorf("Error occured while getting the filers list: %v", err)
 		return nil, err
@@ -915,12 +918,30 @@ func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, er
 	}
 }
 
+// Returns the namespace the pod is running in
+func podNamespace() string {
+	// First check if the environment variable is set, this should be in the helm chart
+	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
+		return ns
+	}
+	// If the environment variable is not set, read the namespace from the file
+	ns, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+	if err == nil {
+		return strings.TrimSpace(string(ns))
+	}
+	// If the file cannot be read, log a fatal error
+	klog.Fatalf("Error reading namespace: %v", err)
+	// Default to "default" namespace if all else fails
+	return "default"
+}
+
 var ontapcvoCmd = &cobra.Command{
 	Use:   "ontap-cvo",
 	Short: "Configure ontap-cvo credentials",
 	Long:  `Configure ontap-cvo credentials`,
 	Run: func(cmd *cobra.Command, args []string) {
 		var wg sync.WaitGroup
+		podNs = podNamespace()
 		// Create Kubernetes config
 		cfg, err := clientcmd.BuildConfigFromFlags(apiserver, kubeconfig)
 		if err != nil {
