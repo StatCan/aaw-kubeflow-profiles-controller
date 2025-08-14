@@ -11,13 +11,14 @@ import (
 	"hash/fnv"
 	"io"
 	"net/http"
-	"os"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	utils "github.com/StatCan/profiles-controller/util"
 
 	azidentity "github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	msgraphsdk "github.com/microsoftgraph/msgraph-sdk-go"
@@ -918,30 +919,13 @@ func createErrorUserConfigMap(client *kubernetes.Clientset, namespace string, er
 	}
 }
 
-// Returns the namespace the pod is running in
-func podNamespace() string {
-	// First check if the environment variable is set, this should be in the helm chart
-	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
-		return ns
-	}
-	// If the environment variable is not set, read the namespace from the file
-	ns, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
-	if err == nil {
-		return strings.TrimSpace(string(ns))
-	}
-	// If the file cannot be read, log a fatal error
-	klog.Fatalf("Error reading namespace: %v", err)
-	// Default to "default" namespace if all else fails
-	return "default"
-}
-
 var ontapcvoCmd = &cobra.Command{
 	Use:   "ontap-cvo",
 	Short: "Configure ontap-cvo credentials",
 	Long:  `Configure ontap-cvo credentials`,
 	Run: func(cmd *cobra.Command, args []string) {
 		var wg sync.WaitGroup
-		podNs = podNamespace()
+		podNs = utils.PodNamespace()
 		// Create Kubernetes config
 		cfg, err := clientcmd.BuildConfigFromFlags(apiserver, kubeconfig)
 		if err != nil {
