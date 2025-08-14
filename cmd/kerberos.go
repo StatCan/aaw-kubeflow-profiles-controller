@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"sync"
 
+	utils "github.com/StatCan/profiles-controller/util"
+
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -95,7 +97,7 @@ var kerberosCmd = &cobra.Command{
 func getKerberosConfigs(client *kubernetes.Clientset) (KerberosConfig, error) {
 	klog.Infof("Getting Kerberos controller configs")
 
-	configmap, err := client.CoreV1().ConfigMaps(podNs).Get(context.Background(), "kerberos-config", metav1.GetOptions{})
+	configmap, err := client.CoreV1().ConfigMaps(utils.PodNamespace()).Get(context.Background(), "kerberos-config", metav1.GetOptions{})
 	if err != nil {
 		klog.Errorf("error occured while getting the kerberos configmap: %v", err)
 		return KerberosConfig{}, err
