@@ -46,6 +46,19 @@ var defaultResources = corev1.ResourceList{
 	"services.nodeports":     *resource.NewQuantity(0, resource.DecimalSI),
 	"services.loadbalancers": *resource.NewQuantity(0, resource.DecimalSI),
 }
+var quotaIgnoreLabel = quotaPrefixLabel + "ignore"
+
+// IgnoreQuota checks if the profile has the ignore quota label set to true
+// This allows us to skip quota reconciliation for specific profiles
+func IgnoreQuota(profile *kubeflowv1.Profile) bool {
+
+	val, ok := profile.Labels[quotaIgnoreLabel] 
+	if !ok {
+		return false
+	}
+ 
+	return val == "true"
+}
 
 // Override the default resources from profile labels
 func overrideResourceQuotas(profile *kubeflowv1.Profile) corev1.ResourceList {
@@ -114,6 +127,13 @@ var quotasCmd = &cobra.Command{
 		controller := profiles.NewController(
 			kubeflowInformerFactory.Kubeflow().V1().Profiles(),
 			func(profile *kubeflowv1.Profile) error {
+
+				// Check if we should ignore quota reconciliation for this profile
+				if IgnoreQuota(profile) {
+					klog.Infof("Ignoring quota reconciliation for profile %s due to label %s=true", profile.Name, quotaIgnoreLabel)
+					return nil
+				}
+
 				// Generate quotas
 				resourceQuotas := generateResourceQuotas(profile)
 
