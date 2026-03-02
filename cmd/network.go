@@ -170,6 +170,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 	portOracle := intstr.FromInt(2485)
 	portHTTPS := intstr.FromInt(443)
 	portSMB := intstr.FromInt(445)
+	portPostgreSQL := intstr.FromInt(5432)
 
 	// Define the notebook PodSelector
 	notebookPodSelector := metav1.LabelSelector{
@@ -265,6 +266,38 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 						{
 							Protocol: &protocolTCP,
 							Port:     &portSMB,
+						},
+					},
+					To: []networkingv1.NetworkPolicyPeer{
+						{
+							IPBlock: &networkingv1.IPBlock{
+								CIDR: "0.0.0.0/0",
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	// Allow egress to 5432 (PostgreSQL) from notebooks
+	policies = append(policies, &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "notebooks-allow-postgresql-egress",
+			Namespace: profile.Name,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(profile, kubeflowv1.SchemeGroupVersion.WithKind("Profile")),
+			},
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: notebookPodSelector,
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+			Egress: []networkingv1.NetworkPolicyEgressRule{
+				{
+					Ports: []networkingv1.NetworkPolicyPort{
+						{
+							Protocol: &protocolTCP,
+							Port:     &portPostgreSQL,
 						},
 					},
 					To: []networkingv1.NetworkPolicyPeer{
