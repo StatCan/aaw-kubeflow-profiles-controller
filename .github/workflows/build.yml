@@ -18,7 +18,7 @@ on:
 # Environment variables available to all jobs and steps in this workflow
 env:
   REGISTRY_NAME: k8scc01covidacr
-  TRIVY_VERSION: "v0.69.3"
+  TRIVY_VERSION: "0.69.3"
   TRIVY_DATABASES: '"ghcr.io/aquasecurity/trivy-db:2","public.ecr.aws/aquasecurity/trivy-db"'
   TRIVY_JAVA_DATABASES: '"ghcr.io/aquasecurity/trivy-java-db:1","public.ecr.aws/aquasecurity/trivy-java-db"'
   TRIVY_MAX_RETRIES: 5
@@ -60,14 +60,16 @@ jobs:
           touch .trivyignore
           echo "No CVE allowlist configured"
         fi
-        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin ${{ env.TRIVY_VERSION }}
 
         set +e # Lets trivy return an error without it being fatal
 
         for ((i=0; i<${{ env.TRIVY_MAX_RETRIES }}; i++)); do
           echo "Attempt $((i + 1)) of ${{ env.TRIVY_MAX_RETRIES }}..."
 
-          TRIVY_OUTPUT=$(trivy image \
+          TRIVY_OUTPUT=$(docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v $(pwd)/.trivyignore:/root/.trivyignore \
+            aquasec/trivy:${{ env.TRIVY_VERSION }} image \
             --db-repository ${{ env.TRIVY_DATABASES }} \
             --java-db-repository ${{ env.TRIVY_JAVA_DATABASES }} \
             localhost:5000/profiles-controller:${{ github.sha }} \
