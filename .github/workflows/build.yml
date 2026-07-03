@@ -17,8 +17,8 @@ on:
 
 # Environment variables available to all jobs and steps in this workflow
 env:
-  REGISTRY_NAME: k8scc01covidacr
-  TRIVY_VERSION: "v0.69.3"
+  REGISTRY_NAME: stcthezoneacr
+  TRIVY_VERSION: "v0.72.0"
   TRIVY_DATABASES: '"ghcr.io/aquasecurity/trivy-db:2","public.ecr.aws/aquasecurity/trivy-db"'
   TRIVY_JAVA_DATABASES: '"ghcr.io/aquasecurity/trivy-java-db:1","public.ecr.aws/aquasecurity/trivy-java-db"'
   TRIVY_MAX_RETRIES: 5
