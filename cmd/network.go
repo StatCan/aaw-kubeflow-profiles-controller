@@ -172,6 +172,7 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 	portSMB := intstr.FromInt(445)
 	portPostgreSQL := intstr.FromInt(5432)
 	portAuthService := intstr.FromInt(8080)
+	portSSH := intstr.FromInt(22)
 
 	// Define the notebook PodSelector
 	notebookPodSelector := metav1.LabelSelector{
@@ -415,6 +416,27 @@ func generateNetworkPolicies(profile *kubeflowv1.Profile) []*networkingv1.Networ
 									"app": "authservice",
 								},
 							},
+						},
+					},
+				},
+			},
+		},
+	})
+	// Allow egress to SSH from notebooks
+	policies = append(policies, &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "allow-ssh-egress",
+			Namespace: profile.Name,
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: notebookPodSelector,
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+			Egress: []networkingv1.NetworkPolicyEgressRule{
+				{
+					Ports: []networkingv1.NetworkPolicyPort{
+						{
+							Protocol: &protocolTCP,
+							Port:     &portSSH,
 						},
 					},
 				},
