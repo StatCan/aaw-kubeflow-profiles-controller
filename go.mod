@@ -2,7 +2,7 @@
 
 module github.com/StatCan/profiles-controller
 
-go 1.19
+go 1.25.0
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.1.0
@@ -94,7 +94,7 @@ require (
 	github.com/monochromegane/go-gitignore v0.0.0-20200626010858-205db1a8cc00 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
-	github.com/opencontainers/image-spec v1.1.0-rc.3 // indirect
+	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/pjbgf/sha1cd v0.3.0 // indirect
@@ -116,7 +116,7 @@ require (
 	golang.org/x/mod v0.8.0 // indirect
 	golang.org/x/net v0.11.0 // indirect
 	golang.org/x/oauth2 v0.9.0 // indirect
-	golang.org/x/sync v0.3.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.9.0 // indirect
 	golang.org/x/term v0.9.0 // indirect
 	golang.org/x/text v0.10.0 // indirect
@@ -143,7 +143,7 @@ require (
 	k8s.io/kubectl v0.24.2 // indirect
 	k8s.io/kubernetes v1.24.2 // indirect
 	k8s.io/utils v0.0.0-20220706174534-f6158b442e7c // indirect
-	oras.land/oras-go/v2 v2.2.0 // indirect
+	oras.land/oras-go/v2 v2.6.2 // indirect
 	sigs.k8s.io/json v0.0.0-20220525155127-227cbc7cc124 // indirect
 	sigs.k8s.io/kustomize/api v0.11.5 // indirect
 	sigs.k8s.io/kustomize/kyaml v0.13.7 // indirect
