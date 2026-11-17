@@ -467,7 +467,8 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 						Share:        "",
 						Timestamp:    time.Now(),
 					}
-				} else { 
+				} 
+			}	else { 
 					klog.Infof("S3 User %s exists but secret is missing in ns %s, regenerating keys", onPremName, svmSecretName, namespace)
 					err = regenerateS3UserKeys(onPremName, managementUser, managementPass, managementIP, namespace, client, svmInfo)
 					if err != nil {
