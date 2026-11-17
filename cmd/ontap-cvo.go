@@ -421,6 +421,14 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 					}
 				}
 			}
+		} else if err != nil {
+			klog.Errorf("Error occurred while searching for %s secret in ns %s: %v", k, namespace, err)
+			return &ShareError{
+				ErrorMessage: err.Error(),
+				Svm:          svmInfo.Vserver,
+				Share:        "",
+				Timestamp:    time.Now(),
+			}
 		} else {
 			// User exists on NetApp but K8s secret does not exist.This is a problem because the secret is missing. We need to regenerate the secret.
 			err = regenerateS3Userkeys(onPremName, managementUser, managementPass, managementIP, namespace, client, svmInfo)
@@ -432,15 +440,6 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 					Share:        "",
 					Timestamp:    time.Now(),
 				}
-			}
-		}
-		} else if err != nil {
-			klog.Errorf("Error occurred while searching for %s secret in ns %s: %v", k, namespace, err)
-			return &ShareError{
-				ErrorMessage: err.Error(),
-				Svm:          svmInfo.Vserver,
-				Share:        "",
-				Timestamp:    time.Now(),
 			}
 		}
 
