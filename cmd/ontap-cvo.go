@@ -116,28 +116,7 @@ type GetUserGroupId struct {
 		ID int `json:"id"`
 	} `json:"records"`
 }
-// Creates the Kubernetes secret containging the S3 credentials for a given SVM.
-func createSvmSecret(client *kubernetes.Clientset, namespace string, svmInfo SvmInfo, accessKey string, secretKey string) error {
-	// Create the secret and change all underscores to dashes
-	svmSecretName := strings.ReplaceAll(svmInfo.Vserver, "_", "-") + userSvmSecretSuffix
-	usersecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      svmSecretName,
-			Namespace: namespace,
-		},
-		Data: map[string][]byte{
-			// All S3 buckets under the same SVM use the same ACCESS and SECRET to access them
-			"S3_ACCESS": []byte(accessKey),
-			"S3_SECRET": []byte(secretKey),
-		},
-	}
-	_, err := client.CoreV1().Secrets(namespace).Create(context.Background(), usersecret, metav1.CreateOptions{})
-	if err != nil {
-		return fmt.Errorf("an error occurred while creating the s3 user secret in ns %s: %v", namespace, err)
-	}
 
-	return nil
-}
 /*
 Creates the S3 user using the net app API
 Requires the onPremname, the namespace to create the secret in, the current k8s client, the svmInfo and the managementInfo
@@ -167,50 +146,25 @@ func createS3User(onPremName string, mgmUser string, mgmPassword string, managem
 	if err != nil {
 		return fmt.Errorf("error in JSON unmarshalling for creating S3 user with onprem %s: %v", onPremName, err)
 	}
-	return createSvmSecret(
-		client, 
-		namespace, 
-		svmInfo, 
-		postResponseFormatted.Records[0].AccessKey, 
-		postResponseFormatted.Records[0].SecretKey,
-	)
-}
-
-// Regenerates the keys of an existing S3 user and saves them in a new k8s secret
-func regenerateS3UserKeys(onPremName string, mgmUser string, mgmPassword string, managementIP string, namespace string, client *kubernetes.Clientset, svmInfo SvmInfo) error {
-	patchBody, _ := json.Marshal(map[string]interface{}{
-		"regenerate_keys": true,
-	})
-	url := "https://" + managementIP + "/api/protocols/s3/services/" + svmInfo.Uuid + "/users/" + onPremName
-	klog.Infof("Regenerating S3 keys, url: %s", url)
-	statusCode, response := performHttpCall("PATCH", mgmUser, mgmPassword, url, bytes.NewBuffer(patchBody))
-
-	if statusCode != 200 {
-		errorStruct := ResponseError{}
-		err := json.Unmarshal(response, &errorStruct)
-		if err != nil {
-			return fmt.Errorf("regenerating S3 keys for onpremname %s failed with status code %d", onPremName, statusCode)
-		}
-		return fmt.Errorf("an error occurred while regenerating the S3 keys for onpremname %s: %s", onPremName, errorStruct.Error.Message)
+	// Create the secret and change all underscores to dashes
+	svmSecretName := strings.ReplaceAll(svmInfo.Vserver, "_", "-") + userSvmSecretSuffix
+	usersecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      svmSecretName,
+			Namespace: namespace,
+		},
+		Data: map[string][]byte{
+			// All S3 buckets under the same SVM use the same ACCESS and SECRET to access them
+			"S3_ACCESS": []byte(postResponseFormatted.Records[0].AccessKey),
+			"S3_SECRET": []byte(postResponseFormatted.Records[0].SecretKey),
+		},
 	}
-	klog.Infof("The S3 keys were regenerated. Proceeding to store SVM credentials for onpremname %s and SVM %s", onPremName, svmInfo.Name)
-
-	responseFormatted := createUserResponse{}
-	err := json.Unmarshal(response, &responseFormatted)
+	_, err = client.CoreV1().Secrets(namespace).Create(context.Background(), usersecret, metav1.CreateOptions{})
 	if err != nil {
-		return fmt.Errorf("error in JSON unmarshalling for regenerated keys of onprem %s: %v", onPremName, err)
-	}
-	if len(responseFormatted.Records) == 0 {
-		return fmt.Errorf("no keys were returned when regenerating S3 keys for onpremname %s", onPremName)
+		return fmt.Errorf("an error cccured while creating the s3 user secret in ns %s: %v", namespace, err)
 	}
 
-	return createSvmSecret(
-		client,
-		namespace,
-		svmInfo,
-		responseFormatted.Records[0].AccessKey,
-		responseFormatted.Records[0].SecretKey,
-	)
+	return nil
 }
 
 // Applies a hash function to the bucketname to make it S3 compliant
@@ -465,20 +419,8 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 						Share:        "",
 						Timestamp:    time.Now(),
 					}
-				} 
-			}	else { 
-					klog.Infof("S3 User %s exists but secret %s is missing in ns %s, regenerating keys", onPremName, svmSecretName, namespace)
-					err = regenerateS3UserKeys(onPremName, managementUser, managementPass, managementIP, namespace, client, svmInfo)
-					if err != nil {
-						klog.Errorf("Unable to regenerate S3 user keys: %s", onPremName)
-						return &ShareError{
-							ErrorMessage: err.Error(),
-							Svm:          svmInfo.Vserver,
-							Share:        "",
-							Timestamp:    time.Now(),
-						}
-					}
-				}	
+				}
+			}
 		} else if err != nil {
 			klog.Errorf("Error occurred while searching for %s secret in ns %s: %v", k, namespace, err)
 			return &ShareError{
@@ -487,7 +429,7 @@ func processConfigmap(client *kubernetes.Clientset, namespace string, email stri
 				Share:        "",
 				Timestamp:    time.Now(),
 			}
-		} 
+		}
 
 		// Create the s3 buckets
 		s3BucketsList := sharesData[k]
