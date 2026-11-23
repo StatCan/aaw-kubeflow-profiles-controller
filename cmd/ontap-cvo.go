@@ -172,7 +172,7 @@ func createS3User(onPremName string, mgmUser string, mgmPassword string, managem
 		namespace, 
 		svmInfo, 
 		postResponseFormatted.Records[0].AccessKey, 
-		postResponseFormatted.Records[0].SecretKey
+		postResponseFormatted.Records[0].SecretKey,
 	)
 }
 
@@ -209,7 +209,7 @@ func regenerateS3UserKeys(onPremName string, mgmUser string, mgmPassword string,
 		namespace,
 		svmInfo,
 		responseFormatted.Records[0].AccessKey,
-		responseFormatted.Records[0].SecretKey
+		responseFormatted.Records[0].SecretKey,
 	)
 }
 
